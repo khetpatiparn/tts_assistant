@@ -165,16 +165,4 @@
       var(--paper) 30px 34px
     );
   }
-
-  /* faint ruled-paper texture behind the compiled script output */
-  .script-paper {
-    background-image: repeating-linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent calc(1.6em - 1px),
-      var(--border) calc(1.6em - 1px),
-      var(--border) 1.6em
-    );
-    background-position: 0 0.35em;
-  }
 }

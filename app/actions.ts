@@ -17,7 +17,7 @@ export async function createPrompt(formData: FormData) {
     throw new Error("กรุณากรอกชื่อสินค้าและข้อมูลสินค้า");
   }
 
-  await prisma.promptEntry.create({
+  const created = await prisma.promptEntry.create({
     data: {
       productName,
       productInfo,
@@ -28,6 +28,8 @@ export async function createPrompt(formData: FormData) {
   });
 
   revalidatePath("/");
+
+  return created.id;
 }
 
 export async function deletePrompt(id: string) {

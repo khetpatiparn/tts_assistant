@@ -36,11 +36,11 @@ export function ScriptOutput({
         </Button>
       </div>
 
-      <div className="script-paper relative flex-1 overflow-hidden rounded-lg">
+      <div className="relative min-h-96 flex-1 overflow-hidden rounded-lg border border-border">
         <Textarea
           readOnly
           value={output}
-          className="min-h-96 resize-none border-none bg-transparent p-4 font-sans text-sm leading-[1.6em] text-foreground shadow-none focus-visible:ring-0"
+          className="h-full min-h-0 resize-none border-none bg-transparent p-4 font-sans text-sm leading-[1.6em] text-foreground shadow-none focus-visible:ring-0"
         />
       </div>
 

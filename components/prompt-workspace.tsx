@@ -50,9 +50,8 @@ export function PromptWorkspace({ prompts }: { prompts: PromptEntry[] }) {
 
   const [, createAction, isCreating] = useActionState(
     async (_prevState: { ok: boolean } | null, formData: FormData) => {
-      await createPrompt(formData);
-      setForm(emptyForm);
-      setSelectedId(null);
+      const id = await createPrompt(formData);
+      setSelectedId(id);
       return { ok: true };
     },
     null
