@@ -17,18 +17,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 No test runner is configured in this project.
 
+เครื่อง Windows/git-bash นี้ ถ้าจะ kill process ตาม port ต้องใส่ flag แบบ double-slash: `netstat -ano | grep ':3000' | grep LISTENING` แล้วตามด้วย `taskkill //PID <pid> //F` (ใส่ slash เดียวจะโดนแปลงเป็น path แล้ว error)
+
+`start.bat` / `stop.bat` ที่ root ของ repo ใช้ build+รัน / หยุด production server แบบ background ให้ใช้งานได้โดยไม่ต้องเปิด terminal
+
 ## Architecture
 
 - App Router under `app/` — currently just `layout.tsx`, `page.tsx`, `globals.css`; no nested routes yet.
+- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แยกเป็น `components/clapper-header.tsx`, `history-rail.tsx`, `brief-form.tsx`, `script-output.tsx` และประกอบร่างโดย `components/prompt-workspace.tsx` ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`)
 - Path alias `@/*` resolves to the repo root (see `tsconfig.json`).
 - Styling is Tailwind v4 with CSS-first config: there is no `tailwind.config.*` file — theme tokens (colors, radii, fonts, sidebar/chart variables) are defined via `@theme inline` and `:root`/`.dark` blocks directly in `app/globals.css`.
 - shadcn/ui is configured via `components.json`: style `base-nova`, base color `neutral`, icon library `lucide-react`. **Components are built on `@base-ui/react` primitives, not Radix UI** — this differs from most shadcn/ui setups, so when generating or extending components, use Base UI's API/props rather than assuming Radix conventions.
 - `lib/utils.ts` exports the standard shadcn `cn()` helper (`clsx` + `tailwind-merge`).
-- `components/ui/` holds shadcn-generated primitives (currently only `button.tsx`).
+- `components/ui/` holds shadcn-generated primitives (`button.tsx`, `input.tsx`, `textarea.tsx`)
+- Design tokens ที่กำหนดเอง (สีชื่อ `ink`/`paper`/`marigold`/`rust`/`smoke`/`record`, ฟอนต์ `Chonburi`/`IBM Plex Sans Thai`/`JetBrains Mono`) อยู่ใน `app/globals.css` และ `app/layout.tsx` — ให้ใช้ของเดิม อย่าเพิ่มสี/ฟอนต์ใหม่ขึ้นมาเอง
+
+## Database
+
+- ใช้ SQLite ผ่าน Prisma 7 (`@prisma/adapter-better-sqlite3` + `better-sqlite3`) — Prisma 7 บังคับต้องใช้ driver adapter แล้ว ต่อ connection string ตรงๆ แบบเดิมไม่ได้
+- datasource URL อยู่ใน `prisma.config.ts` (ไม่ใช่ `schema.prisma`) โหลดผ่าน `dotenv/config`
+- generated client (`lib/generated/prisma/`, ถูก gitignore) **ไม่มี index barrel** — ต้อง import จาก `@/lib/generated/prisma/client` โดยตรง ไม่ใช่ import จาก directory เฉยๆ
+- ตัว adapter class ชื่อ export คือ `PrismaBetterSqlite3` (สังเกตตัวพิมพ์เล็ก-ใหญ่ให้ดี) จาก `@prisma/adapter-better-sqlite3`
+- หลังแก้ `prisma/schema.prisma` ให้รัน `npx prisma migrate dev --name <name>` แล้วตามด้วย `npx prisma generate`
+- เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
+
+## Testing / verification
+
+- โปรเจกต์นี้ไม่มี test runner ให้ verify การเปลี่ยนแปลงด้วยการรันจริง: `npm run build` (type-check ด้วยในตัว) + `npm run lint` แล้วไล่ทดสอบผ่าน Playwright — ตัวนี้ไม่ได้เป็น dependency ของโปรเจกต์ ต้องติดตั้งแยกใน scratch dir เอง แล้วชี้ไปที่ `npm run dev`/`npm run start` พร้อม screenshot ตรวจสถานะสำคัญๆ
+- Server Actions, `revalidatePath`, และ `<form action={...}>` ใน Next.js เวอร์ชันกำหนดเองนี้ทำงานเหมือน App Router เวอร์ชัน v15 คลาสสิกทุกอย่าง — ตรวจสอบกับ `node_modules/next/dist/docs/` แล้ว ไม่ต้องเช็กซ้ำสำหรับงาน CRUD/form ทั่วไป
 
 ## Product spec
 
-`requirements/req1.md` (Thai) is the source-of-truth product spec and should be consulted directly for full detail — it is not yet reflected in any app code (`app/page.tsx` is still an empty scaffold). Summary: the app is a tool for generating structured AI video-generation prompts for TikTok Shop product videos (target generator: "Gemini Flow"), built from a "Core Prompt" input template (reference product images + store copy + a "Product Risk Module" + optional notes).
+`requirements/req1.md` (ภาษาไทย) เป็น source-of-truth ของสเปกผลิตภัณฑ์ — ให้ไปอ่านตรงนั้นสำหรับรายละเอียดเต็ม ตอนนี้แอป implement ตามสเปกแล้ว: `lib/prompt-template.ts` ประกอบข้อความ Core Prompt, `app/actions.ts` บันทึกข้อมูลลง DB สรุป: แอปนี้เป็นเครื่องมือสร้าง prompt สำหรับ AI video generation ของวิดีโอ TikTok Shop (ตัว generator เป้าหมายคือ "Gemini Flow") จาก "Core Prompt" input template (รูปสินค้าอ้างอิง + ข้อมูลร้านค้า + "Product Risk Module" + โน้ตเพิ่มเติม)
 
 The generated output must follow a strict 10-part structure: Style, Scene, Subject, Product Accuracy, Action Timeline, Camera, Framing, Lighting/Color, Negative Prompt, Quick QA Checklist. Key content rules to preserve when working on prompt-generation logic:
 - No on-screen text/subtitles/labels/UI overlays/prices in the generated video.
