@@ -7,6 +7,7 @@ import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
+import { ProductionPanel } from "@/components/production-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 
@@ -175,7 +176,7 @@ export function PromptWorkspace({
 
         {tab === "production" && selectedEntry && (
           <div className="flex flex-1 flex-col p-4 sm:p-6">
-            <p className="text-sm text-muted-foreground">แท็บผลลัพธ์ (จะทำใน Task 4)</p>
+            <ProductionPanel key={selectedEntry.id} entry={selectedEntry} />
           </div>
         )}
 
