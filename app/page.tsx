@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { PromptWorkspace } from "@/components/prompt-workspace";
+import { sortEntriesForRail } from "@/lib/entry-sort";
 
 export default async function PoolingPrompt() {
   const [prompts, corePrompts] = await Promise.all([
@@ -7,5 +8,10 @@ export default async function PoolingPrompt() {
     prisma.corePrompt.findMany({ orderBy: { createdAt: "desc" } }),
   ]);
 
-  return <PromptWorkspace prompts={prompts} corePrompts={corePrompts} />;
+  return (
+    <PromptWorkspace
+      prompts={sortEntriesForRail(prompts)}
+      corePrompts={corePrompts}
+    />
+  );
 }
