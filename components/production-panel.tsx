@@ -27,11 +27,19 @@ function formatStamp(value: Date | null) {
   });
 }
 
+function toDateInputValue(value: Date | null) {
+  if (!value) return "";
+  // Stored as UTC midnight, so read the UTC parts back out — using local
+  // getters here would shift the date by a day in negative-offset timezones.
+  return new Date(value).toISOString().slice(0, 10);
+}
+
 export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [views, setViews] = useState(entry.views === null ? "" : String(entry.views));
+  const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
 
   const [state, action, isSaving] = useActionState(
     async (_prev: { ok: boolean } | null, formData: FormData) => {
@@ -68,7 +76,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
           />
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground/90">ลิงก์คลิป TikTok</label>
             <div className="flex items-center gap-2">
@@ -90,6 +98,19 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
                 </a>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground/90">วันที่ลงคลิป</label>
+            <Input
+              name="postedAt"
+              type="date"
+              value={postedAt}
+              onChange={(e) => setPostedAt(e.target.value)}
+            />
+            <p className="font-mono text-[0.7rem] text-muted-foreground">
+              {postedAt ? " " : "ยังไม่ได้ลงคลิป"}
+            </p>
           </div>
 
           <div className="flex flex-col gap-1.5">

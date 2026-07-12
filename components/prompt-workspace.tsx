@@ -24,6 +24,7 @@ export type PromptEntry = {
   videoUrl: string;
   views: number | null;
   viewsUpdatedAt: Date | null;
+  postedAt: Date | null;
 };
 
 export type CorePromptRecord = {
