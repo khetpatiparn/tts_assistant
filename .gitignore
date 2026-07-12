@@ -45,3 +45,6 @@ next-env.d.ts
 # sqlite database
 /dev.db
 /prisma/dev.db
+
+# TikTok analytics exports (personal data, not source)
+/data_last28days
