@@ -12,6 +12,15 @@ datasource db {
   provider = "sqlite"
 }
 
+model CorePrompt {
+  id        String        @id @default(cuid())
+  label     String
+  content   String
+  isActive  Boolean       @default(false)
+  createdAt DateTime      @default(now())
+  entries   PromptEntry[]
+}
+
 model PromptEntry {
   id          String   @id @default(cuid())
   productName String
@@ -20,4 +29,11 @@ model PromptEntry {
   extraNotes  String
   images      String
   createdAt   DateTime @default(now())
+
+  corePromptId   String?
+  corePrompt     CorePrompt? @relation(fields: [corePromptId], references: [id])
+  chatgptOutput  String      @default("")
+  videoUrl       String      @default("")
+  views          Int?
+  viewsUpdatedAt DateTime?
 }

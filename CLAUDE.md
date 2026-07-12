@@ -24,7 +24,7 @@ No test runner is configured in this project.
 ## Architecture
 
 - App Router under `app/` — currently just `layout.tsx`, `page.tsx`, `globals.css`; no nested routes yet.
-- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แยกเป็น `components/clapper-header.tsx`, `history-rail.tsx`, `brief-form.tsx`, `script-output.tsx` และประกอบร่างโดย `components/prompt-workspace.tsx` ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`)
+- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` + `script-output.tsx`), ② ผลลัพธ์ & คลิป (`production-panel.tsx`), ③ Core Prompt (`core-prompt-panel.tsx`) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`)
 - Path alias `@/*` resolves to the repo root (see `tsconfig.json`).
 - Styling is Tailwind v4 with CSS-first config: there is no `tailwind.config.*` file — theme tokens (colors, radii, fonts, sidebar/chart variables) are defined via `@theme inline` and `:root`/`.dark` blocks directly in `app/globals.css`.
 - shadcn/ui is configured via `components.json`: style `base-nova`, base color `neutral`, icon library `lucide-react`. **Components are built on `@base-ui/react` primitives, not Radix UI** — this differs from most shadcn/ui setups, so when generating or extending components, use Base UI's API/props rather than assuming Radix conventions.
@@ -40,6 +40,7 @@ No test runner is configured in this project.
 - ตัว adapter class ชื่อ export คือ `PrismaBetterSqlite3` (สังเกตตัวพิมพ์เล็ก-ใหญ่ให้ดี) จาก `@prisma/adapter-better-sqlite3`
 - หลังแก้ `prisma/schema.prisma` ให้รัน `npx prisma migrate dev --name <name>` แล้วตามด้วย `npx prisma generate`
 - เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
+- `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ
 
 ## Testing / verification
 

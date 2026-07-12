@@ -7,7 +7,10 @@ import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
+import { ProductionPanel } from "@/components/production-panel";
+import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
+import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 
 export type PromptEntry = {
   id: string;
@@ -16,6 +19,18 @@ export type PromptEntry = {
   riskModule: string;
   extraNotes: string;
   images: string;
+  corePromptId: string | null;
+  chatgptOutput: string;
+  videoUrl: string;
+  views: number | null;
+  viewsUpdatedAt: Date | null;
+};
+
+export type CorePromptRecord = {
+  id: string;
+  label: string;
+  content: string;
+  isActive: boolean;
 };
 
 const emptyForm: FormState = {
@@ -42,7 +57,14 @@ function entryToForm(entry: PromptEntry): FormState {
   };
 }
 
-export function PromptWorkspace({ prompts }: { prompts: PromptEntry[] }) {
+export function PromptWorkspace({
+  prompts,
+  corePrompts,
+}: {
+  prompts: PromptEntry[];
+  corePrompts: CorePromptRecord[];
+}) {
+  const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [copied, setCopied] = useState(false);
@@ -65,6 +87,7 @@ export function PromptWorkspace({ prompts }: { prompts: PromptEntry[] }) {
   function startNew() {
     setSelectedId(null);
     setForm(emptyForm);
+    setTab("brief");
   }
 
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -116,9 +139,17 @@ export function PromptWorkspace({ prompts }: { prompts: PromptEntry[] }) {
   const takeNumber =
     selectedIndex >= 0 ? prompts.length - selectedIndex : prompts.length + 1;
 
+  const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
+
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <ClapperHeader sceneName={form.productName} takeNumber={takeNumber} />
+      <ClapperHeader sceneName={form.productName} takeNumber={takeNumber}>
+        <WorkspaceTabs
+          active={tab}
+          onChange={setTab}
+          productionDisabled={selectedEntry === null}
+        />
+      </ClapperHeader>
 
       <div className="flex flex-1 flex-col lg:flex-row">
         <HistoryRail
@@ -129,18 +160,32 @@ export function PromptWorkspace({ prompts }: { prompts: PromptEntry[] }) {
           onDelete={handleDelete}
         />
 
-        <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 xl:flex-row">
-          <BriefForm
-            form={form}
-            isCreating={isCreating}
-            onFieldChange={updateField}
-            onImageChange={updateImage}
-            onAddImage={addImage}
-            onRemoveImage={removeImage}
-            action={createAction}
-          />
-          <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
-        </div>
+        {tab === "brief" && (
+          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 xl:flex-row">
+            <BriefForm
+              form={form}
+              isCreating={isCreating}
+              onFieldChange={updateField}
+              onImageChange={updateImage}
+              onAddImage={addImage}
+              onRemoveImage={removeImage}
+              action={createAction}
+            />
+            <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
+          </div>
+        )}
+
+        {tab === "production" && selectedEntry && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6">
+            <ProductionPanel key={selectedEntry.id} entry={selectedEntry} />
+          </div>
+        )}
+
+        {tab === "core" && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6">
+            <CorePromptPanel corePrompts={corePrompts} />
+          </div>
+        )}
       </div>
     </div>
   );

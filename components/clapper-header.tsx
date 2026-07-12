@@ -3,9 +3,11 @@ import { Clapperboard } from "lucide-react";
 export function ClapperHeader({
   sceneName,
   takeNumber,
+  children,
 }: {
   sceneName: string;
   takeNumber: number;
+  children?: React.ReactNode;
 }) {
   return (
     <header className="relative bg-ink text-paper">
@@ -31,6 +33,9 @@ export function ClapperHeader({
           </p>
         </div>
       </div>
+
+      {children}
+
       <div className="clapper-stripes h-2 w-full" />
     </header>
   );
