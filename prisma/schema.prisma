@@ -36,4 +36,5 @@ model PromptEntry {
   videoUrl       String      @default("")
   views          Int?
   viewsUpdatedAt DateTime?
+  postedAt       DateTime?
 }

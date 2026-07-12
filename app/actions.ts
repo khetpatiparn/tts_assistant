@@ -51,6 +51,7 @@ export async function updateProduction(formData: FormData) {
   const chatgptOutput = String(formData.get("chatgptOutput") ?? "").trim();
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
   const rawViews = String(formData.get("views") ?? "").trim();
+  const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
 
   if (videoUrl !== "") {
     let isValidUrl = false;
@@ -68,6 +69,19 @@ export async function updateProduction(formData: FormData) {
   const parsedViews = rawViews === "" ? null : Number(rawViews);
   if (parsedViews !== null && (!Number.isInteger(parsedViews) || parsedViews < 0)) {
     throw new Error("ยอดวิวต้องเป็นจำนวนเต็มไม่ติดลบ");
+  }
+
+  // <input type="date"> submits "YYYY-MM-DD". Parse as UTC midnight so the
+  // stored date matches what the user picked regardless of server timezone.
+  let parsedPostedAt: Date | null = null;
+  if (rawPostedAt !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawPostedAt)) {
+      throw new Error("วันที่ลงคลิปไม่ถูกต้อง");
+    }
+    parsedPostedAt = new Date(`${rawPostedAt}T00:00:00.000Z`);
+    if (Number.isNaN(parsedPostedAt.getTime())) {
+      throw new Error("วันที่ลงคลิปไม่ถูกต้อง");
+    }
   }
 
   const existing = await prisma.promptEntry.findUnique({ where: { id } });
@@ -90,6 +104,7 @@ export async function updateProduction(formData: FormData) {
           ? null
           : new Date()
         : existing.viewsUpdatedAt,
+      postedAt: parsedPostedAt,
     },
   });
 
