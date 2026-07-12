@@ -24,7 +24,7 @@ No test runner is configured in this project.
 ## Architecture
 
 - App Router under `app/` — currently just `layout.tsx`, `page.tsx`, `globals.css`; no nested routes yet.
-- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` + `script-output.tsx`), ② ผลลัพธ์ & คลิป (`production-panel.tsx`), ③ Core Prompt (`core-prompt-panel.tsx`) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`) การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
+- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` — มีช่องอัปโหลดรูปสินค้าจริง + `script-output.tsx` — มีปุ่ม "สร้างด้วย AI" กับ dropdown เลือกโมเดล), ② ผลลัพธ์ & คลิป (`production-panel.tsx` — ที่ผลจาก AI ไปโผล่), ③ Core Prompt (`core-prompt-panel.tsx`) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`) การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
 - Path alias `@/*` resolves to the repo root (see `tsconfig.json`).
 - Styling is Tailwind v4 with CSS-first config: there is no `tailwind.config.*` file — theme tokens (colors, radii, fonts, sidebar/chart variables) are defined via `@theme inline` and `:root`/`.dark` blocks directly in `app/globals.css`.
 - shadcn/ui is configured via `components.json`: style `base-nova`, base color `neutral`, icon library `lucide-react`. **Components are built on `@base-ui/react` primitives, not Radix UI** — this differs from most shadcn/ui setups, so when generating or extending components, use Base UI's API/props rather than assuming Radix conventions.
@@ -43,6 +43,16 @@ No test runner is configured in this project.
 - เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
 - **ห้ามรัน `DELETE FROM <table>;` แบบไม่มี `WHERE`** ตอนเคลียร์ข้อมูลทดสอบ — `dev.db` ไม่มี backup/WAL และถูก gitignore ไว้ ลบไปแล้วกู้คืนไม่ได้ ให้ระบุ `WHERE` เจาะจงแถวที่ตัวเองสร้างทดสอบเท่านั้น (เช่น `WHERE productName = '...'`)
 - `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ
+- `ProductImage` เก็บแค่ metadata ของรูปสินค้าจริง — ตัวไฟล์อยู่บนดิสก์ที่ `uploads/<entryId>/` (gitignore ไว้) เสิร์ฟกลับผ่าน `app/api/uploads/[...path]/route.ts` ลบ entry แล้วแถวรูปหายตาม (`onDelete: Cascade`) แต่ไฟล์บนดิสก์ไม่ได้ถูกลบ
+
+## Gemini API (ปุ่ม "สร้างด้วย AI")
+
+- แอปเรียก Gemini เองผ่าน `@google/genai` (ไม่ใช่ `@google/generative-ai` ตัวเก่า) — `lib/gemini.ts` เป็นไฟล์เดียวที่รู้จัก SDK, `lib/few-shot.ts` เลือกตัวอย่างเก่ามา 2 อัน, `generateWithAI(entryId, model)` ใน `app/actions.ts` เป็นตัวประกอบทั้งหมดแล้วบันทึกลง `chatgptOutput`
+- **API ตัวนี้ใช้ snake_case**: `system_instruction` (ไม่ใช่ `systemInstruction`) และ `temperature` อยู่ใน `generation_config` — สะกดผิดแล้ว API **เงียบ** ไม่ error แต่ Core Prompt จะไม่ถูกส่งไปเลย ห้ามเดา shape ให้อ่าน `CreateModelInteraction` ใน `node_modules/@google/genai/dist/genai.d.ts` และห้ามกลบด้วย `as any`
+- **รายชื่อโมเดลอยู่ที่เดียวคือ `GEMINI_MODELS` ใน `lib/gemini.ts`** — dropdown สร้างจากตัวนี้ และ Server Action ก็ validate ด้วยตัวนี้ (โมเดลส่งมาจาก client เชื่อไม่ได้) ตอนนี้มี `gemini-3.1-flash-lite` (default, ~15 วิ) กับ `gemini-3.5-flash` (~54 วิ ยาว/ละเอียดกว่า) โควตา free tier แยกคนละ pool กัน ดูตัวเลขจริงที่ `https://aistudio.google.com/rate-limit`
+- อัปโหลดรูปวิ่งผ่าน Server Action ซึ่ง**จำกัด body 1MB by default** — `next.config.ts` เลยตั้ง `experimental.serverActions.bodySizeLimit` ไว้ ถ้ารูปใหญ่ขึ้นต้องขยายตรงนี้ ไม่ใช่ที่ action
+- `GEMINI_API_KEY` อยู่ใน `.env` (gitignore แล้ว) — **ห้าม commit เด็ดขาด** และเวลาแก้ `.env` ระวังไฟล์ไม่มี newline ปิดท้าย (เคย append แล้วไปต่อท้ายบรรทัด key จน key พัง)
+- เส้นทาง manual เดิม (คัดลอก prompt ไปวางในแชทเอง แล้ว paste คำตอบกลับ) ยังใช้ได้ปกติ — เป็น fallback ตอน API ล่มหรือโควตาหมด
 
 ## Testing / verification
 
