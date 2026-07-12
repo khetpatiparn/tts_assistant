@@ -1,7 +1,10 @@
 "use client";
 
+import { useActionState } from "react";
 import { Plus, X } from "lucide-react";
 
+import { deleteProductImage, uploadProductImages } from "@/app/actions";
+import type { ProductImageRecord } from "@/components/prompt-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +40,8 @@ export function BriefForm({
   onAddImage,
   onRemoveImage,
   action,
+  entryId,
+  productImages,
 }: {
   form: FormState;
   isCreating: boolean;
@@ -45,7 +50,21 @@ export function BriefForm({
   onAddImage: () => void;
   onRemoveImage: (index: number) => void;
   action: (formData: FormData) => void;
+  entryId: string | null;
+  productImages: ProductImageRecord[];
 }) {
+  const [uploadError, uploadAction, isUploading] = useActionState(
+    async (_prev: string | null, formData: FormData) => {
+      try {
+        await uploadProductImages(formData);
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ";
+      }
+    },
+    null
+  );
+
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
@@ -143,6 +162,64 @@ export function BriefForm({
           {isCreating ? "กำลังสร้าง..." : "สร้าง Prompt"}
         </Button>
       </form>
+
+      {/* Real photos attach to an entry that already exists, so this lives outside
+          the create form — a form cannot be nested inside another form. */}
+      <div className="flex flex-col gap-1.5 border-t border-border pt-5">
+        <label className="text-sm font-medium text-foreground/90">
+          รูปสินค้าจริง (ส่งให้ AI อ่าน)
+        </label>
+
+        {entryId === null ? (
+          <p className="font-mono text-[0.7rem] text-muted-foreground">
+            กด &quot;สร้าง Prompt&quot; ก่อน แล้วจึงแนบรูปสินค้าจริงให้ AI อ่านได้
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {productImages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {productImages.map((image) => (
+                  <div key={image.id} className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/uploads/${image.entryId}/${image.filename}`}
+                      alt="รูปสินค้า"
+                      className="size-20 rounded-md border border-border object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label="ลบรูป"
+                      onClick={() => deleteProductImage(image.id)}
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form action={uploadAction} className="flex items-center gap-2">
+              <input type="hidden" name="entryId" value={entryId} />
+              <Input
+                type="file"
+                name="files"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                className="h-auto py-1.5"
+                required
+              />
+              <Button type="submit" variant="outline" size="sm" disabled={isUploading}>
+                {isUploading ? "กำลังอัปโหลด..." : "อัปโหลด"}
+              </Button>
+            </form>
+
+            {uploadError && (
+              <p className="font-mono text-[0.7rem] text-record">{uploadError}</p>
+            )}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

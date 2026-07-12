@@ -12,6 +12,14 @@ import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 
+export type ProductImageRecord = {
+  id: string;
+  entryId: string;
+  filename: string;
+  mimeType: string;
+  sortOrder: number;
+};
+
 export type PromptEntry = {
   id: string;
   productName: string;
@@ -23,6 +31,7 @@ export type PromptEntry = {
   chatgptOutput: string;
   videoUrl: string;
   postedAt: Date | null;
+  productImages: ProductImageRecord[];
 };
 
 export type CorePromptRecord = {
@@ -173,6 +182,8 @@ export function PromptWorkspace({
                 onAddImage={addImage}
                 onRemoveImage={removeImage}
                 action={createAction}
+                entryId={selectedEntry?.id ?? null}
+                productImages={selectedEntry?.productImages ?? []}
               />
               <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
             </div>
