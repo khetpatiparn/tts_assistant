@@ -35,4 +35,15 @@ model PromptEntry {
   chatgptOutput  String      @default("")
   videoUrl       String      @default("")
   postedAt       DateTime?
+  productImages  ProductImage[]
+}
+
+model ProductImage {
+  id        String      @id @default(cuid())
+  entryId   String
+  entry     PromptEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  filename  String
+  mimeType  String
+  sortOrder Int         @default(0)
+  createdAt DateTime    @default(now())
 }
