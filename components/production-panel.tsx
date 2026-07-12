@@ -31,6 +31,15 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
 
+  // "สร้างด้วย AI" rewrites this entry's output on the server. The id does not
+  // change, so nothing remounts — without this the textarea would keep showing
+  // whatever it held at mount and the generated prompt would look lost.
+  const [lastServerOutput, setLastServerOutput] = useState(entry.chatgptOutput);
+  if (entry.chatgptOutput !== lastServerOutput) {
+    setLastServerOutput(entry.chatgptOutput);
+    setChatgptOutput(entry.chatgptOutput);
+  }
+
   const [state, action, isSaving] = useActionState(
     async (_prev: { ok: boolean } | null, formData: FormData) => {
       await updateProduction(formData);

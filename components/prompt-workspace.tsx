@@ -2,7 +2,8 @@
 
 import { useActionState, useMemo, useState, useTransition } from "react";
 
-import { createPrompt, deletePrompt } from "@/app/actions";
+import { createPrompt, deletePrompt, generateWithAI } from "@/app/actions";
+import { GEMINI_MODELS } from "@/lib/gemini";
 import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
@@ -77,6 +78,10 @@ export function PromptWorkspace({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [copied, setCopied] = useState(false);
   const [, startDeleteTransition] = useTransition();
+  const [isGenerating, startGenerating] = useTransition();
+  const [genError, setGenError] = useState<string | null>(null);
+  // Defaults to the fast, high-quota model; the other one is slower but richer.
+  const [model, setModel] = useState<string>(GEMINI_MODELS[0].id);
 
   const [, createAction, isCreating] = useActionState(
     async (_prevState: { ok: boolean } | null, formData: FormData) => {
@@ -143,6 +148,20 @@ export function PromptWorkspace({
     setTimeout(() => setCopied(false), 1500);
   }
 
+  function handleGenerate() {
+    if (!selectedEntry) return;
+    setGenError(null);
+    startGenerating(async () => {
+      try {
+        await generateWithAI(selectedEntry.id, model);
+        // The result is saved onto the entry, which the ผลลัพธ์ tab shows.
+        setTab("production");
+      } catch (e) {
+        setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
+      }
+    });
+  }
+
   const selectedIndex = prompts.findIndex((p) => p.id === selectedId);
   const takeNumber =
     selectedIndex >= 0 ? prompts.length - selectedIndex : prompts.length + 1;
@@ -185,8 +204,23 @@ export function PromptWorkspace({
                 entryId={selectedEntry?.id ?? null}
                 productImages={selectedEntry?.productImages ?? []}
               />
-              <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
+              <ScriptOutput
+                output={output}
+                copied={copied}
+                onCopy={handleCopy}
+                onGenerate={handleGenerate}
+                isGenerating={isGenerating}
+                canGenerate={(selectedEntry?.productImages.length ?? 0) > 0}
+                model={model}
+                onModelChange={setModel}
+              />
             </div>
+
+            {genError && (
+              <p className="mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+                {genError}
+              </p>
+            )}
           </div>
         )}
 

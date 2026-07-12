@@ -1,9 +1,12 @@
 "use server";
 
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { buildPromptText } from "@/lib/prompt-template";
+import { getFewShotExamples } from "@/lib/few-shot";
+import { generateTenPartPrompt, isGeminiModelId } from "@/lib/gemini";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -187,6 +190,67 @@ export async function uploadProductImages(formData: FormData) {
       },
     });
   }
+
+  revalidatePath("/");
+}
+
+export async function generateWithAI(entryId: string, model: string) {
+  // The model string arrives from the client — never hand it to the API unchecked.
+  if (!isGeminiModelId(model)) {
+    throw new Error("โมเดลไม่ถูกต้อง");
+  }
+
+  const entry = await prisma.promptEntry.findUnique({
+    where: { id: entryId },
+    include: { productImages: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!entry) {
+    throw new Error("ไม่พบรายการที่ต้องการสร้าง");
+  }
+  if (entry.productImages.length === 0) {
+    throw new Error("กรุณาแนบรูปสินค้าจริงอย่างน้อย 1 รูปก่อนสร้างด้วย AI");
+  }
+
+  const core = await prisma.corePrompt.findFirst({ where: { isActive: true } });
+  if (!core) {
+    throw new Error("ยังไม่ได้ตั้ง Core Prompt ที่ใช้งานอยู่");
+  }
+
+  let imageLabels: string[] = [];
+  try {
+    imageLabels = JSON.parse(entry.images);
+  } catch {
+    imageLabels = [];
+  }
+
+  const brief = buildPromptText({
+    productInfo: entry.productInfo,
+    riskModule: entry.riskModule,
+    extraNotes: entry.extraNotes,
+    images: imageLabels,
+  });
+
+  const photos = await Promise.all(
+    entry.productImages.map(async (image) => ({
+      base64: (
+        await readFile(path.join(UPLOAD_ROOT, image.entryId, image.filename))
+      ).toString("base64"),
+      mimeType: image.mimeType,
+    }))
+  );
+
+  const output = await generateTenPartPrompt({
+    model,
+    systemInstruction: core.content,
+    examples: await getFewShotExamples(entryId),
+    brief,
+    images: photos,
+  });
+
+  await prisma.promptEntry.update({
+    where: { id: entryId },
+    data: { chatgptOutput: output },
+  });
 
   revalidatePath("/");
 }
