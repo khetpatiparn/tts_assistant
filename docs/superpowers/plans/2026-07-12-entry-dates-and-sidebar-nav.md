@@ -1,0 +1,868 @@
+# Entry Dates & Sidebar Navigation Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Record the real TikTok posting date per entry, and make the sidebar usable at 30+ entries via search, month grouping, and an "incomplete" filter.
+
+**Architecture:** Add one optional `postedAt` field to `PromptEntry` and a date input in the production panel. Sort entries by `postedAt` (undated first, then newest-first) in `app/page.tsx` using a plain JS sort. All search/grouping/filtering is client-side state local to `history-rail.tsx` — no new queries, no new Server Actions.
+
+**Tech Stack:** Next.js 16.2.10 (App Router, Server Actions), React 19, Prisma 7 + SQLite (via `@prisma/adapter-better-sqlite3`), Tailwind v4 (CSS-first config), shadcn/ui built on `@base-ui/react`, TypeScript.
+
+Design spec: `docs/superpowers/specs/2026-07-12-entry-dates-and-sidebar-nav-design.md`
+Branch: `feature/entry-dates-and-sidebar-nav` (already created and checked out)
+
+## Global Constraints
+
+- **This is NOT stock Next.js.** `next` is pinned at `16.2.10`, a custom build shipping its own docs at `node_modules/next/dist/docs/`. Server Actions, `revalidatePath`, and `<form action={...}>` have already been verified to behave like classic v15 App Router — use those patterns and do not re-research them.
+- **Prisma 7 requires a driver adapter.** The client is constructed in `lib/prisma.ts` with `PrismaBetterSqlite3` (note the casing — NOT `PrismaBetterSQLite3`). Do not modify `lib/prisma.ts`.
+- **Import the generated Prisma client from `@/lib/generated/prisma/client`**, never from the directory `@/lib/generated/prisma` — there is no index barrel.
+- **Datasource URL lives in `prisma.config.ts`**, not in `schema.prisma`. Do not modify `prisma.config.ts`.
+- **Do NOT use Prisma's `nulls: "first"` orderBy option.** It is unverified on this SQLite setup. Sort in JS instead (a few hundred rows — the cost is irrelevant). This is a deliberate decision, not an oversight.
+- **No test runner is configured.** "Tests" here mean: `npm run build` (which type-checks), `npm run lint`, and driving the real app in a browser via Playwright. Do not add Jest/Vitest.
+- **Playwright is not a project dependency.** Install it ad-hoc in your session's scratchpad directory. Do NOT add it to `package.json`.
+- **Reuse existing design tokens only.** Colors: `ink`, `ink-2`, `paper`, `marigold`, `rust`, `smoke`, `record`. Fonts: `font-display` (Chonburi), `font-sans` (IBM Plex Sans Thai), `font-mono` (JetBrains Mono). Do not introduce new colors or fonts.
+- **Reuse existing UI primitives** from `components/ui/`: `Button`, `Input`, `Textarea`.
+- **All user-facing copy is Thai.** Match the existing voice (e.g. `สร้าง Prompt`, `คัดลอก`, `ยังไม่มีรายการ`, `บันทึกผลลัพธ์`).
+- **`postedAt` must be optional** so the existing rows keep working and backfill can be partial.
+- **NEVER run an unscoped `DELETE FROM <table>;`** against `dev.db`. It is gitignored with no backup — deletes are unrecoverable, and it contains the user's real `CorePrompt` data. Always scope cleanup with `WHERE` to the exact test rows you created (e.g. `WHERE productName = 'ทดสอบวันที่'`).
+- **On Windows/git-bash, kill a process by port with double slashes:** `netstat -ano | grep ':3000' | grep LISTENING` then `taskkill //PID <pid> //F`. Check for a stale server on port 3000 BEFORE starting your own.
+- **`npx prisma db execute` cannot print `SELECT` results** — it only reports success/failure. To read rows, use `better-sqlite3` directly (already a dependency) via a throwaway `node -e` script.
+- **Commit after each task.** Do not squash multiple tasks into one commit.
+
+## File Structure
+
+**Modified**
+- `prisma/schema.prisma` — add `postedAt DateTime?` to `PromptEntry`
+- `app/actions.ts` — `updateProduction` reads and persists `postedAt`
+- `app/page.tsx` — sort entries by `postedAt` (undated first, then newest-first) in JS
+- `components/prompt-workspace.tsx` — `PromptEntry` type gains `postedAt: Date | null`
+- `components/production-panel.tsx` — date input beside the video URL
+- `components/history-rail.tsx` — search box, month grouping, incomplete filter
+
+**Created**
+- `lib/entry-sort.ts` — the sort comparator, so `app/page.tsx` stays a thin data-fetching shell and the ordering rule is testable/reusable in one place
+
+**Responsibility boundaries:** `history-rail.tsx` owns all its own search/filter UI state (nothing else consumes it, so it does not get lifted into `prompt-workspace.tsx`). `lib/entry-sort.ts` owns the one ordering rule. Everything else is a field being threaded through existing plumbing.
+
+---
+
+### Task 1: Add `postedAt` to the schema and persist it
+
+**Files:**
+- Modify: `prisma/schema.prisma`
+- Modify: `app/actions.ts`
+- Create: `prisma/migrations/<timestamp>_posted_at/migration.sql` (generated by Prisma — do not hand-write)
+
+**Interfaces:**
+- Consumes: nothing (first task)
+- Produces:
+  - `PromptEntry` gains `postedAt: Date | null` (Prisma model field, used by every later task)
+  - `updateProduction(formData: FormData): Promise<void>` — unchanged signature, but now also reads a `postedAt` form field (an `YYYY-MM-DD` string, or `""` for none)
+
+- [ ] **Step 1: Add the field to the schema**
+
+In `prisma/schema.prisma`, inside `model PromptEntry`, add `postedAt` immediately after the `viewsUpdatedAt` line so all the production-result fields sit together. The block becomes:
+
+```prisma
+  corePromptId   String?
+  corePrompt     CorePrompt? @relation(fields: [corePromptId], references: [id])
+  chatgptOutput  String      @default("")
+  videoUrl       String      @default("")
+  views          Int?
+  viewsUpdatedAt DateTime?
+  postedAt       DateTime?
+```
+
+Leave the `generator`, `datasource`, and `CorePrompt` blocks exactly as they are.
+
+- [ ] **Step 2: Create and apply the migration**
+
+Run: `npx prisma migrate dev --name posted_at`
+
+Expected: output ends with `Your database is now in sync with your schema.` and a new folder appears under `prisma/migrations/`.
+
+- [ ] **Step 3: Regenerate the Prisma client**
+
+Run: `npx prisma generate`
+
+Expected: `✔ Generated Prisma Client ... to .\lib\generated\prisma`
+
+- [ ] **Step 4: Persist `postedAt` in `updateProduction`**
+
+In `app/actions.ts`, find the `updateProduction` function. Make two edits.
+
+First, read the raw value. Find this line:
+
+```ts
+  const rawViews = String(formData.get("views") ?? "").trim();
+```
+
+and add the `postedAt` read immediately after it:
+
+```ts
+  const rawViews = String(formData.get("views") ?? "").trim();
+  const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
+```
+
+Second, parse/validate it and write it. Find this block:
+
+```ts
+  const parsedViews = rawViews === "" ? null : Number(rawViews);
+  if (parsedViews !== null && (!Number.isInteger(parsedViews) || parsedViews < 0)) {
+    throw new Error("ยอดวิวต้องเป็นจำนวนเต็มไม่ติดลบ");
+  }
+```
+
+and add the `postedAt` parsing directly beneath it, so the validation blocks read together:
+
+```ts
+  const parsedViews = rawViews === "" ? null : Number(rawViews);
+  if (parsedViews !== null && (!Number.isInteger(parsedViews) || parsedViews < 0)) {
+    throw new Error("ยอดวิวต้องเป็นจำนวนเต็มไม่ติดลบ");
+  }
+
+  // <input type="date"> submits "YYYY-MM-DD". Parse as UTC midnight so the
+  // stored date matches what the user picked regardless of server timezone.
+  let parsedPostedAt: Date | null = null;
+  if (rawPostedAt !== "") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawPostedAt)) {
+      throw new Error("วันที่ลงคลิปไม่ถูกต้อง");
+    }
+    parsedPostedAt = new Date(`${rawPostedAt}T00:00:00.000Z`);
+    if (Number.isNaN(parsedPostedAt.getTime())) {
+      throw new Error("วันที่ลงคลิปไม่ถูกต้อง");
+    }
+  }
+```
+
+Finally, add `postedAt` to the `data` object of the update call. Find:
+
+```ts
+    data: {
+      chatgptOutput,
+      videoUrl,
+      views: parsedViews,
+      viewsUpdatedAt: viewsChanged
+        ? parsedViews === null
+          ? null
+          : new Date()
+        : existing.viewsUpdatedAt,
+    },
+```
+
+and change it to:
+
+```ts
+    data: {
+      chatgptOutput,
+      videoUrl,
+      views: parsedViews,
+      viewsUpdatedAt: viewsChanged
+        ? parsedViews === null
+          ? null
+          : new Date()
+        : existing.viewsUpdatedAt,
+      postedAt: parsedPostedAt,
+    },
+```
+
+Do not change anything else in the file.
+
+- [ ] **Step 5: Verify build and lint**
+
+Run: `npm run build && npm run lint`
+Expected: `✓ Compiled successfully`, `Finished TypeScript`, and no lint output.
+
+- [ ] **Step 6: Verify the column exists and existing rows survived**
+
+Run:
+```bash
+node -e "
+const Database = require('better-sqlite3');
+const db = new Database('dev.db', { readonly: true });
+console.log(db.prepare('SELECT id, productName, postedAt FROM PromptEntry').all());
+console.log('CorePrompt count:', db.prepare('SELECT COUNT(*) c FROM CorePrompt').get().c);
+db.close();
+"
+```
+
+Expected: runs without a \"no such column\" error. `postedAt` is `null` on any existing rows. The `CorePrompt` count must still be `1` — that row is the user's real Core Prompt v4, it must not be touched.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add prisma/schema.prisma prisma/migrations app/actions.ts
+git commit -m "Add postedAt field for the real TikTok posting date"
+```
+
+---
+
+### Task 2: Date input in the production panel
+
+**Files:**
+- Modify: `components/prompt-workspace.tsx`
+- Modify: `components/production-panel.tsx`
+
+**Interfaces:**
+- Consumes: `postedAt` Prisma field and the `updateProduction` `postedAt` form field (Task 1).
+- Produces: `PromptEntry` TypeScript type (exported from `components/prompt-workspace.tsx`) gains `postedAt: Date | null` — Task 3 and Task 4 both rely on this.
+
+- [ ] **Step 1: Grow the `PromptEntry` type**
+
+In `components/prompt-workspace.tsx`, find the exported `PromptEntry` type and add `postedAt` as the last field:
+
+```tsx
+export type PromptEntry = {
+  id: string;
+  productName: string;
+  productInfo: string;
+  riskModule: string;
+  extraNotes: string;
+  images: string;
+  corePromptId: string | null;
+  chatgptOutput: string;
+  videoUrl: string;
+  views: number | null;
+  viewsUpdatedAt: Date | null;
+  postedAt: Date | null;
+};
+```
+
+Leave `CorePromptRecord` and everything else in the file unchanged.
+
+- [ ] **Step 2: Add the date input to the production panel**
+
+In `components/production-panel.tsx`, make three edits.
+
+First, add a helper that turns a `Date | null` into the `YYYY-MM-DD` string an `<input type="date">` expects. Add it right after the existing `formatStamp` function:
+
+```tsx
+function toDateInputValue(value: Date | null) {
+  if (!value) return "";
+  // Stored as UTC midnight, so read the UTC parts back out — using local
+  // getters here would shift the date by a day in negative-offset timezones.
+  return new Date(value).toISOString().slice(0, 10);
+}
+```
+
+Second, seed local state from the entry. Find this line:
+
+```tsx
+  const [views, setViews] = useState(entry.views === null ? "" : String(entry.views));
+```
+
+and add the `postedAt` state immediately after it:
+
+```tsx
+  const [views, setViews] = useState(entry.views === null ? "" : String(entry.views));
+  const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
+```
+
+Third, render the field. The video URL and views inputs currently live in a `<div className="grid gap-5 sm:grid-cols-2">`. Change that wrapper to three columns and add the date field as a third item. Replace the entire block that starts with `<div className="grid gap-5 sm:grid-cols-2">` and ends with its matching `</div>` (i.e. everything from the video-URL field through the views field) with:
+
+```tsx
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground/90">ลิงก์คลิป TikTok</label>
+            <div className="flex items-center gap-2">
+              <Input
+                name="videoUrl"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="https://www.tiktok.com/@.../video/..."
+              />
+              {videoUrl && isSafeHttpUrl(videoUrl) && (
+                <a
+                  href={videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="เปิดคลิป"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLink className="size-4" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground/90">วันที่ลงคลิป</label>
+            <Input
+              name="postedAt"
+              type="date"
+              value={postedAt}
+              onChange={(e) => setPostedAt(e.target.value)}
+            />
+            <p className="font-mono text-[0.7rem] text-muted-foreground">
+              {postedAt ? " " : "ยังไม่ได้ลงคลิป"}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground/90">ยอดวิว</label>
+            <Input
+              name="views"
+              type="number"
+              min={0}
+              step={1}
+              value={views}
+              onChange={(e) => setViews(e.target.value)}
+              placeholder="เช่น 12000"
+            />
+            <p className="font-mono text-[0.7rem] text-muted-foreground">
+              {stamp ? `อัปเดตล่าสุด ${stamp}` : "ยังไม่เคยบันทึกยอดวิว"}
+            </p>
+          </div>
+        </div>
+```
+
+(The ` ` non-breaking space keeps the three columns' helper-text baselines aligned when a date is set.)
+
+- [ ] **Step 3: Verify build and lint**
+
+Run: `npm run build && npm run lint`
+Expected: `✓ Compiled successfully`, `Finished TypeScript`, no lint output.
+
+- [ ] **Step 4: Drive it end-to-end**
+
+Check for and clear any stale server first:
+```bash
+netstat -ano | grep ':3000' | grep LISTENING   # if a PID is listed:
+taskkill //PID <pid> //F
+```
+
+Start the dev server:
+```bash
+npm run dev &
+timeout 30 bash -c 'until curl -sf http://localhost:3000 >/dev/null; do sleep 1; done' && echo UP
+```
+
+Set up Playwright once in **your session's scratchpad directory** (named in your system prompt) — NOT in the project. Set `SCRATCH` to `<your scratchpad>/pw`:
+```bash
+mkdir -p "$SCRATCH" && cd "$SCRATCH"
+npm init -y >/dev/null && npm install playwright >/dev/null
+npx playwright install chromium
+```
+Reuse this same `$SCRATCH` for Task 4 — install it only once.
+
+Write `$SCRATCH/posted-at.js`:
+```js
+const { chromium } = require("playwright");
+
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+
+  await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
+
+  // Create an entry to attach a posting date to.
+  await page.fill('input[name="productName"]', "ทดสอบวันที่");
+  await page.fill('textarea[name="productInfo"]', "ข้อมูลทดสอบ");
+  await page.click('button:has-text("สร้าง Prompt")');
+  await page.waitForSelector('button:has-text("ทดสอบวันที่")', { timeout: 10000 });
+  await page.waitForTimeout(500);
+
+  // Empty before saving anything.
+  await page.click('button:has-text("② ผลลัพธ์")');
+  const before = await page.locator('input[name="postedAt"]').inputValue();
+
+  // Set the date and save.
+  await page.fill('input[name="postedAt"]', "2026-06-15");
+  await page.click('button:has-text("บันทึกผลลัพธ์")');
+  await page.waitForSelector("text=บันทึกแล้ว", { timeout: 10000 });
+
+  // Reload: the value must come back from the database, not from memory.
+  await page.reload({ waitUntil: "networkidle" });
+  await page.click('button:has-text("ทดสอบวันที่")');
+  await page.click('button:has-text("② ผลลัพธ์")');
+  const after = await page.locator('input[name="postedAt"]').inputValue();
+
+  console.log(JSON.stringify({ before, after, errors }, null, 2));
+  await browser.close();
+})().catch((e) => { console.error("FAILED:", e); process.exit(1); });
+```
+
+Run: `node "$SCRATCH/posted-at.js"`
+
+Expected — the date round-trips through the database exactly, with no timezone drift off by a day:
+```json
+{
+  "before": "",
+  "after": "2026-06-15",
+  "errors": []
+}
+```
+
+- [ ] **Step 5: Clean up the test row and stop the server**
+
+From the project root. Note the scoped `WHERE` — never delete the whole table:
+```bash
+npx prisma db execute --stdin <<< "DELETE FROM PromptEntry WHERE productName = 'ทดสอบวันที่';"
+netstat -ano | grep ':3000' | grep LISTENING
+taskkill //PID <pid> //F
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add components/prompt-workspace.tsx components/production-panel.tsx
+git commit -m "Add posting-date input to the production panel"
+```
+
+---
+
+### Task 3: Sort entries by posting date
+
+**Files:**
+- Create: `lib/entry-sort.ts`
+- Modify: `app/page.tsx`
+
+**Interfaces:**
+- Consumes: `PromptEntry` type from `components/prompt-workspace.tsx` (Task 2).
+- Produces: `sortEntriesForRail<T extends SortableEntry>(entries: T[]): T[]` exported from `lib/entry-sort.ts` — returns a NEW sorted array (does not mutate). Task 4's month grouping depends on this ordering already being applied.
+
+The ordering rule: entries with no `postedAt` come first (they are unfinished work and should be visible), then dated entries newest-first. Ties break on `createdAt` newest-first so the order is stable and deterministic.
+
+- [ ] **Step 1: Create the sort module**
+
+Create `lib/entry-sort.ts`:
+
+```ts
+/** The subset of an entry this ordering depends on. */
+export type SortableEntry = {
+  postedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * Order for the history rail: undated entries first (unfinished work worth
+ * seeing), then dated entries newest-first. `createdAt` breaks ties so the
+ * order is deterministic.
+ *
+ * Sorted in JS rather than via Prisma `orderBy` because nulls-ordering is
+ * unverified on this SQLite setup, and the row count is small enough that
+ * the cost is irrelevant.
+ */
+export function sortEntriesForRail<T extends SortableEntry>(entries: T[]): T[] {
+  return [...entries].sort((a, b) => {
+    const aPosted = a.postedAt ? new Date(a.postedAt).getTime() : null;
+    const bPosted = b.postedAt ? new Date(b.postedAt).getTime() : null;
+
+    if (aPosted === null && bPosted !== null) return -1;
+    if (aPosted !== null && bPosted === null) return 1;
+    if (aPosted !== null && bPosted !== null && aPosted !== bPosted) {
+      return bPosted - aPosted;
+    }
+
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+}
+```
+
+- [ ] **Step 2: Apply the sort in the page**
+
+Replace the whole of `app/page.tsx` with:
+
+```tsx
+import { prisma } from "@/lib/prisma";
+import { PromptWorkspace } from "@/components/prompt-workspace";
+import { sortEntriesForRail } from "@/lib/entry-sort";
+
+export default async function PoolingPrompt() {
+  const [prompts, corePrompts] = await Promise.all([
+    prisma.promptEntry.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.corePrompt.findMany({ orderBy: { createdAt: "desc" } }),
+  ]);
+
+  return (
+    <PromptWorkspace
+      prompts={sortEntriesForRail(prompts)}
+      corePrompts={corePrompts}
+    />
+  );
+}
+```
+
+The `orderBy: { createdAt: "desc" }` stays as a stable base ordering; `sortEntriesForRail` then imposes the posting-date rule on top.
+
+- [ ] **Step 3: Verify build and lint**
+
+Run: `npm run build && npm run lint`
+Expected: `✓ Compiled successfully`, `Finished TypeScript`, no lint output.
+
+- [ ] **Step 4: Verify the ordering rule directly**
+
+The sort is pure and deterministic, so exercise it directly rather than through the browser. From the project root, run:
+
+```bash
+node --input-type=module -e "
+const { sortEntriesForRail } = await import('./lib/entry-sort.ts');
+const rows = [
+  { id: 'old',    postedAt: new Date('2026-06-01'), createdAt: new Date('2026-07-10') },
+  { id: 'undated',postedAt: null,                   createdAt: new Date('2026-07-01') },
+  { id: 'new',    postedAt: new Date('2026-07-05'), createdAt: new Date('2026-07-02') },
+];
+console.log(sortEntriesForRail(rows).map(r => r.id));
+"
+```
+
+If that fails to resolve the `.ts` import, fall back to inlining the function body into the script rather than importing it — the point is to check the ordering logic, not the module system.
+
+Expected: `[ 'undated', 'new', 'old' ]` — undated first, then dated newest-first.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/entry-sort.ts app/page.tsx
+git commit -m "Sort history rail by posting date, undated entries first"
+```
+
+---
+
+### Task 4: Sidebar search, month grouping, and incomplete filter
+
+**Files:**
+- Modify: `components/history-rail.tsx`
+
+**Interfaces:**
+- Consumes: `PromptEntry` type (with `postedAt`) from `components/prompt-workspace.tsx` (Task 2); the entries arrive already sorted by `sortEntriesForRail` (Task 3), so this task must preserve incoming order and only filter/group.
+- Produces: nothing consumed by later tasks (final task).
+
+The whole task lives in one file. `HistoryRail`'s props are unchanged — search and filter are internal state, because nothing outside the rail reads them.
+
+- [ ] **Step 1: Rewrite the history rail**
+
+Replace the whole of `components/history-rail.tsx` with:
+
+```tsx
+"use client";
+
+import { useMemo, useState } from "react";
+import { Plus, Search, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import type { PromptEntry } from "@/components/prompt-workspace";
+
+const UNDATED_GROUP = "ยังไม่ได้ลงคลิป";
+
+/** An entry still needs work until both the ChatGPT output and the clip link are in. */
+function isIncomplete(entry: PromptEntry) {
+  return entry.chatgptOutput.trim() === "" || entry.videoUrl.trim() === "";
+}
+
+/** "ก.ค. 2026" — the month bucket an entry belongs to. */
+function monthLabel(postedAt: Date | null) {
+  if (!postedAt) return UNDATED_GROUP;
+  return new Date(postedAt).toLocaleDateString("th-TH", {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** "12 ก.ค." — the short date shown next to a product name. */
+function shortDate(postedAt: Date | null) {
+  if (!postedAt) return null;
+  return new Date(postedAt).toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+export function HistoryRail({
+  prompts,
+  selectedId,
+  onSelect,
+  onNew,
+  onDelete,
+}: {
+  prompts: PromptEntry[];
+  selectedId: string | null;
+  onSelect: (entry: PromptEntry) => void;
+  onNew: () => void;
+  onDelete: (id: string, event: React.MouseEvent) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [onlyIncomplete, setOnlyIncomplete] = useState(false);
+
+  const total = prompts.length;
+
+  // Take numbers are assigned over the full list so they stay stable no
+  // matter what is filtered out of view.
+  const groups = useMemo(() => {
+    const numbered = prompts.map((entry, index) => ({
+      entry,
+      takeNumber: prompts.length - index,
+    }));
+
+    const needle = query.trim().toLowerCase();
+    const visible = numbered.filter(({ entry }) => {
+      if (onlyIncomplete && !isIncomplete(entry)) return false;
+      if (needle && !entry.productName.toLowerCase().includes(needle)) return false;
+      return true;
+    });
+
+    // Entries arrive pre-sorted, so walking them in order yields month
+    // buckets already in the right sequence.
+    const buckets: { label: string; items: typeof visible }[] = [];
+    for (const item of visible) {
+      const label = monthLabel(item.entry.postedAt);
+      const last = buckets[buckets.length - 1];
+      if (last && last.label === label) {
+        last.items.push(item);
+      } else {
+        buckets.push({ label, items: [item] });
+      }
+    }
+    return buckets;
+  }, [prompts, query, onlyIncomplete]);
+
+  const visibleCount = groups.reduce((sum, g) => sum + g.items.length, 0);
+  const isFiltering = query.trim() !== "" || onlyIncomplete;
+
+  return (
+    <aside className="flex w-full shrink-0 flex-col gap-3 overflow-hidden bg-ink px-3 py-4 text-paper lg:h-full lg:w-60">
+      <Button
+        onClick={onNew}
+        className="w-full bg-marigold text-ink shadow-none hover:bg-marigold/90"
+      >
+        <Plus className="size-4" />
+        สินค้าใหม่
+      </Button>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-paper/40" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="ค้นหาสินค้า"
+          aria-label="ค้นหาสินค้า"
+          className="border-paper/15 bg-ink-2 pl-8 text-paper placeholder:text-paper/40"
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOnlyIncomplete((v) => !v)}
+        aria-pressed={onlyIncomplete}
+        className={cn(
+          "rounded-md px-2.5 py-1.5 text-left font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
+          onlyIncomplete
+            ? "bg-marigold text-ink"
+            : "text-paper/40 hover:bg-ink-2 hover:text-paper/70"
+        )}
+      >
+        ยังไม่ได้กรอกผลลัพธ์
+      </button>
+
+      <p className="px-1 font-mono text-[0.65rem] tracking-widest text-paper/40 uppercase">
+        {isFiltering ? `แสดง ${visibleCount}/${total}` : `ประวัติ (${total})`}
+      </p>
+
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
+        {groups.map((group) => (
+          <div key={group.label} className="flex flex-col gap-1">
+            <p className="px-1 font-mono text-[0.6rem] tracking-widest text-marigold/60 uppercase">
+              {group.label}
+            </p>
+            <ul className="flex flex-col gap-1">
+              {group.items.map(({ entry, takeNumber }) => {
+                const isActive = selectedId === entry.id;
+                const date = shortDate(entry.postedAt);
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      onClick={() => onSelect(entry)}
+                      className={cn(
+                        "group flex w-full items-center gap-2 rounded-md border-l-2 border-transparent px-2.5 py-2 text-left text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
+                        isActive && "border-marigold bg-ink-2 text-paper"
+                      )}
+                    >
+                      <span className="shrink-0 font-mono text-[0.65rem] text-marigold/80">
+                        T{String(takeNumber).padStart(2, "0")}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{entry.productName}</span>
+                      {date && (
+                        <span className="shrink-0 font-mono text-[0.6rem] text-paper/30">
+                          {date}
+                        </span>
+                      )}
+                      <span
+                        role="button"
+                        aria-label="ลบรายการ"
+                        onClick={(event) => onDelete(entry.id, event)}
+                        className="shrink-0 text-paper/30 opacity-0 transition-opacity group-hover:opacity-100 hover:text-record"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+
+        {total === 0 && (
+          <p className="px-2.5 py-2 text-sm text-paper/40">ยังไม่มีรายการ</p>
+        )}
+        {total > 0 && visibleCount === 0 && (
+          <p className="px-2.5 py-2 text-sm text-paper/40">ไม่พบรายการ</p>
+        )}
+      </div>
+    </aside>
+  );
+}
+```
+
+Note what changed versus the old file: the `<ul>` that was the direct scroll container is now a `<div>` holding one `<div>` per month group; the take-number calculation moved into the `useMemo` so it is computed over the *full* list before filtering (a take number must not change just because you typed in the search box); and the empty state now distinguishes "no entries at all" from "nothing matched your filter."
+
+- [ ] **Step 2: Verify build and lint**
+
+Run: `npm run build && npm run lint`
+Expected: `✓ Compiled successfully`, `Finished TypeScript`, no lint output.
+
+- [ ] **Step 3: Drive it end-to-end**
+
+Check for and clear any stale server on port 3000 first, then start the dev server (same commands as Task 2 Step 4).
+
+Seed three entries with distinct dates and completion states, directly in the database. Use `INSERT`, not the UI, so the state is exact:
+
+```bash
+npx prisma db execute --stdin <<< "INSERT INTO PromptEntry (id, productName, productInfo, riskModule, extraNotes, images, createdAt, chatgptOutput, videoUrl, postedAt) VALUES ('nav-a', 'นำทางA-เสร็จ', 'x', '-', '', '[]', datetime('now'), '10-part', 'https://www.tiktok.com/@x/video/1', '2026-07-05T00:00:00.000Z'), ('nav-b', 'นำทางB-เก่า', 'x', '-', '', '[]', datetime('now'), '10-part', 'https://www.tiktok.com/@x/video/2', '2026-06-20T00:00:00.000Z'), ('nav-c', 'นำทางC-ยังไม่เสร็จ', 'x', '-', '', '[]', datetime('now'), '', '', NULL);"
+```
+
+Write `$SCRATCH/sidebar-nav.js` (reuse the `$SCRATCH` from Task 2):
+```js
+const { chromium } = require("playwright");
+
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+
+  await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
+
+  const railText = async () => (await page.locator("aside").innerText()).replace(/\s+/g, " ");
+
+  // Ordering + grouping: undated group first, then months newest-first.
+  const initial = await railText();
+  const iUndated = initial.indexOf("ยังไม่ได้ลงคลิป");
+  const iC = initial.indexOf("นำทางC");
+  const iA = initial.indexOf("นำทางA");
+  const iB = initial.indexOf("นำทางB");
+
+  // Search filters by product name.
+  await page.fill('input[aria-label="ค้นหาสินค้า"]', "นำทางB");
+  await page.waitForTimeout(200);
+  const searched = await railText();
+
+  // Clearing the search restores the full list.
+  await page.fill('input[aria-label="ค้นหาสินค้า"]', "");
+  await page.waitForTimeout(200);
+  const cleared = await railText();
+
+  // Incomplete filter shows only the entry missing output/link.
+  await page.click('button:has-text("ยังไม่ได้กรอกผลลัพธ์")');
+  await page.waitForTimeout(200);
+  const filtered = await railText();
+
+  // A search matching nothing shows the empty-result message.
+  await page.click('button:has-text("ยังไม่ได้กรอกผลลัพธ์")');
+  await page.fill('input[aria-label="ค้นหาสินค้า"]', "ไม่มีสินค้านี้แน่นอน");
+  await page.waitForTimeout(200);
+  const noMatch = await railText();
+
+  console.log(JSON.stringify({
+    orderUndatedFirst: iUndated >= 0 && iC > iUndated && iC < iA,
+    orderNewestDatedFirst: iA > 0 && iB > iA,
+    searchKeepsOnlyMatch: searched.includes("นำทางB") && !searched.includes("นำทางA"),
+    clearRestoresAll: cleared.includes("นำทางA") && cleared.includes("นำทางB") && cleared.includes("นำทางC"),
+    incompleteKeepsOnlyUnfinished: filtered.includes("นำทางC") && !filtered.includes("นำทางA") && !filtered.includes("นำทางB"),
+    noMatchShowsEmptyMessage: noMatch.includes("ไม่พบรายการ"),
+    errors,
+  }, null, 2));
+
+  await page.screenshot({ path: "sidebar-nav.png", fullPage: true });
+  await browser.close();
+})().catch((e) => { console.error("FAILED:", e); process.exit(1); });
+```
+
+Run: `node "$SCRATCH/sidebar-nav.js"`
+
+Expected — every boolean `true`, `errors` empty:
+```json
+{
+  "orderUndatedFirst": true,
+  "orderNewestDatedFirst": true,
+  "searchKeepsOnlyMatch": true,
+  "clearRestoresAll": true,
+  "incompleteKeepsOnlyUnfinished": true,
+  "noMatchShowsEmptyMessage": true,
+  "errors": []
+}
+```
+
+Also open `sidebar-nav.png` and **look at it** — confirm the month headers render, the dates appear beside product names, and the rail is not visually broken.
+
+- [ ] **Step 4: Clean up the seeded rows and stop the server**
+
+Scoped deletes only — the `CorePrompt` table holds the user's real data and must not be touched:
+```bash
+npx prisma db execute --stdin <<< "DELETE FROM PromptEntry WHERE id IN ('nav-a', 'nav-b', 'nav-c');"
+netstat -ano | grep ':3000' | grep LISTENING
+taskkill //PID <pid> //F
+```
+
+Verify the cleanup left the real data alone:
+```bash
+node -e "
+const Database = require('better-sqlite3');
+const db = new Database('dev.db', { readonly: true });
+console.log('entries:', db.prepare('SELECT COUNT(*) c FROM PromptEntry').get().c);
+console.log('core prompts:', db.prepare('SELECT COUNT(*) c FROM CorePrompt').get().c);
+db.close();
+"
+```
+Expected: no `nav-*` rows remain, and `core prompts: 1` — the user's real Core Prompt v4 is intact.
+
+- [ ] **Step 5: Update `CLAUDE.md`**
+
+In the `## Architecture` section, find this bullet:
+
+```
+- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` + `script-output.tsx`), ② ผลลัพธ์ & คลิป (`production-panel.tsx`), ③ Core Prompt (`core-prompt-panel.tsx`) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`)
+```
+
+and append this sentence to the end of that same bullet:
+
+```
+ การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
+```
+
+- [ ] **Step 6: Final build and lint**
+
+Run: `npm run build && npm run lint`
+Expected: `✓ Compiled successfully`, `Finished TypeScript`, no lint output.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add components/history-rail.tsx CLAUDE.md
+git commit -m "Add search, month grouping, and incomplete filter to the history rail"
+```
+
+---
+
+## Done
+
+The branch `feature/entry-dates-and-sidebar-nav` now contains the design spec plus four implementation commits.
+
+**Deliberately excluded** (from the spec's "ไม่ทำ" section): any change to the views field, dashboards/charts/automatic analysis, and pagination or virtual scrolling.
