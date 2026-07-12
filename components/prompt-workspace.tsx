@@ -2,7 +2,12 @@
 
 import { useActionState, useMemo, useState, useTransition } from "react";
 
-import { createPrompt, deletePrompt, generateWithAI } from "@/app/actions";
+import {
+  createPrompt,
+  deletePrompt,
+  generateWithAI,
+  uploadProductImages,
+} from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
@@ -83,23 +88,68 @@ export function PromptWorkspace({
   // Defaults to the fast, high-quota model; the other one is slower but richer.
   const [model, setModel] = useState<string>(GEMINI_MODELS[0].id);
 
+  // Photos pasted before the entry exists. They ride along in memory and are
+  // uploaded the moment createPrompt hands back an id to attach them to.
+  const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [isUploading, startUploading] = useTransition();
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  function uploadImagesTo(entryId: string, files: File[]) {
+    const formData = new FormData();
+    formData.set("entryId", entryId);
+    for (const file of files) formData.append("files", file);
+    return uploadProductImages(formData);
+  }
+
   const [, createAction, isCreating] = useActionState(
     async (_prevState: { ok: boolean } | null, formData: FormData) => {
       const id = await createPrompt(formData);
+      if (pendingImages.length > 0) {
+        await uploadImagesTo(id, pendingImages);
+        setPendingImages([]);
+      }
       setSelectedId(id);
       return { ok: true };
     },
     null
   );
 
+  function handleAddImages(files: File[]) {
+    if (files.length === 0) return;
+    setImageError(null);
+
+    // With an entry to hang them on, photos save immediately. Without one, they
+    // wait — either way the user just pastes and it works.
+    if (selectedId === null) {
+      setPendingImages((prev) => [...prev, ...files]);
+      return;
+    }
+
+    startUploading(async () => {
+      try {
+        await uploadImagesTo(selectedId, files);
+      } catch (e) {
+        setImageError(e instanceof Error ? e.message : "แนบรูปไม่สำเร็จ");
+      }
+    });
+  }
+
+  function handleRemovePending(index: number) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
   function selectPrompt(entry: PromptEntry) {
     setSelectedId(entry.id);
     setForm(entryToForm(entry));
+    setPendingImages([]);
+    setImageError(null);
   }
 
   function startNew() {
     setSelectedId(null);
     setForm(emptyForm);
+    setPendingImages([]);
+    setImageError(null);
     setTab("brief");
   }
 
@@ -201,8 +251,12 @@ export function PromptWorkspace({
                 onAddImage={addImage}
                 onRemoveImage={removeImage}
                 action={createAction}
-                entryId={selectedEntry?.id ?? null}
                 productImages={selectedEntry?.productImages ?? []}
+                pendingImages={pendingImages}
+                onAddImages={handleAddImages}
+                onRemovePending={handleRemovePending}
+                isUploading={isUploading}
+                imageError={imageError}
               />
               <ScriptOutput
                 output={output}
