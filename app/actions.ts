@@ -52,6 +52,19 @@ export async function updateProduction(formData: FormData) {
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
   const rawViews = String(formData.get("views") ?? "").trim();
 
+  if (videoUrl !== "") {
+    let isValidUrl = false;
+    try {
+      const parsed = new URL(videoUrl);
+      isValidUrl = parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      isValidUrl = false;
+    }
+    if (!isValidUrl) {
+      throw new Error("ลิงก์คลิปต้องเป็น URL http/https ที่ถูกต้อง");
+    }
+  }
+
   const parsedViews = rawViews === "" ? null : Number(rawViews);
   if (parsedViews !== null && (!Number.isInteger(parsedViews) || parsedViews < 0)) {
     throw new Error("ยอดวิวต้องเป็นจำนวนเต็มไม่ติดลบ");

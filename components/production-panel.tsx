@@ -9,6 +9,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { PromptEntry } from "@/components/prompt-workspace";
 
+function isSafeHttpUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function formatStamp(value: Date | null) {
   if (!value) return null;
   return new Date(value).toLocaleDateString("th-TH", {
@@ -69,7 +78,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
                 onChange={(e) => setVideoUrl(e.target.value)}
                 placeholder="https://www.tiktok.com/@.../video/..."
               />
-              {videoUrl && (
+              {videoUrl && isSafeHttpUrl(videoUrl) && (
                 <a
                   href={videoUrl}
                   target="_blank"
