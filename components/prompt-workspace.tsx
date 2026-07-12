@@ -142,7 +142,7 @@ export function PromptWorkspace({
   const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
 
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
       <ClapperHeader sceneName={form.productName} takeNumber={takeNumber}>
         <WorkspaceTabs
           active={tab}
@@ -151,7 +151,7 @@ export function PromptWorkspace({
         />
       </ClapperHeader>
 
-      <div className="flex flex-1 flex-col lg:flex-row">
+      <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
         <HistoryRail
           prompts={prompts}
           selectedId={selectedId}
@@ -161,7 +161,7 @@ export function PromptWorkspace({
         />
 
         {tab === "brief" && (
-          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 xl:flex-row">
+          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 lg:overflow-y-auto xl:flex-row">
             <BriefForm
               form={form}
               isCreating={isCreating}
@@ -176,13 +176,13 @@ export function PromptWorkspace({
         )}
 
         {tab === "production" && selectedEntry && (
-          <div className="flex flex-1 flex-col p-4 sm:p-6">
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
             <ProductionPanel key={selectedEntry.id} entry={selectedEntry} />
           </div>
         )}
 
         {tab === "core" && (
-          <div className="flex flex-1 flex-col p-4 sm:p-6">
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
             <CorePromptPanel corePrompts={corePrompts} />
           </div>
         )}

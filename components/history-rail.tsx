@@ -22,7 +22,7 @@ export function HistoryRail({
   const total = prompts.length;
 
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-3 bg-ink px-3 py-4 text-paper lg:w-60 lg:min-h-[calc(100vh-6rem)]">
+    <aside className="flex w-full shrink-0 flex-col gap-3 overflow-hidden bg-ink px-3 py-4 text-paper lg:h-full lg:w-60">
       <Button
         onClick={onNew}
         className="w-full bg-marigold text-ink shadow-none hover:bg-marigold/90"
