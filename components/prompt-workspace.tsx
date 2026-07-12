@@ -22,8 +22,6 @@ export type PromptEntry = {
   corePromptId: string | null;
   chatgptOutput: string;
   videoUrl: string;
-  views: number | null;
-  viewsUpdatedAt: Date | null;
   postedAt: Date | null;
 };
 
@@ -162,17 +160,22 @@ export function PromptWorkspace({
         />
 
         {tab === "brief" && (
-          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 lg:overflow-y-auto xl:flex-row">
-            <BriefForm
-              form={form}
-              isCreating={isCreating}
-              onFieldChange={updateField}
-              onImageChange={updateImage}
-              onAddImage={addImage}
-              onRemoveImage={removeImage}
-              action={createAction}
-            />
-            <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+            {/* Inner row is content-height so the cards grow with their content
+                and the outer box scrolls, instead of the cards being clipped to
+                the viewport. */}
+            <div className="flex flex-col gap-5 xl:flex-row">
+              <BriefForm
+                form={form}
+                isCreating={isCreating}
+                onFieldChange={updateField}
+                onImageChange={updateImage}
+                onAddImage={addImage}
+                onRemoveImage={removeImage}
+                action={createAction}
+              />
+              <ScriptOutput output={output} copied={copied} onCopy={handleCopy} />
+            </div>
           </div>
         )}
 
