@@ -8,6 +8,7 @@ import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductionPanel } from "@/components/production-panel";
+import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 
@@ -182,9 +183,7 @@ export function PromptWorkspace({
 
         {tab === "core" && (
           <div className="flex flex-1 flex-col p-4 sm:p-6">
-            <p className="text-sm text-muted-foreground">
-              แท็บ Core Prompt ({corePrompts.length} เวอร์ชัน) (จะทำใน Task 5)
-            </p>
+            <CorePromptPanel corePrompts={corePrompts} />
           </div>
         )}
       </div>
