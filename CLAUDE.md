@@ -31,6 +31,7 @@ No test runner is configured in this project.
 - `lib/utils.ts` exports the standard shadcn `cn()` helper (`clsx` + `tailwind-merge`).
 - `components/ui/` holds shadcn-generated primitives (`button.tsx`, `input.tsx`, `textarea.tsx`)
 - Design tokens ที่กำหนดเอง (สีชื่อ `ink`/`paper`/`marigold`/`rust`/`smoke`/`record`, ฟอนต์ `Chonburi`/`IBM Plex Sans Thai`/`JetBrains Mono`) อยู่ใน `app/globals.css` และ `app/layout.tsx` — ให้ใช้ของเดิม อย่าเพิ่มสี/ฟอนต์ใหม่ขึ้นมาเอง
+- Layout เป็น fixed-viewport-with-internal-scroll (header คงที่ + sidebar/เนื้อหาสกรอลแยกกันเองที่ `lg:` ขึ้นไป) — จุดสำคัญคือ **`body` ใน `app/layout.tsx` ต้องมี `lg:h-full lg:overflow-hidden` ด้วย ไม่ใช่แค่ inner div** เพราะ flex child ที่มี `flex-1` จะดันความสูงของ ancestor ที่มีแค่ `min-height` ให้ยืดเกิน viewport ได้ ถ้าจะแก้/เพิ่ม scroll region ใหม่ ต้องเช็กทั้ง chain ตั้งแต่ `body` ลงมา
 
 ## Database
 
@@ -40,6 +41,7 @@ No test runner is configured in this project.
 - ตัว adapter class ชื่อ export คือ `PrismaBetterSqlite3` (สังเกตตัวพิมพ์เล็ก-ใหญ่ให้ดี) จาก `@prisma/adapter-better-sqlite3`
 - หลังแก้ `prisma/schema.prisma` ให้รัน `npx prisma migrate dev --name <name>` แล้วตามด้วย `npx prisma generate`
 - เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
+- **ห้ามรัน `DELETE FROM <table>;` แบบไม่มี `WHERE`** ตอนเคลียร์ข้อมูลทดสอบ — `dev.db` ไม่มี backup/WAL และถูก gitignore ไว้ ลบไปแล้วกู้คืนไม่ได้ ให้ระบุ `WHERE` เจาะจงแถวที่ตัวเองสร้างทดสอบเท่านั้น (เช่น `WHERE productName = '...'`)
 - `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ
 
 ## Testing / verification
