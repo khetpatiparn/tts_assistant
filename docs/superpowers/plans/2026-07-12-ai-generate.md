@@ -15,8 +15,34 @@ Branch: `feature/ai-generate` (create from `master`)
 
 - **This is NOT stock Next.js.** `next` is pinned at `16.2.10`, a custom build shipping its own docs at `node_modules/next/dist/docs/`. Server Actions, `revalidatePath`, and `<form action={...}>` behave like classic v15 App Router — use those patterns, do not re-research them.
 - **Prisma 7 requires a driver adapter.** The client is built in `lib/prisma.ts` with `PrismaBetterSqlite3` (note the casing). Import the generated client from `@/lib/generated/prisma/client` — there is no index barrel. Datasource URL lives in `prisma.config.ts`.
-- **NEVER guess the Gemini SDK's API shape.** `@google/genai` is new and its docs are incomplete. The installed package's TypeScript definitions under `node_modules/@google/genai/**/*.d.ts` are the ground truth — read them before writing any call. Verified from official docs so far: package is `@google/genai`, import is `import { GoogleGenAI } from "@google/genai"`, the call is `client.interactions.create({ model, input })`, and an image part is `{ type: "image", data: <base64>, mime_type: "image/jpeg" }`. **System instruction and temperature parameter names are NOT yet verified — find them in the .d.ts, do not invent them.**
-- **NEVER hard-code the model ID.** Read it from `process.env.GEMINI_MODEL`. Known-valid IDs as of July 2026: `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash`. Deprecated, do not use: Gemini 2.0 Flash, 2.0 Flash-Lite, 3.0 Pro Preview.
+- **The Gemini SDK call shape is VERIFIED — use exactly this.** Read from the installed `node_modules/@google/genai/dist/genai.d.ts` during Task 1 (`CreateModelInteraction`). The published web docs are WRONG about two parameters; the `.d.ts` is ground truth. The Interactions API uses **snake_case**:
+
+  ```ts
+  import { GoogleGenAI } from "@google/genai";
+  const client = new GoogleGenAI({ apiKey });
+  const res = await client.interactions.create({
+    model,                                     // string
+    system_instruction: corePromptText,        // snake_case — NOT systemInstruction
+    generation_config: { temperature: 0.3 },   // temperature lives HERE — not top-level
+    input: [
+      { type: "text",  text: "..." },
+      { type: "image", data: base64, mime_type: "image/png" },  // "image/jpeg" | "image/webp" also valid
+    ],
+  });
+  const text = res.output_text;
+  ```
+
+  **Why this matters:** the docs' `systemInstruction` (camelCase) is silently ignored by the API — no error, no warning. The Core Prompt would simply never reach the model and the output would drift with nothing to explain why. If TypeScript complains, fix the call to match the `.d.ts` — never silence it with `as any`.
+
+- **The model list lives in exactly one place: the `GEMINI_MODELS` allow-list in `lib/gemini.ts`** (Task 4, Step 4). The UI builds its dropdown from it and the Server Action validates against it. Do not scatter model IDs into other files, and do not read the model from an env var — the picker is a client component and cannot see `process.env` anyway. Both models were validated in Task 1 against the user's real product photos:
+  | Model | Quota/day | Speed | Reads images | Verdict |
+  |---|---:|---:|---|---|
+  | `gemini-3.1-flash-lite` | **500** | **13.6s** | ✅ accurate | **default** (first in the list) |
+  | `gemini-3.5-flash` | 20 | 120s | ✅ accurate | richer output, use for tricky mechanisms |
+
+  The two quotas are **separate pools** (520/day combined), which is why the UI exposes a switcher. Deprecated, do not use: Gemini 2.0 Flash, 2.0 Flash-Lite, 3.0 Pro Preview.
+
+- **Only these two model IDs may be selected from the UI.** Reject anything else server-side — the model string arrives from the client and must never be passed to the API unchecked.
 - **NEVER commit secrets.** `GEMINI_API_KEY` goes in `.env` (already gitignored via `.env*`). Never print the key, never write it into a report, never `git add` a file containing it.
 - **`dev.db` holds the user's REAL data** — the real Core Prompt v4 and 17 real product entries with their live TikTok clips. It is gitignored with no backup. **NEVER run an unscoped `DELETE FROM <table>;`.** Scope every cleanup delete with `WHERE` to rows you created yourself (e.g. `WHERE productName = 'ทดสอบ AI'`). A past session destroyed user data this way.
 - **No test runner is configured.** "Tests" mean `npm run build` (which type-checks), `npm run lint`, and driving the real app in a browser via Playwright. Do not add Jest/Vitest.
@@ -27,13 +53,18 @@ Branch: `feature/ai-generate` (create from `master`)
 - **On Windows/git-bash, kill a process by port with double slashes:** `netstat -ano | grep ':3000' | grep LISTENING` then `taskkill //PID <pid> //F`. Check port 3000 before starting a dev server.
 - **Commit after each task.** Do not squash tasks together.
 
-## Prerequisites (the user must supply these — you cannot proceed without them)
+## Prerequisites — ✅ ALL SATISFIED (Task 1 is complete; start at Task 2)
 
-1. `GEMINI_API_KEY` in `.env`
-2. `GEMINI_MODEL` in `.env` (start with `gemini-3.5-flash`)
-3. Real product photos for **เคาเตอร์ครัว** (the entry with the most demanding Product Accuracy section), at a path the user gives you
+1. ✅ `GEMINI_API_KEY` in `.env` — working (the only env var this feature needs)
+2. ✅ Real product photos at `image_example/` (gitignored)
 
-If any are missing, stop and ask. Do not fabricate a key or fake the images.
+**Task 1 (validation) already ran and PASSED.** Its findings are baked into the Global Constraints above. Do not re-run it. Summary of what it proved against the user's real `เคาเตอร์ครัว` photos and the real Core Prompt v4:
+
+- Both `gemini-3.1-flash-lite` and `gemini-3.5-flash` produce all 10 sections, 3–5 beats, a Thai voice-over of 151/171 characters (inside the 124–174 range every shipped clip fell in), and the no-on-screen-text rule.
+- **Both read product photos accurately** — each independently described the ribbed-glass flip-up doors and the round knob on each door, matching the photos.
+- The API's real parameter names are snake_case (see Global Constraints); the published docs are wrong.
+
+**One data-quality issue was found and is NOT this feature's problem:** the `riskModule` text on the `เคาเตอร์ครัว` entry describes a *roll-top slatted door with an open bottom shelf*, which is a different product from the one in the photos (two ribbed-glass flip-up doors). When image and text conflict, `3.5-flash` follows the image and `flash-lite` follows the text. Neither is a bug — the input contradicts itself. Do not "fix" this in code.
 
 ## File Structure
 
@@ -56,156 +87,13 @@ If any are missing, stop and ask. Do not fabricate a key or fake the images.
 
 ---
 
-### Task 1: Validation harness — prove Gemini matches ChatGPT before building anything
+### Task 1: Validation harness — ✅ DONE (do not re-run)
 
-This task writes **no project code**. It is a throwaway script whose only job is to answer: does Gemini, given the same inputs, produce output as good as the ChatGPT output the user has been shipping? If the answer is no, we stop and rethink rather than build a feature on sand.
+Ran against the real `เคาเตอร์ครัว` photos, the real Core Prompt v4, and 2 few-shot examples pulled from the shipped entries. Both candidate models PASSED every objective criterion (10/10 sections, 3 beats, Thai voice-over of 151 and 171 chars, no-on-screen-text rule) and both described the photographed product accurately.
 
-**Files:**
-- Create: `<your scratchpad>/gemini-check/` (scratch only — **nothing here gets committed**)
+Its two outputs live in the scratch dir only — nothing was committed, by design. The findings that matter are already recorded in **Global Constraints** and **Prerequisites** above: the verified snake_case API shape, the model table, and the separate quota pools.
 
-**Interfaces:**
-- Consumes: `dev.db` (read-only), the user's `.env`, the user's product photos.
-- Produces: a go/no-go decision. Nothing later depends on this task's code.
-
-- [ ] **Step 1: Confirm the prerequisites exist**
-
-```bash
-cd "C:\Users\patip\Desktop\playground\tts_assistant\pooling\pooling_prompt"
-grep -c GEMINI_API_KEY .env
-grep GEMINI_MODEL .env
-```
-
-Expected: `.env` contains both. **Never print the key's value.** If either is missing, stop and ask the user.
-
-Confirm the user gave you a path to the เคาเตอร์ครัว photos and that the files exist. If not, stop and ask.
-
-- [ ] **Step 2: Set up the scratch project and read the SDK's real types**
-
-In your scratchpad (NOT the project):
-```bash
-mkdir -p "$SCRATCH/gemini-check" && cd "$SCRATCH/gemini-check"
-npm init -y >/dev/null
-npm install @google/genai better-sqlite3 dotenv
-```
-
-Now **read the installed type definitions** — this is the authoritative source, not the web docs:
-```bash
-ls node_modules/@google/genai/dist/*.d.ts
-grep -rn "systemInstruction\|system_instruction\|temperature" node_modules/@google/genai/dist/*.d.ts | head -30
-```
-
-Write down the exact parameter names you find for: system instruction, temperature, and the shape of `interactions.create`. You will use these verbatim. If the names differ from what this plan assumes, **the .d.ts wins**.
-
-- [ ] **Step 3: Smoke test — one tiny call with one image**
-
-This proves the model ID, image support, and quota all at once, before you invest in anything bigger.
-
-Create `$SCRATCH/gemini-check/smoke.mjs`:
-
-```js
-import "dotenv/config";
-import fs from "node:fs";
-import { GoogleGenAI } from "@google/genai";
-
-const key = process.env.GEMINI_API_KEY;
-const model = process.env.GEMINI_MODEL;
-if (!key || !model) throw new Error("missing GEMINI_API_KEY or GEMINI_MODEL");
-
-const imgPath = process.argv[2];
-if (!imgPath) throw new Error("usage: node smoke.mjs <image-path>");
-
-const client = new GoogleGenAI({ apiKey: key });
-const b64 = fs.readFileSync(imgPath, { encoding: "base64" });
-
-const res = await client.interactions.create({
-  model,
-  input: [
-    { type: "text", text: "สินค้าในรูปนี้คืออะไร ตอบสั้นๆ เป็นภาษาไทย" },
-    { type: "image", data: b64, mime_type: "image/jpeg" },
-  ],
-});
-
-console.log("MODEL OK:", model);
-console.log("OUTPUT:", res.output_text);
-```
-
-Run it against one real photo (point `.env` at the project's, or copy the key into the scratch `.env`):
-```bash
-node smoke.mjs "<path-to-one-counter-photo>"
-```
-
-Expected: it prints a Thai description that actually matches the photo. That single output proves three things at once: the model ID is real, images are accepted, and you are not out of quota.
-
-If it fails, read the error literally:
-- model-not-found → try the next ID from Global Constraints, update `GEMINI_MODEL`
-- 429 / quota → tell the user, and have them check `https://aistudio.google.com/rate-limit`
-- auth error → the key is wrong
-
-- [ ] **Step 4: Full comparison run**
-
-Create `$SCRATCH/gemini-check/compare.mjs`. It must:
-
-1. Read from `dev.db` (read-only — copy the DB path, do not write to it):
-   - the active Core Prompt: `SELECT content FROM CorePrompt WHERE isActive = 1`
-   - the target entry: `SELECT productName, productInfo, riskModule, extraNotes, images, chatgptOutput FROM PromptEntry WHERE productName LIKE '%เคาเตอร์ครัว%'`
-   - two *other* entries as few-shot examples: `SELECT productInfo, extraNotes, chatgptOutput FROM PromptEntry WHERE productName NOT LIKE '%เคาเตอร์ครัว%' AND length(chatgptOutput) > 4000 ORDER BY createdAt DESC LIMIT 2`
-
-2. Rebuild the brief exactly the way the app does. **Do not re-implement it** — copy `buildPromptText` from `lib/prompt-template.ts` into the scratch script verbatim (the scratch dir can't import from the project's TS).
-
-3. Call Gemini with, in this order:
-   - system instruction = the Core Prompt content (use the param name you found in Step 2)
-   - two few-shot examples as text: for each, the example's brief then its `chatgptOutput`, clearly delimited so the model reads them as "input → expected output" pairs
-   - the target entry's brief
-   - all the เคาเตอร์ครัว photos as image parts
-   - a low temperature (use the param name you found in Step 2)
-
-4. Print the Gemini output to `gemini-output.txt` and the real ChatGPT output to `chatgpt-output.txt`.
-
-- [ ] **Step 5: Score it against the objective criteria**
-
-Do not eyeball this and call it "looks similar". Measure it. Create `$SCRATCH/gemini-check/score.mjs` that reads `gemini-output.txt` and reports:
-
-```js
-import fs from "node:fs";
-const t = fs.readFileSync("gemini-output.txt", "utf8");
-const seg = new Intl.Segmenter("th", { granularity: "word" });
-
-const sections = ["Style","Scene","Subject","Product Accuracy","Action Timeline",
-                  "Camera","Framing","Lighting","Negative Prompt","QA Checklist"];
-const missing = sections.filter((s) => !new RegExp(s, "i").test(t));
-
-const beats = (t.match(/\d{2}:\d{2}\s*[–\-]\s*\d{2}:\d{2}/g) || []).length;
-
-const i = t.search(/Action Timeline/i);
-const m = i >= 0 ? t.slice(i).match(/[“"']([\s\S]{30,500}?)[”"']/) : null;
-const vo = m ? m[1].trim() : null;
-const voChars = vo ? vo.replace(/\s+/g, "").length : null;
-
-console.log(JSON.stringify({
-  missingSections: missing,            // must be []
-  beats,                               // must be 3..5
-  voChars,                             // must be ~124..174 (the 17 shipped clips ranged this)
-  voIsThai: vo ? /[฀-๿]/.test(vo) : false,
-  hasNoTextRule: /ห้าม.*(ข้อความ|ซับ|ตัวหนังสือ)/.test(t),
-}, null, 2));
-```
-
-**Pass criteria — all must hold:**
-- `missingSections` is `[]` (all 10 parts present)
-- `beats` is 3–5
-- `voChars` is roughly 124–174 (the range every shipped clip fell in; average was 142)
-- `voIsThai` is `true`
-- `hasNoTextRule` is `true`
-
-**Then read `gemini-output.txt`'s Product Accuracy section yourself, next to the actual photos.** This is the part a script cannot judge: did it describe *what is actually in the picture* (the slatted roller door, the side rails, the handle position), or did it hallucinate a generic cabinet? This is the whole reason เคาเตอร์ครัว was chosen. If it invented details, that is a **fail** even if every number above passes.
-
-- [ ] **Step 6: Report the verdict and STOP**
-
-Write a short report to the user containing: the objective scores, a side-by-side of the two Product Accuracy sections, and a clear PASS or FAIL.
-
-**If FAIL: stop here. Do not start Task 2.** Come back and discuss — options are tuning the few-shot examples, trying another model ID, or switching to a paid OpenAI model.
-
-**If PASS: delete nothing, commit nothing** (this was all scratch), and continue to Task 2.
+**Start work at Task 2.**
 
 ---
 
@@ -719,10 +607,10 @@ git commit -m "Upload and display real product photos per entry"
 **Interfaces:**
 - Consumes: `buildPromptText` from `lib/prompt-template.ts`; `ProductImage` rows from Task 2; `PromptEntry` / `ProductImageRecord` types from Task 3.
 - Produces:
+  - `lib/gemini.ts` → `GEMINI_MODELS` (the allow-list), `type GeminiModelId`, `isGeminiModelId(v: string): v is GeminiModelId`, and `generateTenPartPrompt(args: { model: GeminiModelId; systemInstruction: string; examples: { brief: string; output: string }[]; brief: string; images: { base64: string; mimeType: string }[] }): Promise<string>`
   - `lib/few-shot.ts` → `getFewShotExamples(excludeEntryId: string): Promise<{ brief: string; output: string }[]>`
-  - `lib/gemini.ts` → `generateTenPartPrompt(args: { systemInstruction: string; examples: { brief: string; output: string }[]; brief: string; images: { base64: string; mimeType: string }[] }): Promise<string>`
-  - `app/actions.ts` → `generateWithAI(entryId: string): Promise<void>` — generates and saves into `chatgptOutput`
-  - `ScriptOutput` gains props `onGenerate: () => void`, `isGenerating: boolean`, `canGenerate: boolean`
+  - `app/actions.ts` → `generateWithAI(entryId: string, model: string): Promise<void>` — generates and saves into `chatgptOutput`
+  - `ScriptOutput` gains props `onGenerate: () => void`, `isGenerating: boolean`, `canGenerate: boolean`, `model: string`, `onModelChange: (m: string) => void`
 
 - [ ] **Step 1: Install the SDK**
 
@@ -730,15 +618,17 @@ git commit -m "Upload and display real product photos per entry"
 npm install @google/genai
 ```
 
-- [ ] **Step 2: Read the SDK's real types before writing any call**
+- [ ] **Step 2: Confirm the verified call shape**
 
-**Do not skip this and do not guess parameter names.** The web docs are incomplete; the installed types are authoritative.
+The exact shape is already recorded in **Global Constraints** — it was read out of `node_modules/@google/genai/dist/genai.d.ts` (`CreateModelInteraction`) during Task 1 and confirmed with live API calls. It is **snake_case**, and the published web docs are wrong.
+
+Re-confirm it still matches the installed version before writing code:
 
 ```bash
-grep -rn "systemInstruction\|system_instruction\|temperature\|interactions" node_modules/@google/genai/dist/*.d.ts | head -40
+grep -n "system_instruction\|generation_config" node_modules/@google/genai/dist/genai.d.ts | head -5
 ```
 
-Find the exact names for: system instruction, temperature, and the `interactions.create` argument shape. Use exactly what you find. The code in Step 4 below shows the *structure* — if a parameter name differs in the .d.ts, **the .d.ts wins and you adjust the code**.
+Expected: both names appear. If they don't, the SDK changed — read `CreateModelInteraction` again and adjust. **Never write `systemInstruction` (camelCase): the API ignores it silently, the Core Prompt never reaches the model, and nothing errors.**
 
 - [ ] **Step 3: Pick the few-shot examples**
 
@@ -793,30 +683,45 @@ export async function getFewShotExamples(
 
 - [ ] **Step 4: Call Gemini**
 
-Create `lib/gemini.ts`. **Adjust the parameter names to match what you found in Step 2.**
+Create `lib/gemini.ts`. The parameter names below are **verified** (snake_case) — do not "correct" them to camelCase.
 
 ```ts
 import { GoogleGenAI } from "@google/genai";
 
+/**
+ * The only models the app may call. Both were validated against real product
+ * photos: each produces all 10 sections and reads the photos accurately.
+ * Their free-tier quotas are separate pools, so offering both roughly doubles
+ * daily capacity.
+ */
+export const GEMINI_MODELS = [
+  { id: "gemini-3.1-flash-lite", label: "เร็ว (500/วัน)" },
+  { id: "gemini-3.5-flash", label: "ละเอียด (20/วัน)" },
+] as const;
+
+export type GeminiModelId = (typeof GEMINI_MODELS)[number]["id"];
+
+export function isGeminiModelId(value: string): value is GeminiModelId {
+  return GEMINI_MODELS.some((m) => m.id === value);
+}
+
 export type GeminiImage = { base64: string; mimeType: string };
 
 export async function generateTenPartPrompt(args: {
+  model: GeminiModelId;
   systemInstruction: string;
   examples: { brief: string; output: string }[];
   brief: string;
   images: GeminiImage[];
 }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL;
-
-  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY");
-  if (!model) throw new Error("ยังไม่ได้ตั้งค่า GEMINI_MODEL");
+  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
 
   const client = new GoogleGenAI({ apiKey });
 
-  const input: unknown[] = [];
+  const input: object[] = [];
 
-  // Few-shot: show the model completed input -> output pairs first.
+  // Few-shot first: completed input -> output pairs teach the exact format.
   for (const [i, ex] of args.examples.entries()) {
     input.push({
       type: "text",
@@ -826,22 +731,19 @@ export async function generateTenPartPrompt(args: {
     });
   }
 
-  // The real task, then the photos it must be based on.
+  // Then the real task, then the photos it must be based on.
   input.push({ type: "text", text: `### โจทย์จริง\n${args.brief}` });
   for (const img of args.images) {
     input.push({ type: "image", data: img.base64, mime_type: img.mimeType });
   }
 
   const res = await client.interactions.create({
-    model,
+    model: args.model,
+    // snake_case is correct — the web docs' camelCase `systemInstruction` is
+    // silently ignored by the API, which would drop the Core Prompt with no error.
+    system_instruction: args.systemInstruction,
+    generation_config: { temperature: 0.3 },
     input,
-    // The two lines below are the ONLY unverified part of this file. Their real
-    // names come from node_modules/@google/genai/dist/*.d.ts (Step 2) — if they
-    // differ, change them here. Do NOT paper over a type error with `as any` or
-    // a cast: a wrong name means the system instruction silently never reaches
-    // the model, and the output would drift with no error to tell you why.
-    systemInstruction: args.systemInstruction,
-    temperature: 0.3,
   });
 
   const text = res.output_text;
@@ -860,13 +762,18 @@ In `app/actions.ts`, add these imports below the existing ones:
 import { readFile } from "node:fs/promises";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
-import { generateTenPartPrompt } from "@/lib/gemini";
+import { generateTenPartPrompt, isGeminiModelId } from "@/lib/gemini";
 ```
 
 Then append this action at the end of the file:
 
 ```ts
-export async function generateWithAI(entryId: string) {
+export async function generateWithAI(entryId: string, model: string) {
+  // The model string comes from the client — never pass it to the API unchecked.
+  if (!isGeminiModelId(model)) {
+    throw new Error("โมเดลไม่ถูกต้อง");
+  }
+
   const entry = await prisma.promptEntry.findUnique({
     where: { id: entryId },
     include: { productImages: { orderBy: { sortOrder: "asc" } } },
@@ -907,6 +814,7 @@ export async function generateWithAI(entryId: string) {
   );
 
   const output = await generateTenPartPrompt({
+    model,
     systemInstruction: core.content,
     examples: await getFewShotExamples(entryId),
     brief,
@@ -924,9 +832,13 @@ export async function generateWithAI(entryId: string) {
 
 `UPLOAD_ROOT` and `path` already exist in this file from Task 2 — do not redeclare them.
 
-- [ ] **Step 6: Add the button**
+- [ ] **Step 6: Add the model picker and the generate button**
 
-In `components/script-output.tsx`, extend the props and add a button.
+In `components/script-output.tsx`, add this import:
+
+```tsx
+import { GEMINI_MODELS } from "@/lib/gemini";
+```
 
 Change the component signature to:
 
@@ -938,6 +850,8 @@ export function ScriptOutput({
   onGenerate,
   isGenerating,
   canGenerate,
+  model,
+  onModelChange,
 }: {
   output: string;
   copied: boolean;
@@ -945,12 +859,28 @@ export function ScriptOutput({
   onGenerate: () => void;
   isGenerating: boolean;
   canGenerate: boolean;
+  model: string;
+  onModelChange: (model: string) => void;
 }) {
 ```
 
-Then, in the header row that currently holds the copy button, add the generate button immediately **before** the existing copy `<Button>`:
+Then, in the header row that currently holds the copy button, add the picker and the generate button immediately **before** the existing copy `<Button>`:
 
 ```tsx
+        <select
+          value={model}
+          onChange={(e) => onModelChange(e.target.value)}
+          disabled={isGenerating}
+          aria-label="เลือกโมเดล AI"
+          className="h-7 rounded-lg border border-input bg-background px-2 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+        >
+          {GEMINI_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+
         <Button
           type="button"
           size="sm"
@@ -963,7 +893,9 @@ Then, in the header row that currently holds the copy button, add the generate b
         </Button>
 ```
 
-- [ ] **Step 7: Wire the button up**
+A plain `<select>` is used rather than a shadcn primitive — the project has no select component and this does not warrant adding one.
+
+- [ ] **Step 7: Wire it up**
 
 In `components/prompt-workspace.tsx`:
 
@@ -971,6 +903,7 @@ Add to the imports:
 
 ```tsx
 import { generateWithAI } from "@/app/actions";
+import { GEMINI_MODELS } from "@/lib/gemini";
 ```
 
 Inside the component, below the existing `handleCopy` function, add:
@@ -978,13 +911,16 @@ Inside the component, below the existing `handleCopy` function, add:
 ```tsx
   const [isGenerating, startGenerating] = useTransition();
   const [genError, setGenError] = useState<string | null>(null);
+  // Defaults to the fast, high-quota model. Both models were validated; the
+  // slower one has a separate quota pool and richer output for tricky products.
+  const [model, setModel] = useState<string>(GEMINI_MODELS[0].id);
 
   function handleGenerate() {
     if (!selectedEntry) return;
     setGenError(null);
     startGenerating(async () => {
       try {
-        await generateWithAI(selectedEntry.id);
+        await generateWithAI(selectedEntry.id, model);
       } catch (e) {
         setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
       }
@@ -1004,6 +940,8 @@ Then pass the new props to `<ScriptOutput>`:
               onGenerate={handleGenerate}
               isGenerating={isGenerating}
               canGenerate={(selectedEntry?.productImages.length ?? 0) > 0}
+              model={model}
+              onModelChange={setModel}
             />
 ```
 
@@ -1022,7 +960,7 @@ And show the error. Add this immediately after the `</ScriptOutput>`'s parent `<
 ```bash
 npm run build && npm run lint
 ```
-Expected: clean. If TypeScript complains about `systemInstruction` or `temperature`, that is Step 2 telling you the real parameter names differ — go read the .d.ts and fix `lib/gemini.ts`.
+Expected: clean. If TypeScript complains about `system_instruction` or `generation_config`, the SDK changed — re-read `CreateModelInteraction` in `node_modules/@google/genai/dist/genai.d.ts` and fix `lib/gemini.ts` to match. **Do not silence it with `as any`:** a wrong name means the Core Prompt never reaches the model, silently.
 
 - [ ] **Step 9: Drive the whole flow for real**
 
@@ -1115,9 +1053,9 @@ Add a new section after `## Database`:
 ```
 ## Gemini API
 
-- ใช้ `@google/genai` (ไม่ใช่ `@google/generative-ai` ตัวเก่า) เรียกผ่าน `client.interactions.create({ model, input })`
-- **ห้าม hard-code ชื่อโมเดล** — อ่านจาก `GEMINI_MODEL` ใน `.env` (ใช้ได้: `gemini-3.5-flash`, `gemini-3.1-flash-lite`, `gemini-2.5-flash`; deprecated: 2.0 Flash, 3.0 Pro Preview)
-- **ห้ามเดา API shape ของ SDK** — เอกสารเว็บไม่ครบ ให้อ่าน type definitions จริงใน `node_modules/@google/genai/dist/*.d.ts`
+- ใช้ `@google/genai` (ไม่ใช่ `@google/generative-ai` ตัวเก่า) เรียกผ่าน `client.interactions.create(...)`
+- **API ตัวนี้ใช้ snake_case** — `system_instruction` (ไม่ใช่ `systemInstruction`) และ `temperature` อยู่ใน `generation_config` ถ้าสะกดผิด API จะ**เงียบ** ไม่ error แต่ Core Prompt จะไม่ถูกส่งไปเลย → **ห้ามเดา API shape** ให้อ่าน type จริงใน `node_modules/@google/genai/dist/genai.d.ts` (`CreateModelInteraction`) และห้ามกลบด้วย `as any`
+- **รายชื่อโมเดลอยู่ที่เดียวคือ `GEMINI_MODELS` ใน `lib/gemini.ts`** — UI สร้าง dropdown จากตัวนี้ และ Server Action validate ด้วยตัวนี้ (ห้าม hard-code ที่อื่น) ตอนนี้มี `gemini-3.1-flash-lite` (เร็ว 500/วัน, default) กับ `gemini-3.5-flash` (ช้ากว่า 20/วัน, ละเอียดกว่า) — โควตาแยกคนละ pool กัน
 - Google เลิกประกาศตัวเลข quota ของ free tier ในเอกสารแล้ว — ดู limit จริงของบัญชีที่ `https://aistudio.google.com/rate-limit`
 - `GEMINI_API_KEY` อยู่ใน `.env` (gitignore แล้ว) — **ห้าม commit เด็ดขาด**
 ```

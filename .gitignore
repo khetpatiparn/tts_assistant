@@ -48,3 +48,7 @@ next-env.d.ts
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days
+
+# product reference photos (local only)
+/image_example
+/uploads
