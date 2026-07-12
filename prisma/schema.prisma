@@ -34,7 +34,5 @@ model PromptEntry {
   corePrompt     CorePrompt? @relation(fields: [corePromptId], references: [id])
   chatgptOutput  String      @default("")
   videoUrl       String      @default("")
-  views          Int?
-  viewsUpdatedAt DateTime?
   postedAt       DateTime?
 }

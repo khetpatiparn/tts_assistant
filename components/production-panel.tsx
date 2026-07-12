@@ -18,15 +18,6 @@ function isSafeHttpUrl(value: string) {
   }
 }
 
-function formatStamp(value: Date | null) {
-  if (!value) return null;
-  return new Date(value).toLocaleDateString("th-TH", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 function toDateInputValue(value: Date | null) {
   if (!value) return "";
   // Stored as UTC midnight, so read the UTC parts back out — using local
@@ -38,7 +29,6 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
-  const [views, setViews] = useState(entry.views === null ? "" : String(entry.views));
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
 
   const [state, action, isSaving] = useActionState(
@@ -48,8 +38,6 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
     },
     null
   );
-
-  const stamp = formatStamp(entry.viewsUpdatedAt);
 
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
@@ -76,7 +64,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
           />
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground/90">ลิงก์คลิป TikTok</label>
             <div className="flex items-center gap-2">
@@ -113,21 +101,6 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             </p>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-foreground/90">ยอดวิว</label>
-            <Input
-              name="views"
-              type="number"
-              min={0}
-              step={1}
-              value={views}
-              onChange={(e) => setViews(e.target.value)}
-              placeholder="เช่น 12000"
-            />
-            <p className="font-mono text-[0.7rem] text-muted-foreground">
-              {stamp ? `อัปเดตล่าสุด ${stamp}` : "ยังไม่เคยบันทึกยอดวิว"}
-            </p>
-          </div>
         </div>
 
         <div className="flex items-center gap-3">

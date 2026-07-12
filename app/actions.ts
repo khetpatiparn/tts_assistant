@@ -50,7 +50,6 @@ export async function updateProduction(formData: FormData) {
 
   const chatgptOutput = String(formData.get("chatgptOutput") ?? "").trim();
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
-  const rawViews = String(formData.get("views") ?? "").trim();
   const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
 
   if (videoUrl !== "") {
@@ -64,11 +63,6 @@ export async function updateProduction(formData: FormData) {
     if (!isValidUrl) {
       throw new Error("ลิงก์คลิปต้องเป็น URL http/https ที่ถูกต้อง");
     }
-  }
-
-  const parsedViews = rawViews === "" ? null : Number(rawViews);
-  if (parsedViews !== null && (!Number.isInteger(parsedViews) || parsedViews < 0)) {
-    throw new Error("ยอดวิวต้องเป็นจำนวนเต็มไม่ติดลบ");
   }
 
   // <input type="date"> submits "YYYY-MM-DD". Parse as UTC midnight so the
@@ -89,21 +83,11 @@ export async function updateProduction(formData: FormData) {
     throw new Error("ไม่พบรายการที่ต้องการบันทึก");
   }
 
-  // Only stamp viewsUpdatedAt when the number actually changes, so the
-  // timestamp keeps telling you how old the figure is.
-  const viewsChanged = parsedViews !== existing.views;
-
   await prisma.promptEntry.update({
     where: { id },
     data: {
       chatgptOutput,
       videoUrl,
-      views: parsedViews,
-      viewsUpdatedAt: viewsChanged
-        ? parsedViews === null
-          ? null
-          : new Date()
-        : existing.viewsUpdatedAt,
       postedAt: parsedPostedAt,
     },
   });
