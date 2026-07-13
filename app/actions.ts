@@ -241,7 +241,7 @@ export async function generateWithAI(
     throw new Error("กรุณาแนบรูปสินค้าจริงอย่างน้อย 1 รูปก่อนสร้างด้วย AI");
   }
 
-  const core = await prisma.corePrompt.findFirst({ where: { isActive: true } });
+  const core = await prisma.corePrompt.findFirst({ where: { isActive: true, kind: "core" } });
   if (!core) {
     throw new Error("ยังไม่ได้ตั้ง Core Prompt ที่ใช้งานอยู่");
   }
