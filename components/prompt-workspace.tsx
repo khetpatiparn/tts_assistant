@@ -146,6 +146,7 @@ export function PromptWorkspace({
     setForm(entryToForm(entry));
     setPendingImages([]);
     setImageError(null);
+    setGenError(null);
   }
 
   function startNew() {
@@ -153,6 +154,7 @@ export function PromptWorkspace({
     setForm(emptyForm);
     setPendingImages([]);
     setImageError(null);
+    setGenError(null);
     setTab("brief");
   }
 

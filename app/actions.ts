@@ -28,7 +28,7 @@ export async function createPrompt(formData: FormData) {
   }
 
   const activeCorePrompt = await prisma.corePrompt.findFirst({
-    where: { isActive: true },
+    where: { isActive: true, kind: "core" },
   });
 
   const created = await prisma.promptEntry.create({
