@@ -10,26 +10,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-- `npm run dev` — start the dev server
-- `npm run build` — production build
-- `npm run start` — run the production build
-- `npm run lint` — ESLint (flat config in `eslint.config.mjs`, extends `eslint-config-next` core-web-vitals + typescript rules)
-
 No test runner is configured in this project.
 
 เครื่อง Windows/git-bash นี้ ถ้าจะ kill process ตาม port ต้องใส่ flag แบบ double-slash: `netstat -ano | grep ':3000' | grep LISTENING` แล้วตามด้วย `taskkill //PID <pid> //F` (ใส่ slash เดียวจะโดนแปลงเป็น path แล้ว error)
 
 `start.bat` / `stop.bat` ที่ root ของ repo ใช้ build+รัน / หยุด production server แบบ background ให้ใช้งานได้โดยไม่ต้องเปิด terminal
 
+**ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันหลายตัวพร้อมกันในโฟลเดอร์นี้** (เช่น agent รันพร้อมที่ผู้ใช้เปิด `start.bat` เอง) — `.next` จะเขียนทับกันจนพังแบบ `Cannot find module 'better-sqlite3-...'` ตอน `npm run start` ถ้าเจอ ให้ `rm -rf .next` แล้ว build ใหม่
+
 ## Architecture
 
-- App Router under `app/` — currently just `layout.tsx`, `page.tsx`, `globals.css`; no nested routes yet.
 - `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` — มีช่องอัปโหลดรูปสินค้าจริง + `script-output.tsx` — มีปุ่ม "สร้างด้วย AI" กับ dropdown เลือกโมเดล), ② ผลลัพธ์ & คลิป (`production-panel.tsx` — 10-part prompt textarea, Caption/Hashtags fields + ปุ่มคัดลอกทั้งหมด, video URL, posted date), ③ Core Prompt (`core-prompt-panel.tsx` ×2 instances — แยก `kind`: core vs caption) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`) การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
 - Path alias `@/*` resolves to the repo root (see `tsconfig.json`).
 - Styling is Tailwind v4 with CSS-first config: there is no `tailwind.config.*` file — theme tokens (colors, radii, fonts, sidebar/chart variables) are defined via `@theme inline` and `:root`/`.dark` blocks directly in `app/globals.css`.
 - shadcn/ui is configured via `components.json`: style `base-nova`, base color `neutral`, icon library `lucide-react`. **Components are built on `@base-ui/react` primitives, not Radix UI** — this differs from most shadcn/ui setups, so when generating or extending components, use Base UI's API/props rather than assuming Radix conventions.
 - `lib/utils.ts` exports the standard shadcn `cn()` helper (`clsx` + `tailwind-merge`).
-- `components/ui/` holds shadcn-generated primitives (`button.tsx`, `input.tsx`, `textarea.tsx`)
 - Design tokens ที่กำหนดเอง (สีชื่อ `ink`/`paper`/`marigold`/`rust`/`smoke`/`record`, ฟอนต์ `Chonburi`/`IBM Plex Sans Thai`/`JetBrains Mono`) อยู่ใน `app/globals.css` และ `app/layout.tsx` — ให้ใช้ของเดิม อย่าเพิ่มสี/ฟอนต์ใหม่ขึ้นมาเอง
 - Layout เป็น fixed-viewport-with-internal-scroll (header คงที่ + sidebar/เนื้อหาสกรอลแยกกันเองที่ `lg:` ขึ้นไป) — จุดสำคัญคือ **`body` ใน `app/layout.tsx` ต้องมี `lg:h-full lg:overflow-hidden` ด้วย ไม่ใช่แค่ inner div** เพราะ flex child ที่มี `flex-1` จะดันความสูงของ ancestor ที่มีแค่ `min-height` ให้ยืดเกิน viewport ได้ ถ้าจะแก้/เพิ่ม scroll region ใหม่ ต้องเช็กทั้ง chain ตั้งแต่ `body` ลงมา
 
@@ -44,6 +39,7 @@ No test runner is configured in this project.
 - **ห้ามรัน `DELETE FROM <table>;` แบบไม่มี `WHERE`** ตอนเคลียร์ข้อมูลทดสอบ — `dev.db` ไม่มี backup/WAL และถูก gitignore ไว้ ลบไปแล้วกู้คืนไม่ได้ ให้ระบุ `WHERE` เจาะจงแถวที่ตัวเองสร้างทดสอบเท่านั้น (เช่น `WHERE productName = '...'`)
 - `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ
 - `CorePrompt` แยกชนิดด้วยคอลัมน์ `kind` — `core` (สร้างวิดีโอ) กับ `caption` (SEO prompt) **active ได้ทีละอันต่อ kind** ห้ามลืมใส่ `kind` ใน `where` ของ transaction ไม่งั้นการเพิ่มเวอร์ชันฝั่งหนึ่งจะไปปิด active ของอีกฝั่ง เนื้อหาตั้งต้นของ SEO prompt อยู่ที่ `prisma/seed/seo-prompt-v1.md` seed ด้วย `node prisma/seed/seed-seo-prompt.mjs` (idempotent)
+- **กฎเดียวกันนี้ใช้กับทุก query ที่อ่าน `isActive: true` ด้วย ไม่ใช่แค่ตอนเขียน** — `findFirst({ where: { isActive: true } })` แบบไม่ใส่ `kind` จะได้แถวมั่วเมื่อมี 2 kind active พร้อมกัน (เคยพังเงียบมาแล้ว 2 จุดคือใน `generateWithAI` และ `createPrompt` ก่อนถูกแก้)
 - `ProductImage` เก็บแค่ metadata ของรูปสินค้าจริง — ตัวไฟล์อยู่บนดิสก์ที่ `uploads/<entryId>/` (gitignore ไว้) เสิร์ฟกลับผ่าน `app/api/uploads/[...path]/route.ts` ลบ entry แล้วแถวรูปหายตาม (`onDelete: Cascade`) แต่ไฟล์บนดิสก์ไม่ได้ถูกลบ
 
 ## Gemini API (ปุ่ม "สร้างด้วย AI")

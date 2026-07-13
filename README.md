@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pooling Prompt
 
-## Getting Started
+เครื่องมือ local สำหรับสร้าง prompt วิดีโอ AI ของ TikTok Shop (เป้าหมายคือ Gemini Flow) — กรอกข้อมูลสินค้า + รูปสินค้าจริง แล้วให้ Gemini API ประกอบเป็น 10-part prompt พร้อม Caption/Hashtag สำหรับโพสต์ ครบในหน้าเดียว
 
-First, run the development server:
+ดู `CLAUDE.md` สำหรับรายละเอียดสถาปัตยกรรม, gotcha ที่เจอมาแล้ว และ `requirements/req1.md` สำหรับสเปกผลิตภัณฑ์เต็ม (ภาษาไทย)
+
+## เริ่มต้นใช้งาน
+
+ติดตั้ง dependency:
+
+```bash
+npm install
+```
+
+สร้างไฟล์ `.env` ที่ root แล้วใส่:
+
+```
+DATABASE_URL="file:./dev.db"
+GEMINI_API_KEY="<คีย์จาก aistudio.google.com>"
+```
+
+สร้างฐานข้อมูล (SQLite ผ่าน Prisma):
+
+```bash
+npx prisma migrate dev
+node prisma/seed/seed-seo-prompt.mjs
+```
+
+รัน dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+เปิด [http://localhost:3000](http://localhost:3000)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## รันแบบ background (ไม่ต้องเปิด terminal ค้างไว้)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+ใช้ `start.bat` / `stop.bat` ที่ root — build แล้วรัน production server เป็น background process ให้เอง
 
-## Learn More
+**ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันหลายตัวพร้อมกัน** (เช่นรัน dev server เองพร้อมกับที่ agent กำลัง build) — `.next` จะเขียนทับกันจนพัง ดู `CLAUDE.md` สำหรับวิธีแก้
 
-To learn more about Next.js, take a look at the following resources:
+## คำสั่งอื่นๆ
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run build   # production build (type-check ในตัว)
+npm run lint    # ESLint
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ไม่มี test runner ในโปรเจกต์นี้ — verify ด้วยการรันจริงตามที่ระบุใน `CLAUDE.md`
