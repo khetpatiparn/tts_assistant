@@ -77,7 +77,7 @@ const rows = db
   .prepare(
     `SELECT productName, chatgptOutput FROM PromptEntry
      WHERE length(chatgptOutput) > 2000
-       AND (productName LIKE '%แก้วกาแฟ%' OR productName LIKE '%ลับเล็บ%' OR productName LIKE '%ชั้นวาง%')
+       AND (productName LIKE '%ถ้วยกาแฟ%' OR productName LIKE '%ลับเล็บ%' OR productName LIKE '%ชั้นวาง%')
      LIMIT 3`
   )
   .all();
@@ -137,7 +137,7 @@ node caption-check.mjs "$SCRATCH/seo-prompt.md"
 - `bannedTags` ว่าง
 - **ตรวจด้วยตา:** ชื่อสินค้าอยู่ช่วงต้นของ caption · hashtag อย่างน้อย 3 อันเฉพาะเจาะจงกับสินค้า · ไม่มีการเคลมเกินข้อมูล (ราคา/ส่งฟรี/ขายดี/รักษาโรค)
 
-เทียบกับตัวอย่าง caption ที่ผู้ใช้เขียนไว้ใน spec (แก้วกาแฟ / ที่ลับเล็บแมว / ชั้นวางของ) ว่าคุณภาพใกล้เคียงกันไหม
+เทียบกับตัวอย่าง caption ที่ผู้ใช้เขียนไว้ใน spec (ถ้วยกาแฟ / ที่ลับเล็บแมว / ชั้นวางของ) ว่าคุณภาพใกล้เคียงกันไหม
 
 **ถ้าไม่ผ่าน: หยุด รายงานผลจริงให้ผู้ใช้ ห้ามเดินหน้าต่อ** (ทางเลือกที่จะเสนอ: ใช้ 3.5-flash เฉพาะ stage นี้ / ปรับ SEO prompt / ใส่ few-shot จากตัวอย่าง caption ของผู้ใช้)
 

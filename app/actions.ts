@@ -6,7 +6,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
-import { generateTenPartPrompt, isGeminiModelId } from "@/lib/gemini";
+import {
+  generateTenPartPrompt,
+  generateCaptionAndHashtags,
+  isGeminiModelId,
+} from "@/lib/gemini";
+import { parseCaptionOutput } from "@/lib/caption";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -23,7 +28,7 @@ export async function createPrompt(formData: FormData) {
   }
 
   const activeCorePrompt = await prisma.corePrompt.findFirst({
-    where: { isActive: true },
+    where: { isActive: true, kind: "core" },
   });
 
   const created = await prisma.promptEntry.create({
@@ -54,6 +59,8 @@ export async function updateProduction(formData: FormData) {
   }
 
   const chatgptOutput = String(formData.get("chatgptOutput") ?? "").trim();
+  const caption = String(formData.get("caption") ?? "").trim();
+  const hashtags = String(formData.get("hashtags") ?? "").trim();
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
   const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
 
@@ -92,6 +99,8 @@ export async function updateProduction(formData: FormData) {
     where: { id },
     data: {
       chatgptOutput,
+      caption,
+      hashtags,
       videoUrl,
       postedAt: parsedPostedAt,
     },
@@ -100,21 +109,34 @@ export async function updateProduction(formData: FormData) {
   revalidatePath("/");
 }
 
+const PROMPT_KINDS = ["core", "caption"] as const;
+type PromptKind = (typeof PROMPT_KINDS)[number];
+
+function isPromptKind(value: string): value is PromptKind {
+  return PROMPT_KINDS.includes(value as PromptKind);
+}
+
 export async function createCorePrompt(formData: FormData) {
   const label = String(formData.get("label") ?? "").trim();
   const content = String(formData.get("content") ?? "").trim();
+  const kind = String(formData.get("kind") ?? "core");
 
+  // kind มาจาก client — เชื่อไม่ได้
+  if (!isPromptKind(kind)) {
+    throw new Error("ชนิด prompt ไม่ถูกต้อง");
+  }
   if (!label || !content) {
-    throw new Error("กรุณากรอกชื่อเวอร์ชันและเนื้อหา core prompt");
+    throw new Error("กรุณากรอกชื่อเวอร์ชันและเนื้อหา prompt");
   }
 
   await prisma.$transaction([
+    // ปิด active เฉพาะ kind เดียวกัน — ห้ามไปปิดของอีกชนิด
     prisma.corePrompt.updateMany({
-      where: { isActive: true },
+      where: { isActive: true, kind },
       data: { isActive: false },
     }),
     prisma.corePrompt.create({
-      data: { label, content, isActive: true },
+      data: { label, content, kind, isActive: true },
     }),
   ]);
 
@@ -122,9 +144,14 @@ export async function createCorePrompt(formData: FormData) {
 }
 
 export async function setActiveCorePrompt(id: string) {
+  const target = await prisma.corePrompt.findUnique({ where: { id } });
+  if (!target) {
+    throw new Error("ไม่พบเวอร์ชันที่ต้องการใช้");
+  }
+
   await prisma.$transaction([
     prisma.corePrompt.updateMany({
-      where: { isActive: true },
+      where: { isActive: true, kind: target.kind },
       data: { isActive: false },
     }),
     prisma.corePrompt.update({
@@ -194,7 +221,10 @@ export async function uploadProductImages(formData: FormData) {
   revalidatePath("/");
 }
 
-export async function generateWithAI(entryId: string, model: string) {
+export async function generateWithAI(
+  entryId: string,
+  model: string
+): Promise<{ captionError: string | null }> {
   // The model string arrives from the client — never hand it to the API unchecked.
   if (!isGeminiModelId(model)) {
     throw new Error("โมเดลไม่ถูกต้อง");
@@ -211,7 +241,7 @@ export async function generateWithAI(entryId: string, model: string) {
     throw new Error("กรุณาแนบรูปสินค้าจริงอย่างน้อย 1 รูปก่อนสร้างด้วย AI");
   }
 
-  const core = await prisma.corePrompt.findFirst({ where: { isActive: true } });
+  const core = await prisma.corePrompt.findFirst({ where: { isActive: true, kind: "core" } });
   if (!core) {
     throw new Error("ยังไม่ได้ตั้ง Core Prompt ที่ใช้งานอยู่");
   }
@@ -247,12 +277,39 @@ export async function generateWithAI(entryId: string, model: string) {
     images: photos,
   });
 
+  // บันทึกผลของ stage 1 ให้เสร็จก่อนเสมอ — ถ้า stage 2 พัง 10-part prompt ต้องไม่หายไปด้วย
   await prisma.promptEntry.update({
     where: { id: entryId },
     data: { chatgptOutput: output },
   });
 
+  let captionError: string | null = null;
+
+  const seoPrompt = await prisma.corePrompt.findFirst({
+    where: { isActive: true, kind: "caption" },
+  });
+
+  if (!seoPrompt) {
+    captionError = "ยังไม่ได้ตั้ง SEO Prompt ที่ใช้งานอยู่";
+  } else {
+    try {
+      const parsed = parseCaptionOutput(
+        await generateCaptionAndHashtags({
+          systemInstruction: seoPrompt.content,
+          tenPartPrompt: output,
+        })
+      );
+      await prisma.promptEntry.update({
+        where: { id: entryId },
+        data: { caption: parsed.caption, hashtags: parsed.hashtags },
+      });
+    } catch (e) {
+      captionError = e instanceof Error ? e.message : "สร้าง Caption ไม่สำเร็จ";
+    }
+  }
+
   revalidatePath("/");
+  return { captionError };
 }
 
 export async function deleteProductImage(id: string) {

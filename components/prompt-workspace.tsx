@@ -35,6 +35,8 @@ export type PromptEntry = {
   images: string;
   corePromptId: string | null;
   chatgptOutput: string;
+  caption: string;
+  hashtags: string;
   videoUrl: string;
   postedAt: Date | null;
   productImages: ProductImageRecord[];
@@ -45,6 +47,7 @@ export type CorePromptRecord = {
   label: string;
   content: string;
   isActive: boolean;
+  kind: string;
 };
 
 const emptyForm: FormState = {
@@ -143,6 +146,7 @@ export function PromptWorkspace({
     setForm(entryToForm(entry));
     setPendingImages([]);
     setImageError(null);
+    setGenError(null);
   }
 
   function startNew() {
@@ -150,6 +154,7 @@ export function PromptWorkspace({
     setForm(emptyForm);
     setPendingImages([]);
     setImageError(null);
+    setGenError(null);
     setTab("brief");
   }
 
@@ -203,9 +208,12 @@ export function PromptWorkspace({
     setGenError(null);
     startGenerating(async () => {
       try {
-        await generateWithAI(selectedEntry.id, model);
-        // The result is saved onto the entry, which the ผลลัพธ์ tab shows.
+        const result = await generateWithAI(selectedEntry.id, model);
+        // 10-part prompt บันทึกแล้วแน่นอน แม้ caption จะพัง — ไปแท็บผลลัพธ์เสมอ
         setTab("production");
+        if (result.captionError) {
+          setGenError(`สร้าง 10-part prompt สำเร็จ แต่ Caption ไม่สำเร็จ: ${result.captionError}`);
+        }
       } catch (e) {
         setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
       }
@@ -227,6 +235,12 @@ export function PromptWorkspace({
           productionDisabled={selectedEntry === null}
         />
       </ClapperHeader>
+
+      {genError && (
+        <p className="mx-4 mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record sm:mx-6">
+          {genError}
+        </p>
+      )}
 
       <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
         <HistoryRail
@@ -269,12 +283,6 @@ export function PromptWorkspace({
                 onModelChange={setModel}
               />
             </div>
-
-            {genError && (
-              <p className="mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
-                {genError}
-              </p>
-            )}
           </div>
         )}
 
@@ -285,8 +293,17 @@ export function PromptWorkspace({
         )}
 
         {tab === "core" && (
-          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
-            <CorePromptPanel corePrompts={corePrompts} />
+          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 lg:overflow-y-auto">
+            <CorePromptPanel
+              corePrompts={corePrompts.filter((c) => c.kind === "core")}
+              kind="core"
+              title="Core Prompt · สร้างวิดีโอ"
+            />
+            <CorePromptPanel
+              corePrompts={corePrompts.filter((c) => c.kind === "caption")}
+              kind="caption"
+              title="SEO Prompt · Caption & Hashtag"
+            />
           </div>
         )}
       </div>

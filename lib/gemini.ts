@@ -67,3 +67,41 @@ export async function generateTenPartPrompt(args: {
   }
   return text;
 }
+
+/**
+ * Caption ถูกล็อกไว้ที่โมเดลเร็วเสมอ ไม่ตามที่ผู้ใช้เลือกใน dropdown:
+ * โควตา free tier แยกคนละ pool และ gemini-3.5-flash มีแค่ 20 ครั้ง/วัน — การจ่าย
+ * โควตานั้นไปกับงานเขียนข้อความล้วนจะเหลือคลิปทำได้แค่ครึ่งเดียวโดยไม่ได้อะไรกลับมา
+ */
+export const CAPTION_MODEL: GeminiModelId = "gemini-3.1-flash-lite";
+
+export async function generateCaptionAndHashtags(args: {
+  systemInstruction: string;
+  tenPartPrompt: string;
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  }
+
+  const client = new GoogleGenAI({ apiKey });
+
+  const response = await client.interactions.create({
+    model: CAPTION_MODEL,
+    // snake_case — camelCase จะถูก API เมินแบบเงียบๆ แล้ว SEO prompt จะไม่ไปถึงโมเดลเลย
+    system_instruction: args.systemInstruction,
+    generation_config: { temperature: 0.3 },
+    input: [
+      {
+        type: "text",
+        text: `### Video Prompt\n${args.tenPartPrompt}\n\n### Output Mode\nready_to_post`,
+      },
+    ],
+  });
+
+  const text = response.output_text;
+  if (!text || text.trim() === "") {
+    throw new Error("AI ไม่ได้ตอบกลับตอนสร้าง Caption");
+  }
+  return text;
+}

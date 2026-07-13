@@ -17,6 +17,7 @@ model CorePrompt {
   label     String
   content   String
   isActive  Boolean       @default(false)
+  kind      String        @default("core")
   createdAt DateTime      @default(now())
   entries   PromptEntry[]
 }
@@ -36,6 +37,8 @@ model PromptEntry {
   videoUrl       String      @default("")
   postedAt       DateTime?
   productImages  ProductImage[]
+  caption        String      @default("")
+  hashtags       String      @default("")
 }
 
 model ProductImage {

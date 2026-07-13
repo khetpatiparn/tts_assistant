@@ -24,7 +24,7 @@ No test runner is configured in this project.
 ## Architecture
 
 - App Router under `app/` — currently just `layout.tsx`, `page.tsx`, `globals.css`; no nested routes yet.
-- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` — มีช่องอัปโหลดรูปสินค้าจริง + `script-output.tsx` — มีปุ่ม "สร้างด้วย AI" กับ dropdown เลือกโมเดล), ② ผลลัพธ์ & คลิป (`production-panel.tsx` — ที่ผลจาก AI ไปโผล่), ③ Core Prompt (`core-prompt-panel.tsx`) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`) การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
+- `app/page.tsx` render `<PromptWorkspace>` (Server Component ที่ดึงข้อมูลผ่าน Prisma) ตัว workspace แบ่งเป็น 3 แท็บผ่าน `components/workspace-tabs.tsx` — ① Brief & Script (`brief-form.tsx` — มีช่องอัปโหลดรูปสินค้าจริง + `script-output.tsx` — มีปุ่ม "สร้างด้วย AI" กับ dropdown เลือกโมเดล), ② ผลลัพธ์ & คลิป (`production-panel.tsx` — 10-part prompt textarea, Caption/Hashtags fields + ปุ่มคัดลอกทั้งหมด, video URL, posted date), ③ Core Prompt (`core-prompt-panel.tsx` ×2 instances — แยก `kind`: core vs caption) โดยมี `components/prompt-workspace.tsx` เป็นตัวถือ state ของแท็บและรายการที่เลือก ส่วน `clapper-header.tsx` กับ `history-rail.tsx` แสดงตลอดทุกแท็บ ส่วน mutation ทั้งหมดอยู่ใน `app/actions.ts` (`'use server'`) การเรียงลำดับรายการใน sidebar อยู่ใน `lib/entry-sort.ts` (เรียงตาม `postedAt` — อันที่ยังไม่ได้ลงคลิปอยู่บนสุด แล้วตามด้วยใหม่→เก่า) ส่วนช่องค้นหา/จัดกลุ่มตามเดือน/ตัวกรอง "ยังไม่ได้กรอกผลลัพธ์" เป็น state ภายใน `history-rail.tsx` เองทั้งหมด
 - Path alias `@/*` resolves to the repo root (see `tsconfig.json`).
 - Styling is Tailwind v4 with CSS-first config: there is no `tailwind.config.*` file — theme tokens (colors, radii, fonts, sidebar/chart variables) are defined via `@theme inline` and `:root`/`.dark` blocks directly in `app/globals.css`.
 - shadcn/ui is configured via `components.json`: style `base-nova`, base color `neutral`, icon library `lucide-react`. **Components are built on `@base-ui/react` primitives, not Radix UI** — this differs from most shadcn/ui setups, so when generating or extending components, use Base UI's API/props rather than assuming Radix conventions.
@@ -43,6 +43,7 @@ No test runner is configured in this project.
 - เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
 - **ห้ามรัน `DELETE FROM <table>;` แบบไม่มี `WHERE`** ตอนเคลียร์ข้อมูลทดสอบ — `dev.db` ไม่มี backup/WAL และถูก gitignore ไว้ ลบไปแล้วกู้คืนไม่ได้ ให้ระบุ `WHERE` เจาะจงแถวที่ตัวเองสร้างทดสอบเท่านั้น (เช่น `WHERE productName = '...'`)
 - `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ
+- `CorePrompt` แยกชนิดด้วยคอลัมน์ `kind` — `core` (สร้างวิดีโอ) กับ `caption` (SEO prompt) **active ได้ทีละอันต่อ kind** ห้ามลืมใส่ `kind` ใน `where` ของ transaction ไม่งั้นการเพิ่มเวอร์ชันฝั่งหนึ่งจะไปปิด active ของอีกฝั่ง เนื้อหาตั้งต้นของ SEO prompt อยู่ที่ `prisma/seed/seo-prompt-v1.md` seed ด้วย `node prisma/seed/seed-seo-prompt.mjs` (idempotent)
 - `ProductImage` เก็บแค่ metadata ของรูปสินค้าจริง — ตัวไฟล์อยู่บนดิสก์ที่ `uploads/<entryId>/` (gitignore ไว้) เสิร์ฟกลับผ่าน `app/api/uploads/[...path]/route.ts` ลบ entry แล้วแถวรูปหายตาม (`onDelete: Cascade`) แต่ไฟล์บนดิสก์ไม่ได้ถูกลบ
 
 ## Gemini API (ปุ่ม "สร้างด้วย AI")
@@ -53,6 +54,9 @@ No test runner is configured in this project.
 - อัปโหลดรูปวิ่งผ่าน Server Action ซึ่ง**จำกัด body 1MB by default** — `next.config.ts` เลยตั้ง `experimental.serverActions.bodySizeLimit` ไว้ ถ้ารูปใหญ่ขึ้นต้องขยายตรงนี้ ไม่ใช่ที่ action
 - `GEMINI_API_KEY` อยู่ใน `.env` (gitignore แล้ว) — **ห้าม commit เด็ดขาด** และเวลาแก้ `.env` ระวังไฟล์ไม่มี newline ปิดท้าย (เคย append แล้วไปต่อท้ายบรรทัด key จน key พัง)
 - เส้นทาง manual เดิม (คัดลอก prompt ไปวางในแชทเอง แล้ว paste คำตอบกลับ) ยังใช้ได้ปกติ — เป็น fallback ตอน API ล่มหรือโควตาหมด
+- ปุ่ม "สร้างด้วย AI" ทำงาน 2 ขั้นใน action เดียว: (1) รูป+บรีฟ+Core Prompt → 10-part prompt ด้วยโมเดลที่ผู้ใช้เลือก (2) 10-part prompt (ข้อความล้วน ไม่ส่งรูป) + SEO Prompt → Caption/Hashtags ด้วย `CAPTION_MODEL` = `gemini-3.1-flash-lite` **เสมอ** (โควตาแยก pool และ 3.5-flash มีแค่ 20 ครั้ง/วัน)
+- **ขั้น 1 ต้องบันทึกลง DB ก่อนขั้น 2 เสมอ และขั้น 2 ห้าม throw** — `generateWithAI` คืน `{ captionError }` แทน ถ้า throw ก่อน `revalidatePath` หน้าเว็บจะไม่เห็น 10-part prompt ที่บันทึกไปแล้ว
+- `lib/caption.ts` แยกคำตอบเป็น caption/hashtags ถ้าโมเดลตอบผิดฟอร์แมตจะยัดทั้งก้อนลง caption ไม่ทิ้งของ
 
 ## Testing / verification
 
