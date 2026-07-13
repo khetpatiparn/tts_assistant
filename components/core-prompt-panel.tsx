@@ -12,8 +12,12 @@ import type { CorePromptRecord } from "@/components/prompt-workspace";
 
 export function CorePromptPanel({
   corePrompts,
+  kind,
+  title,
 }: {
   corePrompts: CorePromptRecord[];
+  kind: string;
+  title: string;
 }) {
   const [viewingId, setViewingId] = useState<string | null>(
     corePrompts.find((c) => c.isActive)?.id ?? corePrompts[0]?.id ?? null
@@ -42,7 +46,7 @@ export function CorePromptPanel({
         <div className="flex items-center gap-2 border-b border-border pb-3">
           <span className="h-4 w-1 rounded-full bg-rust" />
           <h2 className="font-mono text-xs tracking-widest text-rust uppercase">
-            Core Prompt · เวอร์ชัน
+            {title}
           </h2>
         </div>
 
@@ -77,6 +81,7 @@ export function CorePromptPanel({
         </ul>
 
         <form action={addAction} className="flex flex-col gap-3 border-t border-border pt-4">
+          <input type="hidden" name="kind" value={kind} />
           <p className="font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
             เพิ่มเวอร์ชันใหม่
           </p>

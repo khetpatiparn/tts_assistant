@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { updateProduction } from "@/app/actions";
 import { Button } from "@/components/ui/button";
@@ -30,14 +30,38 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
+  const [caption, setCaption] = useState(entry.caption);
+  const [hashtags, setHashtags] = useState(entry.hashtags);
+  const [copied, setCopied] = useState(false);
 
   // "สร้างด้วย AI" rewrites this entry's output on the server. The id does not
   // change, so nothing remounts — without this the textarea would keep showing
   // whatever it held at mount and the generated prompt would look lost.
-  const [lastServerOutput, setLastServerOutput] = useState(entry.chatgptOutput);
-  if (entry.chatgptOutput !== lastServerOutput) {
-    setLastServerOutput(entry.chatgptOutput);
+  const [lastServer, setLastServer] = useState({
+    chatgptOutput: entry.chatgptOutput,
+    caption: entry.caption,
+    hashtags: entry.hashtags,
+  });
+  if (
+    entry.chatgptOutput !== lastServer.chatgptOutput ||
+    entry.caption !== lastServer.caption ||
+    entry.hashtags !== lastServer.hashtags
+  ) {
+    setLastServer({
+      chatgptOutput: entry.chatgptOutput,
+      caption: entry.caption,
+      hashtags: entry.hashtags,
+    });
     setChatgptOutput(entry.chatgptOutput);
+    setCaption(entry.caption);
+    setHashtags(entry.hashtags);
+  }
+
+  async function copyForPost() {
+    // ผู้ใช้โพสต์แบบ caption แล้วขึ้นบรรทัดใหม่ตบด้วย hashtag — คัดลอกให้ตรงแบบนั้นเลย
+    await navigator.clipboard.writeText(`${caption}\n${hashtags}`.trim());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   }
 
   const [state, action, isSaving] = useActionState(
@@ -70,6 +94,39 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             onChange={(e) => setChatgptOutput(e.target.value)}
             placeholder="วาง 10-part prompt ที่ได้จาก ChatGPT ที่นี่"
             className="min-h-80 flex-1 font-sans text-sm leading-[1.6em]"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-sm font-medium text-foreground/90">
+              Caption &amp; Hashtags
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              onClick={copyForPost}
+              disabled={!caption && !hashtags}
+              className="bg-marigold text-ink hover:bg-marigold/90"
+            >
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copied ? "คัดลอกแล้ว" : "คัดลอกทั้งหมด"}
+            </Button>
+          </div>
+          <Textarea
+            name="caption"
+            rows={3}
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            placeholder="Caption จะถูกสร้างอัตโนมัติหลังกด สร้างด้วย AI"
+            className="font-sans text-sm leading-[1.6em]"
+          />
+          <Input
+            name="hashtags"
+            value={hashtags}
+            onChange={(e) => setHashtags(e.target.value)}
+            placeholder="#แฮชแท็ก จะถูกสร้างอัตโนมัติ"
+            className="font-mono text-xs"
           />
         </div>
 
