@@ -6,6 +6,7 @@ import { Upload, TriangleAlert } from "lucide-react";
 import { importAffiliateOrders } from "@/app/actions";
 import type { AffiliateImportSummary } from "@/app/actions";
 import { summarizeOrders, type AffiliateOrderRecord } from "@/lib/dashboard";
+import { RevenueCharts } from "@/components/revenue-charts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -119,6 +120,8 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
           <Tile label="ชิ้นที่ขายได้" value={summary.itemCount.toLocaleString("th-TH")} />
         </div>
       )}
+
+      {orders.length > 0 && <RevenueCharts orders={orders} />}
     </section>
   );
 }
