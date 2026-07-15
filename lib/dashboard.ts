@@ -18,12 +18,14 @@ export function summarizeOrders(orders: AffiliateOrderRecord[]) {
   let totalGmv = 0;
   let settledRevenue = 0;
   let itemCount = 0;
+  let paidOrderCount = 0;
   for (const o of orders) {
     totalGmv += o.gmv;
     settledRevenue += o.finalRevenue ?? 0;
     itemCount += o.itemsSold;
+    if (o.status === PAID_STATUS) paidOrderCount++;
   }
-  return { totalGmv, settledRevenue, orderCount: orders.length, itemCount };
+  return { totalGmv, settledRevenue, orderCount: orders.length, itemCount, paidOrderCount };
 }
 
 function dayKey(d: Date): string {

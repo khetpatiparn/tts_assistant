@@ -110,11 +110,15 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile label="GMV รวม" value={baht(summary.totalGmv)} hint="ยอดสั่งทุกสถานะ" />
+          <Tile
+            label="GMV รวม"
+            value={baht(summary.totalGmv)}
+            hint={`ยอดสั่งทุกสถานะ (${summary.orderCount.toLocaleString("th-TH")} ออเดอร์)`}
+          />
           <Tile
             label="เงินคอมที่ได้จริง"
             value={baht(summary.settledRevenue)}
-            hint="settle แล้วเท่านั้น"
+            hint={`${summary.paidOrderCount.toLocaleString("th-TH")} จาก ${summary.orderCount.toLocaleString("th-TH")} ออเดอร์ชำระแล้ว`}
           />
           <Tile label="ออเดอร์" value={summary.orderCount.toLocaleString("th-TH")} />
           <Tile label="ชิ้นที่ขายได้" value={summary.itemCount.toLocaleString("th-TH")} />
