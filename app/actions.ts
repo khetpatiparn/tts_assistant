@@ -12,6 +12,7 @@ import {
   isGeminiModelId,
 } from "@/lib/gemini";
 import { parseCaptionOutput } from "@/lib/caption";
+import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -310,6 +311,88 @@ export async function generateWithAI(
 
   revalidatePath("/");
   return { captionError };
+}
+
+export type AffiliateImportSummary = {
+  total: number;
+  matched: number;
+  unmatched: number;
+  unmatchedProducts: { contentId: string; productName: string; orders: number }[];
+};
+
+export async function importAffiliateOrders(
+  formData: FormData
+): Promise<AffiliateImportSummary> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("กรุณาเลือกไฟล์ affiliate orders (.xlsx)");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let orders;
+  try {
+    orders = parseAffiliateXlsx(buffer);
+  } catch {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ affiliate orders (.xlsx) จาก TikTok Studio");
+  }
+  if (orders.length === 0) {
+    throw new Error("ไม่พบออเดอร์ในไฟล์");
+  }
+
+  // สร้าง map video id -> entry id จาก videoUrl ที่เก็บไว้
+  const entries = await prisma.promptEntry.findMany({
+    select: { id: true, videoUrl: true },
+  });
+  const videoToEntry = new Map<string, string>();
+  for (const e of entries) {
+    const vid = videoIdFromUrl(e.videoUrl);
+    if (vid) videoToEntry.set(vid, e.id);
+  }
+
+  // upsert กันซ้ำด้วย orderId — โยนไฟล์ทับได้ อัปเดตสถานะ/ยอดให้ด้วย
+  for (const o of orders) {
+    const matchedEntryId = videoToEntry.get(o.contentId) ?? null;
+    await prisma.affiliateOrder.upsert({
+      where: { orderId: o.orderId },
+      create: { ...o, matchedEntryId },
+      update: {
+        productName: o.productName,
+        status: o.status,
+        gmv: o.gmv,
+        itemsSold: o.itemsSold,
+        itemsRefunded: o.itemsRefunded,
+        actualCommission: o.actualCommission,
+        finalRevenue: o.finalRevenue,
+        matchedEntryId,
+        importedAt: new Date(),
+      },
+    });
+  }
+
+  const matched = orders.filter((o) => videoToEntry.has(o.contentId)).length;
+  const unmatchedMap = new Map<
+    string,
+    { contentId: string; productName: string; orders: number }
+  >();
+  for (const o of orders) {
+    if (videoToEntry.has(o.contentId)) continue;
+    const ex = unmatchedMap.get(o.contentId);
+    if (ex) ex.orders++;
+    else
+      unmatchedMap.set(o.contentId, {
+        contentId: o.contentId,
+        productName: o.productName,
+        orders: 1,
+      });
+  }
+
+  revalidatePath("/");
+  return {
+    total: orders.length,
+    matched,
+    unmatched: orders.length - matched,
+    unmatchedProducts: [...unmatchedMap.values()].sort((a, b) => b.orders - a.orders),
+  };
 }
 
 export async function deleteProductImage(id: string) {
