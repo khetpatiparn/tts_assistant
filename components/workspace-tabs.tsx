@@ -2,12 +2,13 @@
 
 import { cn } from "@/lib/utils";
 
-export type WorkspaceTab = "brief" | "production" | "core";
+export type WorkspaceTab = "brief" | "production" | "core" | "dashboard";
 
 const TABS: { id: WorkspaceTab; label: string }[] = [
   { id: "brief", label: "① Brief & Script" },
   { id: "production", label: "② ผลลัพธ์ & คลิป" },
   { id: "core", label: "③ Core Prompt" },
+  { id: "dashboard", label: "④ รายได้" },
 ];
 
 export function WorkspaceTabs({

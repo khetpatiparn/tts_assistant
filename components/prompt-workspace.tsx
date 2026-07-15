@@ -17,6 +17,9 @@ import { ProductionPanel } from "@/components/production-panel";
 import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
+import { DashboardPanel } from "@/components/dashboard-panel";
+import { ReminderBanner } from "@/components/reminder-banner";
+import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
 
 export type ProductImageRecord = {
   id: string;
@@ -50,6 +53,8 @@ export type CorePromptRecord = {
   kind: string;
 };
 
+export type { AffiliateOrderRecord } from "@/lib/dashboard";
+
 const emptyForm: FormState = {
   productName: "",
   productInfo: "",
@@ -77,9 +82,15 @@ function entryToForm(entry: PromptEntry): FormState {
 export function PromptWorkspace({
   prompts,
   corePrompts,
+  affiliateOrders,
+  reminder,
+  reminderActive,
 }: {
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
+  affiliateOrders: AffiliateOrderRecord[];
+  reminder: ReminderState;
+  reminderActive: boolean;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -236,6 +247,8 @@ export function PromptWorkspace({
         />
       </ClapperHeader>
 
+      {reminderActive && <ReminderBanner reminder={reminder} onGoImport={() => setTab("dashboard")} />}
+
       {genError && (
         <p className="mx-4 mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record sm:mx-6">
           {genError}
@@ -304,6 +317,12 @@ export function PromptWorkspace({
               kind="caption"
               title="SEO Prompt · Caption & Hashtag"
             />
+          </div>
+        )}
+
+        {tab === "dashboard" && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+            <DashboardPanel orders={affiliateOrders} />
           </div>
         )}
       </div>
