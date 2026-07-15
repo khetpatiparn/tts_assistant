@@ -54,6 +54,15 @@ No test runner is configured in this project.
 - **ขั้น 1 ต้องบันทึกลง DB ก่อนขั้น 2 เสมอ และขั้น 2 ห้าม throw** — `generateWithAI` คืน `{ captionError }` แทน ถ้า throw ก่อน `revalidatePath` หน้าเว็บจะไม่เห็น 10-part prompt ที่บันทึกไปแล้ว
 - `lib/caption.ts` แยกคำตอบเป็น caption/hashtags ถ้าโมเดลตอบผิดฟอร์แมตจะยัดทั้งก้อนลง caption ไม่ทิ้งของ
 
+## Dashboard รายได้ (แท็บ ④)
+
+- ตาราง `AffiliateOrder` เก็บออเดอร์ระดับต่อออเดอร์ (dedup ด้วย `orderId`) นำเข้าจากไฟล์ xlsx ที่ผู้ใช้โหลดเองจาก TikTok Studio (ไม่มี API — โหลดมือเท่านั้น)
+- `lib/affiliate.ts` เป็นไฟล์เดียวที่รู้จัก SheetJS (`xlsx`) — parse ด้วย `sheet_to_json({header:1, raw:false})` อ้างคอลัมน์ตาม index (ไฟล์ใช้ inline strings ไม่มี sharedStrings, วันที่รูปแบบ `DD/MM/YYYY HH:MM:SS`) คอลัมน์ที่ใช้: 0=orderId 2=ชื่อ 3=รหัสสินค้า 5=จำนวน 13=สถานะ 17=รหัสเนื้อหา 23=GMV 34=ค่าคอมจริง 44=รายได้สุดท้าย 45=วันที่
+- **จับคู่ออเดอร์กับคลิปด้วย content ID (col 17) = video id ใน `PromptEntry.videoUrl`** (ดึงด้วย `videoIdFromUrl`) ห้ามจับด้วยชื่อสินค้า — สินค้าเดียวมีได้หลายคลิป
+- **GMV ≠ เงินจริง** — `summarizeOrders` แยก `totalGmv` (ทุกสถานะ) กับ `settledRevenue` (`finalRevenue` ที่ settle แล้ว) สถานะจ่ายแล้ว = `PAID_STATUS` (`"ชำระแล้ว"`)
+- `lib/dashboard.ts` เป็น aggregation ล้วน (pure) · กราฟใน `components/revenue-charts.tsx` วาดเองด้วย SVG ไม่มี chart library · reminder banner เตือนเมื่อข้อมูลเก่า >7 วัน / มีคลิปยังไม่มีรายได้ / มีสินค้าขายได้ที่ยังไม่มี entry
+- ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — ห้าม commit
+
 ## Testing / verification
 
 - โปรเจกต์นี้ไม่มี test runner ให้ verify การเปลี่ยนแปลงด้วยการรันจริง: `npm run build` (type-check ด้วยในตัว) + `npm run lint` แล้วไล่ทดสอบผ่าน Playwright — ตัวนี้ไม่ได้เป็น dependency ของโปรเจกต์ ต้องติดตั้งแยกใน scratch dir เอง แล้วชี้ไปที่ `npm run dev`/`npm run start` พร้อม screenshot ตรวจสถานะสำคัญๆ
