@@ -67,6 +67,52 @@ export function videoIdFromUrl(url: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * รวมค่า nullable แบบ null-safe: null ถือเป็น 0 ตอนบวก
+ * ยกเว้นทุกตัวใน group เป็น null หมด — กรณีนั้นผลลัพธ์ยังเป็น null
+ * (กันไม่ให้ "ยังไม่คำนวณ" กลายเป็น "ศูนย์" ปลอมๆ)
+ */
+function sumNullable(values: (number | null)[]): number | null {
+  if (values.every((v) => v === null)) return null;
+  return values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+}
+
+/**
+ * บาง order ในไฟล์ export ของ TikTok Studio มีมากกว่า 1 แถวต่อ orderId เดียวกัน
+ * (พบจริง 4 order ในไฟล์ตัวอย่าง — productId/contentId/status/currency/orderDate/
+ * productName/itemsSold/itemsRefunded เหมือนกันทุกแถว มีแค่ gmv ที่ต่างกัน เช่น
+ * ถูกแยกเป็นราคาปกติ/ราคาโปร) ถ้าไม่รวมแถวเหล่านี้ก่อน upsert ด้วย orderId เดียว
+ * แถวหลังจะเขียนทับแถวแรกจน gmv ของแถวแรกหายไปเงียบๆ — เลยต้อง group แล้ว sum
+ * gmv ให้ครบก่อน return
+ */
+function mergeByOrderId(rows: AffiliateOrderInput[]): AffiliateOrderInput[] {
+  const groups = new Map<string, AffiliateOrderInput[]>();
+  for (const row of rows) {
+    const group = groups.get(row.orderId);
+    if (group) {
+      group.push(row);
+    } else {
+      groups.set(row.orderId, [row]);
+    }
+  }
+
+  const merged: AffiliateOrderInput[] = [];
+  for (const group of groups.values()) {
+    const first = group[0];
+    merged.push({
+      ...first,
+      gmv: group.reduce((acc, r) => acc + r.gmv, 0),
+      actualCommission: sumNullable(group.map((r) => r.actualCommission)),
+      finalRevenue: sumNullable(group.map((r) => r.finalRevenue)),
+      // itemsSold/itemsRefunded ไม่ sum — ยืนยันจากข้อมูลจริงว่าเหมือนกันทุกแถวใน
+      // group เดียวกัน (คือของชิ้นเดียวกัน แค่ gmv ถูกแยกบรรทัด) ใช้ค่าแถวแรกพอ
+      itemsSold: first.itemsSold,
+      itemsRefunded: first.itemsRefunded,
+    });
+  }
+  return merged;
+}
+
 export function parseAffiliateXlsx(buffer: Buffer): AffiliateOrderInput[] {
   const wb = XLSX.read(buffer, { type: "buffer" });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -99,5 +145,5 @@ export function parseAffiliateXlsx(buffer: Buffer): AffiliateOrderInput[] {
       orderDate,
     });
   }
-  return out;
+  return mergeByOrderId(out);
 }
