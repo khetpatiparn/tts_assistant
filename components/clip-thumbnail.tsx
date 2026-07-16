@@ -17,6 +17,9 @@ export function ClipThumbnail({
 
   useEffect(() => {
     let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUrl(null);
+    setDone(false);
     resolveThumbnail(contentId, videoUrl)
       .then((r) => {
         if (!alive) return;
@@ -24,7 +27,9 @@ export function ClipThumbnail({
         setDone(true);
       })
       .catch(() => {
-        if (alive) setDone(true);
+        if (!alive) return;
+        setUrl(null);
+        setDone(true);
       });
     return () => {
       alive = false;
