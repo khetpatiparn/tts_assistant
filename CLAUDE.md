@@ -66,6 +66,8 @@ No test runner is configured in this project.
 - thumbnail คลิปมาจาก **TikTok oEmbed** (สาธารณะ ไม่ต้อง auth) — `lib/tiktok-oembed.ts` ไฟล์เดียวที่รู้จัก endpoint, cache ในตาราง `VideoThumbnail` (เก็บแม้ล้มเหลว ok=false กันยิงซ้ำ), resolve ผ่าน Server Action `resolveThumbnail` (client เรียก lazy), fallback เป็นไอคอนเมื่อคลิปโดนลบ — นี่คือการยิงเน็ตออกนอกเครื่องที่เดียวของแอป
 - `createEntryFromOrder` สร้าง entry ขั้นต่ำจากออเดอร์ที่ยังไม่มีในแอป แล้ว `updateMany` ผูก `matchedEntryId` ให้ทันที
 - **ธีม dashboard ทำเป็นกลางๆ ไม่ใส่ motif คลปเปอร์บอร์ด** (ผู้ใช้กำลังจะเลิกธีมหนัง — การเปลี่ยนชื่อ+re-theme ทั้งแอปเป็นโปรเจกต์แยก)
+- `revenueByClip` (ราย-คลิปใน `components/revenue-by-clip.tsx`) ต้องแบ่งเงินแบบ 3 ทาง (จ่ายแล้ว/รอ/ไม่มีสิทธิ์) **ให้ตรงกับ `summarizeOrders` เสมอ** — เคยพลาดโยนออเดอร์ "ไม่มีสิทธิ์" ไปปนกับ "รอ" มาแล้ว ถ้าแก้ตรรกะแบ่งเงินฝั่งใดฝั่งหนึ่ง ต้องเช็กอีกฝั่งด้วย
+- แถบเตือน (`reminder-banner.tsx`) แสดงเฉพาะในแท็บ dashboard เท่านั้น (ไม่อยู่ที่ header อีกต่อไป) — ที่แท็บ ④ เองมีจุดแดงเล็กๆ บอกสถานะ (`workspace-tabs.tsx` รับ prop `dashboardAlert` จาก `reminderActive` เดิม) ส่วนข้อความในแบนเนอร์บอกชื่อคลิปที่รอจริง (`awaitingClips`) ไม่ใช่แค่ตัวเลข
 
 ## Testing / verification
 
