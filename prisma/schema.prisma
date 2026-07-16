@@ -72,3 +72,11 @@ model AffiliateOrder {
   @@index([contentId])
   @@index([orderDate])
 }
+
+model VideoThumbnail {
+  contentId    String   @id
+  thumbnailUrl String?
+  title        String?
+  ok           Boolean  @default(false)
+  fetchedAt    DateTime @default(now())
+}
