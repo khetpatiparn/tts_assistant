@@ -7,7 +7,7 @@ import { importAffiliateOrders } from "@/app/actions";
 import type { AffiliateImportSummary } from "@/app/actions";
 import { summarizeOrders, type AffiliateOrderRecord } from "@/lib/dashboard";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
-import { RevenueCharts } from "@/components/revenue-charts";
+import { RevenueTrend } from "@/components/revenue-charts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -146,7 +146,7 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
       )}
 
       {orders.length > 0 && <RevenueByClipList orders={orders} />}
-      {orders.length > 0 && <RevenueCharts orders={orders} />}
+      {orders.length > 0 && <RevenueTrend orders={orders} />}
     </section>
   );
 }
