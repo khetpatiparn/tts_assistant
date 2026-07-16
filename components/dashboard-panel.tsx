@@ -1,11 +1,12 @@
 "use client";
 
 import { useActionState } from "react";
-import { Upload, TriangleAlert } from "lucide-react";
+import { Upload } from "lucide-react";
 
 import { importAffiliateOrders } from "@/app/actions";
 import type { AffiliateImportSummary } from "@/app/actions";
 import { summarizeOrders, type AffiliateOrderRecord } from "@/lib/dashboard";
+import { Reconciliation } from "@/components/reconciliation";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
 import { RevenueTrend } from "@/components/revenue-charts";
 import { Button } from "@/components/ui/button";
@@ -75,21 +76,7 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
 
       {state.summary && (
         <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched} ·
-          ยังไม่มี entry {state.summary.unmatched}
-          {state.summary.unmatchedProducts.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1 border-t border-border pt-2">
-              <span className="flex items-center gap-1.5 font-medium text-foreground/90">
-                <TriangleAlert className="size-3.5 text-marigold" />
-                สินค้าที่ขายได้แต่ยังไม่มีในแอป — ควรเพิ่ม entry
-              </span>
-              {state.summary.unmatchedProducts.map((p) => (
-                <span key={p.contentId} className="font-mono text-xs text-muted-foreground">
-                  {p.productName || p.contentId} ({p.orders} ออเดอร์)
-                </span>
-              ))}
-            </div>
-          )}
+          นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched}
         </div>
       )}
 
@@ -145,6 +132,7 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
         </div>
       )}
 
+      {orders.length > 0 && <Reconciliation orders={orders} />}
       {orders.length > 0 && <RevenueByClipList orders={orders} />}
       {orders.length > 0 && <RevenueTrend orders={orders} />}
     </section>
