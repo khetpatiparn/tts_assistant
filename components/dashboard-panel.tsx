@@ -14,18 +14,6 @@ function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
 
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-4">
-      <span className="font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
-        {label}
-      </span>
-      <span className="font-display text-2xl text-foreground">{value}</span>
-      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-    </div>
-  );
-}
-
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
 export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
@@ -109,19 +97,50 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
           ยังไม่มีข้อมูลรายได้ — นำเข้าไฟล์ด้านบนเพื่อเริ่ม
         </p>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile
-            label="GMV รวม"
-            value={baht(summary.totalGmv)}
-            hint={`ยอดสั่งทุกสถานะ (${summary.orderCount.toLocaleString("th-TH")} ออเดอร์)`}
-          />
-          <Tile
-            label="เงินคอมที่ได้จริง"
-            value={baht(summary.settledRevenue)}
-            hint={`${summary.paidOrderCount.toLocaleString("th-TH")} จาก ${summary.orderCount.toLocaleString("th-TH")} ออเดอร์ชำระแล้ว`}
-          />
-          <Tile label="ออเดอร์" value={summary.orderCount.toLocaleString("th-TH")} />
-          <Tile label="ชิ้นที่ขายได้" value={summary.itemCount.toLocaleString("th-TH")} />
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* เงินจริง — พระเอก */}
+            <div className="flex flex-col gap-1 rounded-xl border border-marigold/40 bg-marigold/5 p-5">
+              <span className="font-mono text-[0.65rem] tracking-widest text-marigold uppercase">
+                เงินที่ได้จริงแล้ว
+              </span>
+              <span className="font-display text-4xl text-foreground">
+                {baht(summary.settledRevenue)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                จาก {summary.paidOrderCount.toLocaleString("th-TH")} ออเดอร์ที่ชำระแล้ว
+              </span>
+            </div>
+
+            {/* กำลังรอ — รอง จางกว่า */}
+            <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-5">
+              <span className="font-mono text-[0.65rem] tracking-widest text-smoke uppercase">
+                กำลังรอ (ยังไม่ใช่เงินเรา)
+              </span>
+              <span className="font-display text-2xl text-foreground/80">
+                {summary.pendingOrders.toLocaleString("th-TH")} ออเดอร์ ·{" "}
+                {baht(summary.pendingGmv)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {summary.estimatedPendingCommission !== null
+                  ? `ประเมินค่าคอมถ้าจ่ายครบ ~${baht(summary.estimatedPendingCommission)}*`
+                  : "ยังประเมินค่าคอมไม่ได้ (ยังไม่มีออเดอร์ที่ชำระแล้ว)"}
+              </span>
+            </div>
+          </div>
+
+          {/* แถวเล็กจาง + หมายเหตุความซื่อสัตย์ */}
+          <p className="font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
+            ยอดสั่งรวมทุกสถานะ {baht(summary.totalGmv)} · ขายได้{" "}
+            {summary.itemCount.toLocaleString("th-TH")} ชิ้น · ไม่มีสิทธิ์{" "}
+            {summary.ineligibleOrders} ออเดอร์ (ไม่ได้ค่าคอม)
+            <br />
+            {summary.realizedRate !== null && (
+              <>*ประเมินจากอัตราค่าคอมจริง{" "}
+              {(summary.realizedRate * 100).toFixed(1)}% · </>
+            )}
+            ตัวเลขฝั่งเงินเท่านั้น (ไม่มียอดวิว) และช้ากว่าจริง ~สัปดาห์ เพราะออเดอร์ทยอย settle
+          </p>
         </div>
       )}
 
