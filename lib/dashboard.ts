@@ -1,5 +1,8 @@
 import { PAID_STATUS } from "@/lib/affiliate";
 
+/** รอบนำเข้าไฟล์รายได้ — อิงรอบ settle ของ TikTok (~สัปดาห์) ใช้ทั้งแถบเตือนและบรรทัดสถานะ */
+export const IMPORT_STALE_DAYS = 7;
+
 export type AffiliateOrderRecord = {
   orderId: string;
   productName: string;

@@ -5,7 +5,12 @@ import { Upload } from "lucide-react";
 
 import { importAffiliateOrders } from "@/app/actions";
 import type { AffiliateImportSummary } from "@/app/actions";
-import { summarizeOrders, type AffiliateOrderRecord, type ReminderState } from "@/lib/dashboard";
+import {
+  IMPORT_STALE_DAYS,
+  summarizeOrders,
+  type AffiliateOrderRecord,
+  type ReminderState,
+} from "@/lib/dashboard";
 import { Reconciliation } from "@/components/reconciliation";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
@@ -17,6 +22,12 @@ function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function thaiShortDate(d: Date): string {
+  return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
 export function DashboardPanel({
@@ -24,11 +35,13 @@ export function DashboardPanel({
   reminder,
   reminderActive,
   awaitingClips,
+  lastImportedAt,
 }: {
   orders: AffiliateOrderRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
+  lastImportedAt: Date | null;
 }) {
   const summary = summarizeOrders(orders);
 
@@ -82,6 +95,24 @@ export function DashboardPanel({
           โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
         </span>
       </form>
+
+      {lastImportedAt !== null && reminder.daysSinceImport !== null && (
+        reminder.daysSinceImport > IMPORT_STALE_DAYS ? (
+          <p className="font-mono text-[0.7rem] text-record">
+            เกินกำหนดมา {reminder.daysSinceImport - IMPORT_STALE_DAYS} วัน — ไป export
+            ไฟล์ใหม่จาก TikTok Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastImportedAt)})
+          </p>
+        ) : (
+          <p className="font-mono text-[0.7rem] text-muted-foreground">
+            นำเข้าล่าสุด {thaiShortDate(lastImportedAt)}{" "}
+            {reminder.daysSinceImport === 0
+              ? "(วันนี้)"
+              : `(${reminder.daysSinceImport} วันก่อน)`}{" "}
+            · รอบถัดไป ~
+            {thaiShortDate(new Date(lastImportedAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
+          </p>
+        )
+      )}
 
       {state.error && (
         <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">

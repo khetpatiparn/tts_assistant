@@ -86,6 +86,7 @@ export function PromptWorkspace({
   reminder,
   reminderActive,
   awaitingClips,
+  lastImportedAt,
 }: {
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
@@ -93,6 +94,7 @@ export function PromptWorkspace({
   reminder: ReminderState;
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
+  lastImportedAt: Date | null;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -328,6 +330,7 @@ export function PromptWorkspace({
               reminder={reminder}
               reminderActive={reminderActive}
               awaitingClips={awaitingClips}
+              lastImportedAt={lastImportedAt}
             />
           </div>
         )}

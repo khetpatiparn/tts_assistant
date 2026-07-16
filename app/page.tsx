@@ -2,10 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { PromptWorkspace } from "@/components/prompt-workspace";
 import { sortEntriesForRail } from "@/lib/entry-sort";
 import { videoIdFromUrl } from "@/lib/affiliate";
-import type { ReminderState } from "@/lib/dashboard";
+import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const IMPORT_STALE_DAYS = 7;
 const CLIP_AWAITING_THRESHOLD = 3;
 
 // แยกออกมาเป็น helper แยกจาก component เพราะ Date.now() เป็น impure call —
@@ -24,10 +23,12 @@ export default async function PoolingPrompt() {
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
   ]);
 
-  // reminder: ผ่านไปกี่วันจาก import ล่าสุด
+  // reminder: ผ่านไปกี่วันจาก import ล่าสุด (เก็บ Date จริงไว้ให้บรรทัดสถานะใน dashboard ด้วย)
   let daysSinceImport: number | null = null;
+  let lastImportedAt: Date | null = null;
   if (orders.length > 0) {
     const last = Math.max(...orders.map((o) => o.importedAt.getTime()));
+    lastImportedAt = new Date(last);
     daysSinceImport = daysSince(last);
   }
 
@@ -64,6 +65,7 @@ export default async function PoolingPrompt() {
       reminder={reminder}
       reminderActive={reminderActive}
       awaitingClips={awaitingClips}
+      lastImportedAt={lastImportedAt}
     />
   );
 }
