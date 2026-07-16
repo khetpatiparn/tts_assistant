@@ -3,7 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { BellRing, X } from "lucide-react";
 
-import type { ReminderState } from "@/lib/dashboard";
+import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "reminder-dismissed";
@@ -13,7 +13,7 @@ const DISMISS_EVENT = "reminder-banner:dismissed";
 
 function messages(r: ReminderState, awaitingClips: { id: string; productName: string }[]): string[] {
   const out: string[] = [];
-  if (r.daysSinceImport !== null && r.daysSinceImport > 7) {
+  if (r.daysSinceImport !== null && r.daysSinceImport > IMPORT_STALE_DAYS) {
     out.push(`ไม่ได้นำเข้าข้อมูลรายได้มา ${r.daysSinceImport} วันแล้ว`);
   }
   if (r.clipsAwaitingRevenue >= 3) {
