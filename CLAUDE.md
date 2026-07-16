@@ -62,6 +62,10 @@ No test runner is configured in this project.
 - **GMV ≠ เงินจริง** — `summarizeOrders` แยก `totalGmv` (ทุกสถานะ) กับ `settledRevenue` (`finalRevenue` ที่ settle แล้ว) สถานะจ่ายแล้ว = `PAID_STATUS` (`"ชำระแล้ว"`)
 - `lib/dashboard.ts` เป็น aggregation ล้วน (pure) · กราฟใน `components/revenue-charts.tsx` วาดเองด้วย SVG ไม่มี chart library · reminder banner เตือนเมื่อข้อมูลเก่า >7 วัน / มีคลิปยังไม่มีรายได้ / มีสินค้าขายได้ที่ยังไม่มี entry
 - ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — ห้าม commit
+- ส่วนเงินแยก "เงินที่ได้จริง" (`settledRevenue`) เป็นพระเอก กับ "กำลังรอ" (`pendingGmv` + `estimatedPendingCommission` = pendingGmv × อัตราจริง) — ไม่โชว์ GMV รวมเป็นหัวอีก (`summarizeOrders` ใน `lib/dashboard.ts` คืน field แยกครบ)
+- thumbnail คลิปมาจาก **TikTok oEmbed** (สาธารณะ ไม่ต้อง auth) — `lib/tiktok-oembed.ts` ไฟล์เดียวที่รู้จัก endpoint, cache ในตาราง `VideoThumbnail` (เก็บแม้ล้มเหลว ok=false กันยิงซ้ำ), resolve ผ่าน Server Action `resolveThumbnail` (client เรียก lazy), fallback เป็นไอคอนเมื่อคลิปโดนลบ — นี่คือการยิงเน็ตออกนอกเครื่องที่เดียวของแอป
+- `createEntryFromOrder` สร้าง entry ขั้นต่ำจากออเดอร์ที่ยังไม่มีในแอป แล้ว `updateMany` ผูก `matchedEntryId` ให้ทันที
+- **ธีม dashboard ทำเป็นกลางๆ ไม่ใส่ motif คลปเปอร์บอร์ด** (ผู้ใช้กำลังจะเลิกธีมหนัง — การเปลี่ยนชื่อ+re-theme ทั้งแอปเป็นโปรเจกต์แยก)
 
 ## Testing / verification
 
