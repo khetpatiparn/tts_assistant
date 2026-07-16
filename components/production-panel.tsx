@@ -33,6 +33,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   const [caption, setCaption] = useState(entry.caption);
   const [hashtags, setHashtags] = useState(entry.hashtags);
   const [copied, setCopied] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   // "สร้างด้วย AI" rewrites this entry's output on the server. The id does not
   // change, so nothing remounts — without this the textarea would keep showing
@@ -64,6 +65,12 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  async function copyPrompt() {
+    await navigator.clipboard.writeText(chatgptOutput);
+    setPromptCopied(true);
+    setTimeout(() => setPromptCopied(false), 1500);
+  }
+
   const [state, action, isSaving] = useActionState(
     async (_prev: { ok: boolean } | null, formData: FormData) => {
       await updateProduction(formData);
@@ -85,9 +92,21 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
         <input type="hidden" name="id" value={entry.id} />
 
         <div className="flex flex-1 flex-col gap-1.5">
-          <label className="text-sm font-medium text-foreground/90">
-            10-part prompt ที่ ChatGPT ตอบกลับ
-          </label>
+          <div className="flex items-center justify-between gap-3">
+            <label className="text-sm font-medium text-foreground/90">
+              10-part prompt ที่ ChatGPT ตอบกลับ
+            </label>
+            <Button
+              type="button"
+              size="sm"
+              onClick={copyPrompt}
+              disabled={!chatgptOutput}
+              variant="outline"
+            >
+              {promptCopied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {promptCopied ? "คัดลอกแล้ว" : "คัดลอก"}
+            </Button>
+          </div>
           <Textarea
             name="chatgptOutput"
             value={chatgptOutput}
