@@ -39,6 +39,7 @@ model PromptEntry {
   productImages  ProductImage[]
   caption        String      @default("")
   hashtags       String      @default("")
+  affiliateOrders AffiliateOrder[]
 }
 
 model ProductImage {
@@ -49,4 +50,33 @@ model ProductImage {
   mimeType  String
   sortOrder Int         @default(0)
   createdAt DateTime    @default(now())
+}
+
+model AffiliateOrder {
+  orderId          String       @id
+  productName      String
+  productId        String
+  contentId        String
+  status           String
+  currency         String
+  gmv              Float
+  itemsSold        Int
+  itemsRefunded    Int
+  actualCommission Float?
+  finalRevenue     Float?
+  orderDate        DateTime
+  matchedEntryId   String?
+  matchedEntry     PromptEntry? @relation(fields: [matchedEntryId], references: [id], onDelete: SetNull)
+  importedAt       DateTime     @default(now())
+
+  @@index([contentId])
+  @@index([orderDate])
+}
+
+model VideoThumbnail {
+  contentId    String   @id
+  thumbnailUrl String?
+  title        String?
+  ok           Boolean  @default(false)
+  fetchedAt    DateTime @default(now())
 }

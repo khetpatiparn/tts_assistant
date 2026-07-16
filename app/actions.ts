@@ -12,6 +12,8 @@ import {
   isGeminiModelId,
 } from "@/lib/gemini";
 import { parseCaptionOutput } from "@/lib/caption";
+import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
+import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -312,6 +314,88 @@ export async function generateWithAI(
   return { captionError };
 }
 
+export type AffiliateImportSummary = {
+  total: number;
+  matched: number;
+  unmatched: number;
+  unmatchedProducts: { contentId: string; productName: string; orders: number }[];
+};
+
+export async function importAffiliateOrders(
+  formData: FormData
+): Promise<AffiliateImportSummary> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("กรุณาเลือกไฟล์ affiliate orders (.xlsx)");
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  let orders;
+  try {
+    orders = parseAffiliateXlsx(buffer);
+  } catch {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ affiliate orders (.xlsx) จาก TikTok Studio");
+  }
+  if (orders.length === 0) {
+    throw new Error("ไม่พบออเดอร์ในไฟล์");
+  }
+
+  // สร้าง map video id -> entry id จาก videoUrl ที่เก็บไว้
+  const entries = await prisma.promptEntry.findMany({
+    select: { id: true, videoUrl: true },
+  });
+  const videoToEntry = new Map<string, string>();
+  for (const e of entries) {
+    const vid = videoIdFromUrl(e.videoUrl);
+    if (vid) videoToEntry.set(vid, e.id);
+  }
+
+  // upsert กันซ้ำด้วย orderId — โยนไฟล์ทับได้ อัปเดตสถานะ/ยอดให้ด้วย
+  for (const o of orders) {
+    const matchedEntryId = videoToEntry.get(o.contentId) ?? null;
+    await prisma.affiliateOrder.upsert({
+      where: { orderId: o.orderId },
+      create: { ...o, matchedEntryId },
+      update: {
+        productName: o.productName,
+        status: o.status,
+        gmv: o.gmv,
+        itemsSold: o.itemsSold,
+        itemsRefunded: o.itemsRefunded,
+        actualCommission: o.actualCommission,
+        finalRevenue: o.finalRevenue,
+        matchedEntryId,
+        importedAt: new Date(),
+      },
+    });
+  }
+
+  const matched = orders.filter((o) => videoToEntry.has(o.contentId)).length;
+  const unmatchedMap = new Map<
+    string,
+    { contentId: string; productName: string; orders: number }
+  >();
+  for (const o of orders) {
+    if (videoToEntry.has(o.contentId)) continue;
+    const ex = unmatchedMap.get(o.contentId);
+    if (ex) ex.orders++;
+    else
+      unmatchedMap.set(o.contentId, {
+        contentId: o.contentId,
+        productName: o.productName,
+        orders: 1,
+      });
+  }
+
+  revalidatePath("/");
+  return {
+    total: orders.length,
+    matched,
+    unmatched: orders.length - matched,
+    unmatchedProducts: [...unmatchedMap.values()].sort((a, b) => b.orders - a.orders),
+  };
+}
+
 export async function deleteProductImage(id: string) {
   const image = await prisma.productImage.findUnique({ where: { id } });
   if (!image) return;
@@ -324,6 +408,86 @@ export async function deleteProductImage(id: string) {
   } catch {
     // nothing to remove
   }
+
+  revalidatePath("/");
+}
+
+/**
+ * หา thumbnail ของคลิปจาก content id — อ่าน cache ก่อน ถ้าไม่มีค่อยยิง oEmbed แล้ว cache
+ * เก็บผลแม้ล้มเหลว (ok=false) เพื่อไม่ยิงซ้ำถี่ๆ
+ */
+export async function resolveThumbnail(
+  contentId: string,
+  videoUrl?: string
+): Promise<{ thumbnailUrl: string | null }> {
+  const cached = await prisma.videoThumbnail.findUnique({ where: { contentId } });
+  if (cached) return { thumbnailUrl: cached.thumbnailUrl };
+
+  // หา URL: ถ้ามี videoUrl (คลิปที่จับคู่แล้ว) ใช้ตรงๆ; ถ้าไม่มี ประกอบจาก handle ของ entry ใดก็ได้
+  let url = videoUrl && videoUrl.trim() !== "" ? videoUrl : undefined;
+  if (!url) {
+    const anyEntry = await prisma.promptEntry.findFirst({
+      where: { videoUrl: { not: "" } },
+      select: { videoUrl: true },
+    });
+    const handle = anyEntry ? handleFromUrl(anyEntry.videoUrl) : null;
+    if (handle) url = buildVideoUrl(contentId, handle);
+  }
+
+  if (!url) {
+    await prisma.videoThumbnail.create({
+      data: { contentId, thumbnailUrl: null, title: null, ok: false },
+    });
+    return { thumbnailUrl: null };
+  }
+
+  const r = await fetchOembedThumbnail(url);
+  await prisma.videoThumbnail.upsert({
+    where: { contentId },
+    create: { contentId, thumbnailUrl: r.thumbnailUrl, title: r.title, ok: r.ok },
+    update: {
+      thumbnailUrl: r.thumbnailUrl,
+      title: r.title,
+      ok: r.ok,
+      fetchedAt: new Date(),
+    },
+  });
+  return { thumbnailUrl: r.thumbnailUrl };
+}
+
+/**
+ * สร้าง entry ขั้นต่ำจากออเดอร์ที่ขายได้แต่ยังไม่มีในแอป แล้วผูกออเดอร์ที่มี content id เดียวกันให้เลย
+ * (ปิด loop reconciliation ทันที ไม่ต้องรอ import รอบใหม่)
+ */
+export async function createEntryFromOrder(contentId: string, productName: string) {
+  const name = productName.trim() || "สินค้าจากออเดอร์";
+  const anyEntry = await prisma.promptEntry.findFirst({
+    where: { videoUrl: { not: "" } },
+    select: { videoUrl: true },
+  });
+  const handle = anyEntry ? handleFromUrl(anyEntry.videoUrl) : null;
+  const videoUrl = handle ? buildVideoUrl(contentId, handle) : "";
+
+  const active = await prisma.corePrompt.findFirst({
+    where: { isActive: true, kind: "core" },
+  });
+
+  const created = await prisma.promptEntry.create({
+    data: {
+      productName: name,
+      productInfo: "",
+      riskModule: "",
+      extraNotes: "",
+      images: "[]",
+      corePromptId: active?.id ?? null,
+      videoUrl,
+    },
+  });
+
+  await prisma.affiliateOrder.updateMany({
+    where: { contentId },
+    data: { matchedEntryId: created.id },
+  });
 
   revalidatePath("/");
 }

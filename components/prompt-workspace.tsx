@@ -17,6 +17,8 @@ import { ProductionPanel } from "@/components/production-panel";
 import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
+import { DashboardPanel } from "@/components/dashboard-panel";
+import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
 
 export type ProductImageRecord = {
   id: string;
@@ -50,6 +52,8 @@ export type CorePromptRecord = {
   kind: string;
 };
 
+export type { AffiliateOrderRecord } from "@/lib/dashboard";
+
 const emptyForm: FormState = {
   productName: "",
   productInfo: "",
@@ -77,9 +81,17 @@ function entryToForm(entry: PromptEntry): FormState {
 export function PromptWorkspace({
   prompts,
   corePrompts,
+  affiliateOrders,
+  reminder,
+  reminderActive,
+  awaitingClips,
 }: {
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
+  affiliateOrders: AffiliateOrderRecord[];
+  reminder: ReminderState;
+  reminderActive: boolean;
+  awaitingClips: { id: string; productName: string }[];
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -233,6 +245,7 @@ export function PromptWorkspace({
           active={tab}
           onChange={setTab}
           productionDisabled={selectedEntry === null}
+          dashboardAlert={reminderActive}
         />
       </ClapperHeader>
 
@@ -303,6 +316,17 @@ export function PromptWorkspace({
               corePrompts={corePrompts.filter((c) => c.kind === "caption")}
               kind="caption"
               title="SEO Prompt · Caption & Hashtag"
+            />
+          </div>
+        )}
+
+        {tab === "dashboard" && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+            <DashboardPanel
+              orders={affiliateOrders}
+              reminder={reminder}
+              reminderActive={reminderActive}
+              awaitingClips={awaitingClips}
             />
           </div>
         )}

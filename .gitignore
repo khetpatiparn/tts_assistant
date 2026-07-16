@@ -48,6 +48,7 @@ next-env.d.ts
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days
+/affiliate_orders_*.xlsx
 
 # product reference photos (local only)
 /image_example
