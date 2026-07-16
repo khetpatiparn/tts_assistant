@@ -67,7 +67,7 @@ export function ReminderBanner({
   if (msgs.length === 0 || dismissed) return null;
 
   return (
-    <div className="mx-4 mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-marigold/40 bg-marigold/10 px-3 py-2 text-sm sm:mx-6">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-marigold/40 bg-marigold/10 px-3 py-2 text-sm">
       <BellRing className="size-4 shrink-0 text-marigold" />
       <span className="text-foreground/90">{msgs.join(" · ")}</span>
       <div className="ml-auto flex items-center gap-1.5">
