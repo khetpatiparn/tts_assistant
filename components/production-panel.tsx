@@ -25,6 +25,16 @@ function toDateInputValue(value: Date | null) {
   return new Date(value).toISOString().slice(0, 10);
 }
 
+function toLocalDateInputValue(value: Date): string {
+  // createdAt เป็น timestamp จริง (ไม่ใช่ UTC midnight แบบ postedAt) —
+  // ต้องอ่านเป็นเวลาท้องถิ่น ไม่งั้น entry ที่สร้างก่อนตี 7 เวลาไทยจะได้วันที่เมื่อวาน
+  const d = new Date(value);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
@@ -156,7 +166,16 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
               <Input
                 name="videoUrl"
                 value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  // วางลิงก์ = โพสต์คลิปแล้วจริง — เติมวันที่ลงคลิปให้เป็นวันที่เปิด entry
+                  // (ผู้ใช้ทำงานวันต่อวัน) เฉพาะตอนช่องวันที่ยังว่าง แก้ทับเองได้เสมอ
+                  // และการลบลิงก์ทีหลังจะไม่ลบวันที่คืน
+                  if (videoUrl.trim() === "" && next.trim() !== "" && postedAt === "") {
+                    setPostedAt(toLocalDateInputValue(entry.createdAt));
+                  }
+                  setVideoUrl(next);
+                }}
                 placeholder="https://www.tiktok.com/@.../video/..."
               />
               {videoUrl && isSafeHttpUrl(videoUrl) && (
