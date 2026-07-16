@@ -101,13 +101,15 @@ export function revenueTrend(orders: AffiliateOrderRecord[]): {
     return { points, direction: "flat", changePct: 0 };
   }
   const mid = Math.floor(points.length / 2);
-  const firstSum = points.slice(0, mid).reduce((a, b) => a + b, 0);
-  const secondSum = points.slice(mid).reduce((a, b) => a + b, 0);
+  const firstHalf = points.slice(0, mid);
+  const secondHalf = points.slice(mid);
+  const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+  const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
   let changePct: number;
-  if (firstSum === 0) {
-    changePct = secondSum > 0 ? 100 : 0;
+  if (firstAvg === 0) {
+    changePct = secondAvg > 0 ? 100 : 0;
   } else {
-    changePct = ((secondSum - firstSum) / firstSum) * 100;
+    changePct = ((secondAvg - firstAvg) / firstAvg) * 100;
   }
   const direction = changePct > 5 ? "up" : changePct < -5 ? "down" : "flat";
   return { points, direction, changePct };
