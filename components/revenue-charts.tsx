@@ -2,6 +2,15 @@
 
 import { useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import {
   ordersByDay,
@@ -13,41 +22,122 @@ function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
 
-/** เส้น GMV ตามวัน — กางจากปุ่มดูกราฟ */
-function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
-  const data = ordersByDay(orders);
-  if (data.length === 0) return null;
-  const W = 640;
-  const H = 180;
-  const pad = 28;
-  const maxGmv = Math.max(...data.map((d) => d.gmv), 1);
-  const n = data.length;
-  const x = (i: number) => pad + (n === 1 ? 0 : (i / (n - 1)) * (W - 2 * pad));
-  const y = (v: number) => H - pad - (v / maxGmv) * (H - 2 * pad);
-  const line = data.map((d, i) => `${x(i)},${y(d.gmv)}`).join(" ");
-  const area = `${x(0)},${H - pad} ${line} ${x(n - 1)},${H - pad}`;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
+type RangeKey = "7d" | "30d" | "all";
+
+const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
+  { key: "7d", label: "7 วัน", days: 7 },
+  { key: "30d", label: "30 วัน", days: 30 },
+  { key: "all", label: "ทั้งหมด", days: null },
+];
+
+/**
+ * ช่วงเวลานับถอยหลังจากวันที่ล่าสุดที่มีข้อมูล (ไม่ใช่วันนี้) —
+ * ข้อมูลนำเข้ามือแล้วมักค้างหลายวัน ถ้านับจากวันนี้ ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล
+ */
+function filterByRange(orders: AffiliateOrderRecord[], days: number | null) {
+  if (days === null || orders.length === 0) return orders;
+  const latest = Math.max(...orders.map((o) => o.orderDate.getTime()));
+  const cutoff = latest - (days - 1) * DAY_MS;
+  return orders.filter((o) => o.orderDate.getTime() >= cutoff);
+}
+
+type DayPoint = { date: string; orders: number; gmv: number };
+
+function ChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: DayPoint }[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 w-full" role="img" aria-label="กราฟ GMV ตามวัน">
-      <polygon points={area} className="fill-marigold/15" />
-      <polyline points={line} className="fill-none stroke-rust" strokeWidth={2} strokeLinejoin="round" />
-      {data.map((d, i) => (
-        <circle key={d.date} cx={x(i)} cy={y(d.gmv)} r={2.5} className="fill-rust" />
-      ))}
-      <text x={pad} y={H - 8} className="fill-muted-foreground text-[10px]">
-        {data[0].date.slice(5)}
-      </text>
-      <text x={W - pad} y={H - 8} textAnchor="end" className="fill-muted-foreground text-[10px]">
-        {data[n - 1].date.slice(5)}
-      </text>
-      <text x={pad} y={16} className="fill-muted-foreground text-[10px]">
-        สูงสุด {baht(maxGmv)}/วัน
-      </text>
-    </svg>
+    <div className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs shadow-sm">
+      <div className="text-muted-foreground">{d.date}</div>
+      <div className="text-foreground">GMV {baht(d.gmv)}</div>
+      <div className="text-muted-foreground">{d.orders.toLocaleString("th-TH")} ออเดอร์</div>
+    </div>
   );
 }
 
-/** sparkline จิ๋วในบรรทัดเดียว */
+/** กราฟ GMV ตามวัน — Recharts, hover ดูรายวันได้ + เลือกช่วงเวลา */
+function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+  const [range, setRange] = useState<RangeKey>("all");
+  const days = RANGES.find((r) => r.key === range)!.days;
+  const data = ordersByDay(filterByRange(orders, days));
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div className="flex gap-1">
+        {RANGES.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => setRange(r.key)}
+            className={`rounded-md border px-2 py-0.5 font-mono text-xs ${
+              range === r.key
+                ? "border-marigold bg-marigold/10 text-marigold"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {data.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          ไม่มีข้อมูลในช่วงนี้
+        </p>
+      ) : (
+        <div className="h-56 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="var(--color-border)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="date"
+                tickFormatter={(v: string) => v.slice(5)}
+                tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+                tickLine={false}
+                axisLine={{ stroke: "var(--color-border)" }}
+              />
+              <YAxis
+                tickFormatter={(v: number) => baht(v)}
+                tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+                tickLine={false}
+                axisLine={false}
+                width={64}
+              />
+              <Tooltip
+                content={<ChartTooltip />}
+                cursor={{ stroke: "var(--color-smoke)", strokeDasharray: "3 3" }}
+              />
+              <Area
+                type="monotone"
+                dataKey="gmv"
+                stroke="var(--color-rust)"
+                strokeWidth={2}
+                fill="var(--color-marigold)"
+                fillOpacity={0.15}
+                dot={{ r: 2.5, fill: "var(--color-rust)", strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "var(--color-rust)" }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** sparkline จิ๋วในบรรทัดเดียว — SVG วาดเองเหมือนเดิม (24px ไม่คุ้มใช้ library) */
 function Sparkline({ points }: { points: number[] }) {
   if (points.length < 2) return null;
   const W = 96;
