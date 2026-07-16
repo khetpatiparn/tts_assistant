@@ -61,6 +61,11 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
                   style={{ width: `${(c.pendingGmv / max) * 100}%` }}
                   title="รอ/ยังไม่จ่าย"
                 />
+                <div
+                  className="bg-record/30"
+                  style={{ width: `${(c.ineligibleGmv / max) * 100}%` }}
+                  title="ไม่มีสิทธิ์"
+                />
               </div>
             </div>
           </div>
@@ -73,6 +78,9 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-full bg-smoke/50" /> รอ/ยังไม่จ่าย
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block size-2 rounded-full bg-record/30" /> ไม่มีสิทธิ์
         </span>
       </div>
     </div>

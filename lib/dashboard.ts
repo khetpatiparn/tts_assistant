@@ -126,15 +126,18 @@ export function revenueByClip(orders: AffiliateOrderRecord[]) {
       gmv: number;
       paidGmv: number;
       pendingGmv: number;
+      ineligibleGmv: number;
     }
   >();
   for (const o of orders) {
     const ex = map.get(o.contentId);
     const paid = o.status === PAID_STATUS;
+    const ineligible = o.status === INELIGIBLE_STATUS;
     if (ex) {
       ex.orders++;
       ex.gmv += o.gmv;
       if (paid) ex.paidGmv += o.gmv;
+      else if (ineligible) ex.ineligibleGmv += o.gmv;
       else ex.pendingGmv += o.gmv;
     } else {
       map.set(o.contentId, {
@@ -144,7 +147,8 @@ export function revenueByClip(orders: AffiliateOrderRecord[]) {
         orders: 1,
         gmv: o.gmv,
         paidGmv: paid ? o.gmv : 0,
-        pendingGmv: paid ? 0 : o.gmv,
+        pendingGmv: !paid && !ineligible ? o.gmv : 0,
+        ineligibleGmv: ineligible ? o.gmv : 0,
       });
     }
   }
