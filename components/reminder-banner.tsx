@@ -11,13 +11,15 @@ const STORAGE_KEY = "reminder-dismissed";
 // เลย broadcast custom event เองเพื่อให้ useSyncExternalStore รู้ตัวทันทีหลังกดปิด
 const DISMISS_EVENT = "reminder-banner:dismissed";
 
-function messages(r: ReminderState): string[] {
+function messages(r: ReminderState, awaitingClips: { id: string; productName: string }[]): string[] {
   const out: string[] = [];
   if (r.daysSinceImport !== null && r.daysSinceImport > 7) {
     out.push(`ไม่ได้นำเข้าข้อมูลรายได้มา ${r.daysSinceImport} วันแล้ว`);
   }
   if (r.clipsAwaitingRevenue >= 3) {
-    out.push(`มี ${r.clipsAwaitingRevenue} คลิปที่ยังไม่มีข้อมูลรายได้`);
+    const names = awaitingClips.slice(0, 3).map((c) => c.productName).join(", ");
+    const more = awaitingClips.length > 3 ? ` และอีก ${awaitingClips.length - 3}` : "";
+    out.push(`คลิปที่ยังไม่มีข้อมูลรายได้: ${names}${more}`);
   }
   if (r.unmatchedSoldProducts > 0) {
     out.push(`มี ${r.unmatchedSoldProducts} สินค้าที่ขายได้แต่ยังไม่มีในแอป`);
@@ -42,11 +44,13 @@ function dismiss(signature: string) {
 export function ReminderBanner({
   reminder,
   onGoImport,
+  awaitingClips,
 }: {
   reminder: ReminderState;
-  onGoImport: () => void;
+  onGoImport?: () => void;
+  awaitingClips: { id: string; productName: string }[];
 }) {
-  const msgs = messages(reminder);
+  const msgs = messages(reminder, awaitingClips);
   // ลายเซ็นของสถานะ — ถ้าเปลี่ยน (มีข้อมูลใหม่) banner จะกลับมาแสดง
   const signature = `${reminder.daysSinceImport}|${reminder.clipsAwaitingRevenue}|${reminder.unmatchedSoldProducts}`;
 
@@ -67,14 +71,16 @@ export function ReminderBanner({
       <BellRing className="size-4 shrink-0 text-marigold" />
       <span className="text-foreground/90">{msgs.join(" · ")}</span>
       <div className="ml-auto flex items-center gap-1.5">
-        <Button
-          type="button"
-          size="sm"
-          onClick={onGoImport}
-          className="bg-marigold text-ink hover:bg-marigold/90"
-        >
-          ไปที่ Dashboard
-        </Button>
+        {onGoImport && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={onGoImport}
+            className="bg-marigold text-ink hover:bg-marigold/90"
+          >
+            ไปที่ Dashboard
+          </Button>
+        )}
         <button
           type="button"
           aria-label="ปิด"

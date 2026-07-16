@@ -18,7 +18,6 @@ import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import { DashboardPanel } from "@/components/dashboard-panel";
-import { ReminderBanner } from "@/components/reminder-banner";
 import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
 
 export type ProductImageRecord = {
@@ -85,12 +84,14 @@ export function PromptWorkspace({
   affiliateOrders,
   reminder,
   reminderActive,
+  awaitingClips,
 }: {
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
   affiliateOrders: AffiliateOrderRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
+  awaitingClips: { id: string; productName: string }[];
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -244,10 +245,9 @@ export function PromptWorkspace({
           active={tab}
           onChange={setTab}
           productionDisabled={selectedEntry === null}
+          dashboardAlert={reminderActive}
         />
       </ClapperHeader>
-
-      {reminderActive && <ReminderBanner reminder={reminder} onGoImport={() => setTab("dashboard")} />}
 
       {genError && (
         <p className="mx-4 mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record sm:mx-6">
@@ -322,7 +322,12 @@ export function PromptWorkspace({
 
         {tab === "dashboard" && (
           <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
-            <DashboardPanel orders={affiliateOrders} />
+            <DashboardPanel
+              orders={affiliateOrders}
+              reminder={reminder}
+              reminderActive={reminderActive}
+              awaitingClips={awaitingClips}
+            />
           </div>
         )}
       </div>

@@ -5,8 +5,9 @@ import { Upload } from "lucide-react";
 
 import { importAffiliateOrders } from "@/app/actions";
 import type { AffiliateImportSummary } from "@/app/actions";
-import { summarizeOrders, type AffiliateOrderRecord } from "@/lib/dashboard";
+import { summarizeOrders, type AffiliateOrderRecord, type ReminderState } from "@/lib/dashboard";
 import { Reconciliation } from "@/components/reconciliation";
+import { ReminderBanner } from "@/components/reminder-banner";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
 import { RevenueTrend } from "@/components/revenue-charts";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,17 @@ function baht(n: number): string {
 
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
-export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
+export function DashboardPanel({
+  orders,
+  reminder,
+  reminderActive,
+  awaitingClips,
+}: {
+  orders: AffiliateOrderRecord[];
+  reminder: ReminderState;
+  reminderActive: boolean;
+  awaitingClips: { id: string; productName: string }[];
+}) {
   const summary = summarizeOrders(orders);
 
   const [state, action, isImporting] = useActionState<ImportState, FormData>(
@@ -44,6 +55,10 @@ export function DashboardPanel({ orders }: { orders: AffiliateOrderRecord[] }) {
           Dashboard · รายได้ Affiliate
         </h2>
       </div>
+
+      {reminderActive && (
+        <ReminderBanner reminder={reminder} awaitingClips={awaitingClips} />
+      )}
 
       {/* อัปโหลด */}
       <form action={action} className="flex flex-wrap items-center gap-2">

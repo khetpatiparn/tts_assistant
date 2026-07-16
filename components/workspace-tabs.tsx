@@ -15,10 +15,12 @@ export function WorkspaceTabs({
   active,
   onChange,
   productionDisabled,
+  dashboardAlert,
 }: {
   active: WorkspaceTab;
   onChange: (tab: WorkspaceTab) => void;
   productionDisabled: boolean;
+  dashboardAlert: boolean;
 }) {
   return (
     <nav className="flex flex-wrap gap-1 px-4 pb-3 sm:px-6" aria-label="มุมมองงาน">
@@ -43,6 +45,9 @@ export function WorkspaceTabs({
             )}
           >
             {tab.label}
+            {tab.id === "dashboard" && dashboardAlert && (
+              <span className="ml-1 inline-block size-1.5 rounded-full bg-record align-middle" />
+            )}
           </button>
         );
       })}

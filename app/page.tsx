@@ -35,9 +35,10 @@ export default async function PoolingPrompt() {
   const matchedEntryIds = new Set(
     orders.map((o) => o.matchedEntryId).filter((v): v is string => v !== null)
   );
-  const clipsAwaitingRevenue = prompts.filter(
-    (p) => videoIdFromUrl(p.videoUrl) !== null && !matchedEntryIds.has(p.id)
-  ).length;
+  const awaitingClips = prompts
+    .filter((p) => videoIdFromUrl(p.videoUrl) !== null && !matchedEntryIds.has(p.id))
+    .map((p) => ({ id: p.id, productName: p.productName }));
+  const clipsAwaitingRevenue = awaitingClips.length;
 
   // สินค้าที่ขายได้แต่ยังไม่มี entry (content id ที่จับคู่ไม่ได้)
   const unmatchedSoldProducts = new Set(
@@ -62,6 +63,7 @@ export default async function PoolingPrompt() {
       affiliateOrders={orders}
       reminder={reminder}
       reminderActive={reminderActive}
+      awaitingClips={awaitingClips}
     />
   );
 }
