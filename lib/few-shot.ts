@@ -18,8 +18,8 @@ const SAMPLE_COUNT = 3;
  * คง signature เดิม (async + รับ excludeEntryId) เพื่อไม่ต้องแตะ caller ใน app/actions.ts
  * พารามิเตอร์ไม่ถูกใช้แล้วเพราะ golden ไม่ใช่ entry ในระบบ จึงไม่มีทางชนกับตัวที่กำลังเจน
  */
-// eslint-disable-next-line @typescript-eslint/require-await
 export async function getFewShotExamples(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- คง signature ไว้ให้ caller เดิมไม่ต้องแก้
   _excludeEntryId: string
 ): Promise<{ brief: string; output: string }[]> {
   const pool = [...GOLDEN_EXAMPLES];
