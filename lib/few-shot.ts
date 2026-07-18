@@ -1,44 +1,41 @@
-import { prisma } from "@/lib/prisma";
 import { buildPromptText } from "@/lib/prompt-template";
+import { GOLDEN_EXAMPLES } from "@/lib/golden-examples";
 
 /**
- * Past entries that shipped real clips, reused to teach the model the exact
- * output format and voice. Excludes the entry being generated so the model
- * never sees the answer it is being asked for.
- *
- * Text-only (brief -> output) on purpose: the originals' photos were attached
- * by hand in ChatGPT and never stored. The examples' job is to lock the format,
- * not to teach image reading — the real photos ride along with the brief.
+ * จำนวนตัวอย่างที่สุ่มหยิบต่อการเจน 1 ครั้ง — 3 อันจากกอง golden ที่คัด+ขัดแล้ว
+ * (มากกว่าเดิมที่ 2 เล็กน้อยเพื่อล็อกฟอร์แมตแน่นขึ้น ปลอดภัยเพราะทุกอันในกองสะอาดหมด)
  */
-export async function getFewShotExamples(
-  excludeEntryId: string
-): Promise<{ brief: string; output: string }[]> {
-  const rows = await prisma.promptEntry.findMany({
-    where: {
-      id: { not: excludeEntryId },
-      chatgptOutput: { not: "" },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 2,
-  });
+const SAMPLE_COUNT = 3;
 
-  return rows
-    .filter((row) => row.chatgptOutput.length > 3000)
-    .map((row) => {
-      let images: string[] = [];
-      try {
-        images = JSON.parse(row.images);
-      } catch {
-        images = [];
-      }
-      return {
-        brief: buildPromptText({
-          productInfo: row.productInfo,
-          riskModule: row.riskModule,
-          extraNotes: row.extraNotes,
-          images,
-        }),
-        output: row.chatgptOutput,
-      };
-    });
+/**
+ * ตัวอย่าง few-shot ที่ป้อนให้โมเดลตอนสร้าง 10-part prompt — ตอนนี้สุ่มจากชุด golden ที่
+ * แช่แข็งไว้ใน lib/golden-examples.ts (ไม่ดึง entry ล่าสุดจาก DB อีกต่อไป)
+ *
+ * เหตุผล: การดึง "entry ล่าสุด" ทำให้ few-shot หมุนตาม output ที่โมเดลเจนเอง — พอมีอันหนึ่ง
+ * หลุด (เช่น watermark, เสียงเพศ) มันก็สอนตัวถัดไปให้หลุดตาม เป็นวงจร drift ไล่ตัวเองออก
+ * ชุด golden ตัดวงจรนี้เพราะไม่มีทางให้ output ที่เพี้ยนแอบเข้ากอง
+ *
+ * คง signature เดิม (async + รับ excludeEntryId) เพื่อไม่ต้องแตะ caller ใน app/actions.ts
+ * พารามิเตอร์ไม่ถูกใช้แล้วเพราะ golden ไม่ใช่ entry ในระบบ จึงไม่มีทางชนกับตัวที่กำลังเจน
+ */
+// eslint-disable-next-line @typescript-eslint/require-await
+export async function getFewShotExamples(
+  _excludeEntryId: string
+): Promise<{ brief: string; output: string }[]> {
+  const pool = [...GOLDEN_EXAMPLES];
+  // Fisher-Yates shuffle เพื่อให้เห็น anchor สไตล์ต่างกันไปแต่ละครั้ง (ความหลากหลายด้านโทน)
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const picked = pool.slice(0, Math.min(SAMPLE_COUNT, pool.length));
+  return picked.map((ex) => ({
+    brief: buildPromptText({
+      productInfo: ex.productInfo,
+      riskModule: ex.riskModule,
+      extraNotes: ex.extraNotes,
+      images: ex.images,
+    }),
+    output: ex.output,
+  }));
 }
