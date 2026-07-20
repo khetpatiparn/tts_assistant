@@ -14,6 +14,8 @@ No test runner is configured in this project.
 
 เครื่อง Windows/git-bash นี้ ถ้าจะ kill process ตาม port ต้องใส่ flag แบบ double-slash: `netstat -ano | grep ':3000' | grep LISTENING` แล้วตามด้วย `taskkill //PID <pid> //F` (ใส่ slash เดียวจะโดนแปลงเป็น path แล้ว error)
 
+สคริปต์ standalone ที่ต้องอ่าน `dev.db` ตรงๆ (เช่นเช็กข้อมูลด่วนไม่ผ่าน Prisma) — `require()` โมดูลจาก `node_modules` resolve ตาม**ตำแหน่งไฟล์สคริปต์**ไม่ใช่ CWD ถ้าสคริปต์อยู่นอก repo (เช่นใน scratch/temp) ต้อง `require()` ด้วย absolute path เข้า `node_modules` ของ repo โดยตรง และให้เขียนเป็นไฟล์ `.js` จริงด้วย Write tool แทนการ inline `node -e "..."` ผ่าน bash — git-bash แปลง path ที่ฝังอยู่ใน string ของ `node -e` จนพัง
+
 `start.bat` / `stop.bat` ที่ root ของ repo ใช้ build+รัน / หยุด production server แบบ background ให้ใช้งานได้โดยไม่ต้องเปิด terminal
 
 **ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันหลายตัวพร้อมกันในโฟลเดอร์นี้** (เช่น agent รันพร้อมที่ผู้ใช้เปิด `start.bat` เอง) — `.next` จะเขียนทับกันจนพังแบบ `Cannot find module 'better-sqlite3-...'` ตอน `npm run start` ถ้าเจอ ให้ `rm -rf .next` แล้ว build ใหม่
@@ -27,6 +29,7 @@ No test runner is configured in this project.
 - `lib/utils.ts` exports the standard shadcn `cn()` helper (`clsx` + `tailwind-merge`).
 - Design tokens ที่กำหนดเอง (สีชื่อ `ink`/`paper`/`marigold`/`rust`/`smoke`/`record`, ฟอนต์ `Chonburi`/`IBM Plex Sans Thai`/`JetBrains Mono`) อยู่ใน `app/globals.css` และ `app/layout.tsx` — ให้ใช้ของเดิม อย่าเพิ่มสี/ฟอนต์ใหม่ขึ้นมาเอง
 - Layout เป็น fixed-viewport-with-internal-scroll (header คงที่ + sidebar/เนื้อหาสกรอลแยกกันเองที่ `lg:` ขึ้นไป) — จุดสำคัญคือ **`body` ใน `app/layout.tsx` ต้องมี `lg:h-full lg:overflow-hidden` ด้วย ไม่ใช่แค่ inner div** เพราะ flex child ที่มี `flex-1` จะดันความสูงของ ancestor ที่มีแค่ `min-height` ให้ยืดเกิน viewport ได้ ถ้าจะแก้/เพิ่ม scroll region ใหม่ ต้องเช็กทั้ง chain ตั้งแต่ `body` ลงมา
+- `production-panel.tsx` มี date helper 2 ตัวที่ห้ามสลับกัน: `toDateInputValue` (UTC-based, ใช้กับ `postedAt` ที่เก็บเป็น UTC midnight) กับ `toLocalDateInputValue` (local-based, ใช้กับ `createdAt` ที่เป็น timestamp จริง) — ใช้ตัวผิดจะได้วันที่เพี้ยนไป 1 วันสำหรับ entry ที่สร้างก่อน 7 โมงเช้าเวลาไทย
 
 ## Database
 
@@ -49,7 +52,10 @@ No test runner is configured in this project.
 - **รายชื่อโมเดลอยู่ที่เดียวคือ `GEMINI_MODELS` ใน `lib/gemini.ts`** — dropdown สร้างจากตัวนี้ และ Server Action ก็ validate ด้วยตัวนี้ (โมเดลส่งมาจาก client เชื่อไม่ได้) ตอนนี้มี `gemini-3.1-flash-lite` (default, ~15 วิ) กับ `gemini-3.5-flash` (~54 วิ ยาว/ละเอียดกว่า) โควตา free tier แยกคนละ pool กัน ดูตัวเลขจริงที่ `https://aistudio.google.com/rate-limit`
 - อัปโหลดรูปวิ่งผ่าน Server Action ซึ่ง**จำกัด body 1MB by default** — `next.config.ts` เลยตั้ง `experimental.serverActions.bodySizeLimit` ไว้ ถ้ารูปใหญ่ขึ้นต้องขยายตรงนี้ ไม่ใช่ที่ action
 - `GEMINI_API_KEY` อยู่ใน `.env` (gitignore แล้ว) — **ห้าม commit เด็ดขาด** และเวลาแก้ `.env` ระวังไฟล์ไม่มี newline ปิดท้าย (เคย append แล้วไปต่อท้ายบรรทัด key จน key พัง)
+
+**ภาพ + label ยังไม่ผูกกันตอนส่งเข้าโมเดล** (`lib/gemini.ts` `generateTenPartPrompt`) — ตอนนี้ label ทั้งหมดถูกส่งเป็น text ก้อนเดียวก่อน แล้วรูปทั้งหมดตามมาแบบไม่มีป้ายกำกับ โมเดลต้องเดาเอาว่ารูปใบไหนตรงกับ label อันไหนด้วยการนับตำแหน่ง ยิ่งพังง่ายเพราะฟอร์มไม่บังคับให้จำนวน label เท่ากับจำนวนรูปที่อัปจริง (เจอเคสจริง 5 label / 4 รูป) สำหรับสินค้าที่มีโครงสร้างไม่สมมาตร (เช่น logo อยู่ด้านเดียว) นี่คือสาเหตุที่ output อธิบายผิดด้าน — ควร interleave (caption ก่อนรูปของมันทันที ทีละคู่) แทนการส่งแยกกอง ถ้าแก้แล้วให้ลบโน้ตนี้ทิ้ง
 - เส้นทาง manual เดิม (คัดลอก prompt ไปวางในแชทเอง แล้ว paste คำตอบกลับ) ยังใช้ได้ปกติ — เป็น fallback ตอน API ล่มหรือโควตาหมด
+- **Gemini's input safety classifier can reject completely benign requests** — เจอจริงกับรูปสินค้าที่จัดฉากเป็นชั้นเก็บของเด็ก/ห้องเด็ก (มีตุ๊กตา/ของเล่นในเฟรม) ได้ error 400 `"Input blocked: ... Prohibited Use policy"` ทั้งที่เนื้อหาไม่มีอะไรผิดปกติ — เป็น false positive ที่รู้กันว่าเกิดกับรูปที่มีองค์ประกอบ "เด็ก/ของเล่น" ไม่ใช่บั๊กโค้ด ถ้าเจอ ให้ลองรูปอื่นหรือถอดรูปที่ต้องสงสัยออกก่อน ไม่งั้นใช้เส้นทาง manual แทน
 - ปุ่ม "สร้างด้วย AI" ทำงาน 2 ขั้นใน action เดียว: (1) รูป+บรีฟ+Core Prompt → 10-part prompt ด้วยโมเดลที่ผู้ใช้เลือก (2) 10-part prompt (ข้อความล้วน ไม่ส่งรูป) + SEO Prompt → Caption/Hashtags ด้วย `CAPTION_MODEL` = `gemini-3.1-flash-lite` **เสมอ** (โควตาแยก pool และ 3.5-flash มีแค่ 20 ครั้ง/วัน)
 - **ขั้น 1 ต้องบันทึกลง DB ก่อนขั้น 2 เสมอ และขั้น 2 ห้าม throw** — `generateWithAI` คืน `{ captionError }` แทน ถ้า throw ก่อน `revalidatePath` หน้าเว็บจะไม่เห็น 10-part prompt ที่บันทึกไปแล้ว
 - `lib/caption.ts` แยกคำตอบเป็น caption/hashtags ถ้าโมเดลตอบผิดฟอร์แมตจะยัดทั้งก้อนลง caption ไม่ทิ้งของ
@@ -61,6 +67,7 @@ No test runner is configured in this project.
 - **จับคู่ออเดอร์กับคลิปด้วย content ID (col 17) = video id ใน `PromptEntry.videoUrl`** (ดึงด้วย `videoIdFromUrl`) ห้ามจับด้วยชื่อสินค้า — สินค้าเดียวมีได้หลายคลิป
 - **GMV ≠ เงินจริง** — `summarizeOrders` แยก `totalGmv` (ทุกสถานะ) กับ `settledRevenue` (`finalRevenue` ที่ settle แล้ว) สถานะจ่ายแล้ว = `PAID_STATUS` (`"ชำระแล้ว"`)
 - `lib/dashboard.ts` เป็น aggregation ล้วน (pure) และเป็นเจ้าของ `IMPORT_STALE_DAYS` (รอบนำเข้า 7 วัน ใช้ร่วมกันทั้งแถบเตือนและบรรทัดสถานะ) · กราฟเส้นใน `components/revenue-charts.tsx` ใช้ **Recharts** (library ตัวเดียวในแอป, สีผูกผ่าน `var(--color-*)` ของ Tailwind v4) ส่วน sparkline กับ bar ราย-คลิปยังวาดเองด้วย SVG/div · reminder banner เตือนเมื่อข้อมูลเก่า >7 วัน / มีคลิปยังไม่มีรายได้ / มีสินค้าขายได้ที่ยังไม่มี entry และมีบรรทัดสถานะถาวรใต้ฟอร์มอัปโหลดบอกวันนำเข้าล่าสุด+รอบถัดไป
+  **Recharts อยู่ที่ v3.9.2 — API ต่างจากตัวอย่าง/เอกสารทั่วไปที่มักเป็น v2** ห้ามเดา prop shape เอง ให้เช็ค `node_modules/recharts/types/` จริงก่อนแก้กราฟ (เหมือนกฎเดียวกับ Gemini SDK ด้านบน)
 - ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — ห้าม commit
 - ส่วนเงินแยก "เงินที่ได้จริง" (`settledRevenue`) เป็นพระเอก กับ "กำลังรอ" (`pendingGmv` + `estimatedPendingCommission` = pendingGmv × อัตราจริง) — ไม่โชว์ GMV รวมเป็นหัวอีก (`summarizeOrders` ใน `lib/dashboard.ts` คืน field แยกครบ)
 - thumbnail คลิปมาจาก **TikTok oEmbed** (สาธารณะ ไม่ต้อง auth) — `lib/tiktok-oembed.ts` ไฟล์เดียวที่รู้จัก endpoint, cache ในตาราง `VideoThumbnail` (เก็บแม้ล้มเหลว ok=false กันยิงซ้ำ), resolve ผ่าน Server Action `resolveThumbnail` (client เรียก lazy), fallback เป็นไอคอนเมื่อคลิปโดนลบ — นี่คือการยิงเน็ตออกนอกเครื่องที่เดียวของแอป
