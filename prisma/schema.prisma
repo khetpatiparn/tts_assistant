@@ -48,6 +48,7 @@ model ProductImage {
   entry     PromptEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
   filename  String
   mimeType  String
+  caption   String      @default("")
   sortOrder Int         @default(0)
   createdAt DateTime    @default(now())
 }
