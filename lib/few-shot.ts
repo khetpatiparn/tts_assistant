@@ -31,10 +31,11 @@ export async function getFewShotExamples(
   const picked = pool.slice(0, Math.min(SAMPLE_COUNT, pool.length));
   return picked.map((ex) => ({
     brief: buildPromptText({
+      productName: ex.productName,
       productInfo: ex.productInfo,
       riskModule: ex.riskModule,
       extraNotes: ex.extraNotes,
-      images: ex.images,
+      imageCaptions: ex.images,
     }),
     output: ex.output,
   }));

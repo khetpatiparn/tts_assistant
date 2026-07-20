@@ -248,26 +248,22 @@ export async function generateWithAI(
     throw new Error("ยังไม่ได้ตั้ง Core Prompt ที่ใช้งานอยู่");
   }
 
-  let imageLabels: string[] = [];
-  try {
-    imageLabels = JSON.parse(entry.images);
-  } catch {
-    imageLabels = [];
-  }
-
+  const photos = entry.productImages; // เรียง sortOrder แล้วจาก include ด้านบน
   const brief = buildPromptText({
+    productName: entry.productName,
     productInfo: entry.productInfo,
     riskModule: entry.riskModule,
     extraNotes: entry.extraNotes,
-    images: imageLabels,
+    imageCaptions: photos.map((p) => p.caption),
   });
 
-  const photos = await Promise.all(
-    entry.productImages.map(async (image) => ({
+  const geminiImages = await Promise.all(
+    photos.map(async (image) => ({
       base64: (
         await readFile(path.join(UPLOAD_ROOT, image.entryId, image.filename))
       ).toString("base64"),
       mimeType: image.mimeType,
+      caption: image.caption,
     }))
   );
 
@@ -276,7 +272,7 @@ export async function generateWithAI(
     systemInstruction: core.content,
     examples: await getFewShotExamples(entryId),
     brief,
-    images: photos,
+    images: geminiImages,
   });
 
   // บันทึกผลของ stage 1 ให้เสร็จก่อนเสมอ — ถ้า stage 2 พัง 10-part prompt ต้องไม่หายไปด้วย

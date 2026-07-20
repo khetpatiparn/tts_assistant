@@ -204,10 +204,11 @@ export function PromptWorkspace({
   const output = useMemo(
     () =>
       buildPromptText({
+        productName: form.productName,
         productInfo: form.productInfo,
         riskModule: form.riskModule,
         extraNotes: form.extraNotes,
-        images: form.images,
+        imageCaptions: form.images,
       }),
     [form]
   );

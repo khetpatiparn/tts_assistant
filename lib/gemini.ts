@@ -17,7 +17,7 @@ export function isGeminiModelId(value: string): value is GeminiModelId {
   return GEMINI_MODELS.some((model) => model.id === value);
 }
 
-export type GeminiImage = { base64: string; mimeType: string };
+export type GeminiImage = { base64: string; mimeType: string; caption: string };
 
 export async function generateTenPartPrompt(args: {
   model: GeminiModelId;
@@ -45,9 +45,14 @@ export async function generateTenPartPrompt(args: {
     });
   }
 
-  // Then the real task, then the photos it must be based on.
+  // Then the real task, then each photo immediately preceded by its caption so the
+  // model binds "รูปที่ N = this side" instead of guessing by position.
   input.push({ type: "text", text: `### โจทย์จริง\n${args.brief}` });
-  for (const image of args.images) {
+  for (const [index, image] of args.images.entries()) {
+    input.push({
+      type: "text",
+      text: `รูปที่ ${index + 1}${image.caption ? ` — ${image.caption}` : ""}`,
+    });
     input.push({ type: "image", data: image.base64, mime_type: image.mimeType });
   }
 
