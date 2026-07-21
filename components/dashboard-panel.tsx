@@ -5,7 +5,7 @@ import { Upload } from "lucide-react";
 
 import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
-import type { ClipMetricRecord } from "@/components/prompt-workspace";
+import type { ClipMetricRecord } from "@/lib/recommender";
 import {
   IMPORT_STALE_DAYS,
   summarizeOrders,

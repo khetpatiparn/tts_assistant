@@ -20,6 +20,7 @@ import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import { DashboardPanel } from "@/components/dashboard-panel";
 import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
+import type { ClipMetricRecord } from "@/lib/recommender";
 
 export type ProductImageRecord = {
   id: string;
@@ -55,21 +56,8 @@ export type CorePromptRecord = {
   kind: string;
 };
 
-export type ClipMetricRecord = {
-  id: string;
-  videoId: string;
-  matchedEntryId: string | null;
-  title: string;
-  postedDate: string;
-  views: number;
-  likes: number;
-  comments: number;
-  shares: number;
-  capturedOn: Date;
-  importedAt: Date;
-};
-
 export type { AffiliateOrderRecord } from "@/lib/dashboard";
+export type { ClipMetricRecord } from "@/lib/recommender";
 
 const emptyForm: FormState = {
   productName: "",
