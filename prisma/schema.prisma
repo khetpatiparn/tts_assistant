@@ -40,6 +40,8 @@ model PromptEntry {
   caption        String      @default("")
   hashtags       String      @default("")
   affiliateOrders AffiliateOrder[]
+  postedTimeOfDay String?
+  clipMetrics     ClipMetric[]
 }
 
 model ProductImage {
@@ -80,4 +82,22 @@ model VideoThumbnail {
   title        String?
   ok           Boolean  @default(false)
   fetchedAt    DateTime @default(now())
+}
+
+model ClipMetric {
+  id             String       @id @default(cuid())
+  videoId        String
+  matchedEntryId String?
+  matchedEntry   PromptEntry? @relation(fields: [matchedEntryId], references: [id], onDelete: SetNull)
+  title          String
+  postedDate     String
+  views          Int
+  likes          Int
+  comments       Int
+  shares         Int
+  capturedOn     DateTime
+  importedAt     DateTime     @default(now())
+
+  @@unique([videoId, capturedOn])
+  @@index([matchedEntryId])
 }
