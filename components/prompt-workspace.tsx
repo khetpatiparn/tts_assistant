@@ -83,7 +83,6 @@ export function PromptWorkspace({
   clipMetrics,
   reminder,
   reminderActive,
-  awaitingClips,
   lastImportedAt,
   now,
 }: {
@@ -93,7 +92,6 @@ export function PromptWorkspace({
   clipMetrics: ClipMetricRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
-  awaitingClips: { id: string; productName: string }[];
   lastImportedAt: Date | null;
   now: Date;
 }) {
@@ -330,7 +328,6 @@ export function PromptWorkspace({
               clipMetrics={clipMetrics}
               reminder={reminder}
               reminderActive={reminderActive}
-              awaitingClips={awaitingClips}
               lastImportedAt={lastImportedAt}
               entries={dashboardEntries}
               now={now}

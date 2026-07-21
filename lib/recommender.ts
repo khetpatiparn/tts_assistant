@@ -168,3 +168,27 @@ export function detectSignals(stats: ClipStat[]): ClipSignal[] {
 
   return signals.sort((a, b) => b.strength - a.strength);
 }
+
+/**
+ * เกณฑ์ความเชื่อมั่นด้านบนถูกตั้งไว้ตอนช่องยังเล็ก — ถ้าวิวกลางของช่องโตจนสูงกว่าเกณฑ์ขั้นต่ำหลายเท่า
+ * แปลว่าเกณฑ์เริ่มหลวมเกินไป (เชื่อ conversion จากคลิปที่วิวน้อยมากเทียบกับมาตรฐานใหม่ของช่อง)
+ * ตัวเลขนี้ไม่ได้ปรับตัวเอง เพราะ "แค่ไหนถึงเรียกว่าเชื่อถือได้" เป็นการตัดสินใจ ไม่ใช่คณิตศาสตร์ล้วน
+ * — หน้าที่ของฟังก์ชันนี้คือสะกิดให้กลับมาทบทวน ไม่ใช่ปรับให้เอง
+ */
+const GUARD_STALE_FACTOR = 10;
+
+export type GuardHealth = {
+  stale: boolean;
+  medianViews: number;
+  minViewsForConv: number;
+};
+
+export function checkGuardHealth(stats: ClipStat[]): GuardHealth {
+  const usable = stats.filter((s) => s.views > 0);
+  const medianViews = median(usable.map((s) => s.views));
+  return {
+    stale: medianViews >= MIN_VIEWS_FOR_CONV * GUARD_STALE_FACTOR,
+    medianViews,
+    minViewsForConv: MIN_VIEWS_FOR_CONV,
+  };
+}

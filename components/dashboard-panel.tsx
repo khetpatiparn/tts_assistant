@@ -37,7 +37,6 @@ export function DashboardPanel({
   clipMetrics,
   reminder,
   reminderActive,
-  awaitingClips,
   lastImportedAt,
   entries,
   now,
@@ -46,7 +45,6 @@ export function DashboardPanel({
   clipMetrics: ClipMetricRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
-  awaitingClips: { id: string; productName: string }[];
   lastImportedAt: Date | null;
   entries: { id: string; productName: string }[];
   now: Date;
@@ -92,9 +90,7 @@ export function DashboardPanel({
         </h2>
       </div>
 
-      {reminderActive && (
-        <ReminderBanner reminder={reminder} awaitingClips={awaitingClips} />
-      )}
+      {reminderActive && <ReminderBanner reminder={reminder} />}
 
       <Recommendations
         entries={entries}

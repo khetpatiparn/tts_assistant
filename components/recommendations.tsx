@@ -6,6 +6,7 @@ import { Lightbulb } from "lucide-react";
 import type { AffiliateOrderRecord } from "@/lib/dashboard";
 import {
   buildClipStats,
+  checkGuardHealth,
   detectSignals,
   type ClipMetricRecord,
   type ClipSignalKind,
@@ -29,10 +30,12 @@ export function Recommendations({
   orders: AffiliateOrderRecord[];
   now: Date;
 }) {
-  const signals = useMemo(
-    () => detectSignals(buildClipStats({ entries, metrics, orders, now })),
+  const stats = useMemo(
+    () => buildClipStats({ entries, metrics, orders, now }),
     [entries, metrics, orders, now]
   );
+  const signals = useMemo(() => detectSignals(stats), [stats]);
+  const guardHealth = useMemo(() => checkGuardHealth(stats), [stats]);
 
   const withMetrics = new Set(
     metrics.filter((m) => m.matchedEntryId !== null).map((m) => m.matchedEntryId)
@@ -74,6 +77,13 @@ export function Recommendations({
       <div className="flex flex-col gap-0.5 border-t border-border pt-2 font-mono text-[0.7rem] text-muted-foreground">
         {missing > 0 && <span>ยังไม่มีข้อมูลวิว {missing} คลิป — นำเข้าไฟล์ Content รอบใหม่เพื่อให้ครบ</span>}
         {!hasDelta && <span>สัญญาณด้านความเคลื่อนไหวจะใช้ได้หลังนำเข้าข้อมูลวิวรอบที่ 2</span>}
+        {guardHealth.stale && (
+          <span>
+            ช่องโตขึ้นมาก (วิวกลาง {guardHealth.medianViews.toLocaleString()} เทียบกับเกณฑ์ขั้นต่ำ{" "}
+            {guardHealth.minViewsForConv.toLocaleString()}) — เกณฑ์ความเชื่อมั่นใน lib/recommender.ts
+            อาจหลวมเกินไปแล้ว ควรทบทวน
+          </span>
+        )}
       </div>
     </div>
   );

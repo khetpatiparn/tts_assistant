@@ -11,15 +11,10 @@ const STORAGE_KEY = "reminder-dismissed";
 // เลย broadcast custom event เองเพื่อให้ useSyncExternalStore รู้ตัวทันทีหลังกดปิด
 const DISMISS_EVENT = "reminder-banner:dismissed";
 
-function messages(r: ReminderState, awaitingClips: { id: string; productName: string }[]): string[] {
+function messages(r: ReminderState): string[] {
   const out: string[] = [];
   if (r.daysSinceImport !== null && r.daysSinceImport > IMPORT_STALE_DAYS) {
     out.push(`ไม่ได้นำเข้าข้อมูลรายได้มา ${r.daysSinceImport} วันแล้ว`);
-  }
-  if (r.clipsAwaitingRevenue >= 3) {
-    const names = awaitingClips.slice(0, 3).map((c) => c.productName).join(", ");
-    const more = awaitingClips.length > 3 ? ` และอีก ${awaitingClips.length - 3}` : "";
-    out.push(`คลิปที่ยังไม่มีข้อมูลรายได้: ${names}${more}`);
   }
   if (r.unmatchedSoldProducts > 0) {
     out.push(`มี ${r.unmatchedSoldProducts} สินค้าที่ขายได้แต่ยังไม่มีในแอป`);
@@ -44,15 +39,13 @@ function dismiss(signature: string) {
 export function ReminderBanner({
   reminder,
   onGoImport,
-  awaitingClips,
 }: {
   reminder: ReminderState;
   onGoImport?: () => void;
-  awaitingClips: { id: string; productName: string }[];
 }) {
-  const msgs = messages(reminder, awaitingClips);
+  const msgs = messages(reminder);
   // ลายเซ็นของสถานะ — ถ้าเปลี่ยน (มีข้อมูลใหม่) banner จะกลับมาแสดง
-  const signature = `${reminder.daysSinceImport}|${reminder.clipsAwaitingRevenue}|${reminder.unmatchedSoldProducts}`;
+  const signature = `${reminder.daysSinceImport}|${reminder.unmatchedSoldProducts}`;
 
   // อ่าน localStorage (external system) ผ่าน useSyncExternalStore แทน useEffect+setState —
   // ฝั่ง server ไม่มี localStorage เลยต้องมี server snapshot แยก (คืน "dismissed" เสมอ

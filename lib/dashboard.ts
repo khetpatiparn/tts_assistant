@@ -175,6 +175,5 @@ export function ordersByStatus(orders: AffiliateOrderRecord[]) {
 
 export type ReminderState = {
   daysSinceImport: number | null;
-  clipsAwaitingRevenue: number;
   unmatchedSoldProducts: number;
 };

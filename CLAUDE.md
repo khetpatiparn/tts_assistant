@@ -66,7 +66,7 @@ No test runner is configured in this project.
 - `lib/affiliate.ts` เป็นไฟล์เดียวที่รู้จัก SheetJS (`xlsx`) — parse ด้วย `sheet_to_json({header:1, raw:false})` อ้างคอลัมน์ตาม index (ไฟล์ใช้ inline strings ไม่มี sharedStrings, วันที่รูปแบบ `DD/MM/YYYY HH:MM:SS`) คอลัมน์ที่ใช้: 0=orderId 2=ชื่อ 3=รหัสสินค้า 5=จำนวน 13=สถานะ 17=รหัสเนื้อหา 23=GMV 34=ค่าคอมจริง 44=รายได้สุดท้าย 45=วันที่
 - **จับคู่ออเดอร์กับคลิปด้วย content ID (col 17) = video id ใน `PromptEntry.videoUrl`** (ดึงด้วย `videoIdFromUrl`) ห้ามจับด้วยชื่อสินค้า — สินค้าเดียวมีได้หลายคลิป
 - **GMV ≠ เงินจริง** — `summarizeOrders` แยก `totalGmv` (ทุกสถานะ) กับ `settledRevenue` (`finalRevenue` ที่ settle แล้ว) สถานะจ่ายแล้ว = `PAID_STATUS` (`"ชำระแล้ว"`)
-- `lib/dashboard.ts` เป็น aggregation ล้วน (pure) และเป็นเจ้าของ `IMPORT_STALE_DAYS` (รอบนำเข้า 7 วัน ใช้ร่วมกันทั้งแถบเตือนและบรรทัดสถานะ) · กราฟเส้นใน `components/revenue-charts.tsx` ใช้ **Recharts** (library ตัวเดียวในแอป, สีผูกผ่าน `var(--color-*)` ของ Tailwind v4) ส่วน sparkline กับ bar ราย-คลิปยังวาดเองด้วย SVG/div · reminder banner เตือนเมื่อข้อมูลเก่า >7 วัน / มีคลิปยังไม่มีรายได้ / มีสินค้าขายได้ที่ยังไม่มี entry และมีบรรทัดสถานะถาวรใต้ฟอร์มอัปโหลดบอกวันนำเข้าล่าสุด+รอบถัดไป
+- `lib/dashboard.ts` เป็น aggregation ล้วน (pure) และเป็นเจ้าของ `IMPORT_STALE_DAYS` (รอบนำเข้า 7 วัน ใช้ร่วมกันทั้งแถบเตือนและบรรทัดสถานะ) · กราฟเส้นใน `components/revenue-charts.tsx` ใช้ **Recharts** (library ตัวเดียวในแอป, สีผูกผ่าน `var(--color-*)` ของ Tailwind v4) ส่วน sparkline กับ bar ราย-คลิปยังวาดเองด้วย SVG/div · reminder banner เตือนเมื่อข้อมูลเก่า >7 วัน / มีสินค้าขายได้ที่ยังไม่มี entry และมีบรรทัดสถานะถาวรใต้ฟอร์มอัปโหลดบอกวันนำเข้าล่าสุด+รอบถัดไป (เดิมมีเงื่อนไข "คลิปยังไม่มีรายได้ ≥3 ชิ้น" ด้วย แต่ถูกถอดออกแล้ว — อัตราปิดการขายจริงของช่องอยู่แถว 1-in-20 เลยติดค้าง active ถาวรและกลบสองอันที่เหลือ ดูหัวข้อ "ค่าคงที่ที่ผูกกับสเกลข้อมูล" ท้ายไฟล์)
   **Recharts อยู่ที่ v3.9.2 — API ต่างจากตัวอย่าง/เอกสารทั่วไปที่มักเป็น v2** ห้ามเดา prop shape เอง ให้เช็ค `node_modules/recharts/types/` จริงก่อนแก้กราฟ (เหมือนกฎเดียวกับ Gemini SDK ด้านบน)
 - ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — ห้าม commit
 - ส่วนเงินแยก "เงินที่ได้จริง" (`settledRevenue`) เป็นพระเอก กับ "กำลังรอ" (`pendingGmv` + `estimatedPendingCommission` = pendingGmv × อัตราจริง) — ไม่โชว์ GMV รวมเป็นหัวอีก (`summarizeOrders` ใน `lib/dashboard.ts` คืน field แยกครบ)
@@ -74,7 +74,14 @@ No test runner is configured in this project.
 - `createEntryFromOrder` สร้าง entry ขั้นต่ำจากออเดอร์ที่ยังไม่มีในแอป แล้ว `updateMany` ผูก `matchedEntryId` ให้ทันที
 - **ธีม dashboard ทำเป็นกลางๆ ไม่ใส่ motif คลปเปอร์บอร์ด** (ผู้ใช้กำลังจะเลิกธีมหนัง — การเปลี่ยนชื่อ+re-theme ทั้งแอปเป็นโปรเจกต์แยก)
 - `revenueByClip` (ราย-คลิปใน `components/revenue-by-clip.tsx`) ต้องแบ่งเงินแบบ 3 ทาง (จ่ายแล้ว/รอ/ไม่มีสิทธิ์) **ให้ตรงกับ `summarizeOrders` เสมอ** — เคยพลาดโยนออเดอร์ "ไม่มีสิทธิ์" ไปปนกับ "รอ" มาแล้ว ถ้าแก้ตรรกะแบ่งเงินฝั่งใดฝั่งหนึ่ง ต้องเช็กอีกฝั่งด้วย
-- แถบเตือน (`reminder-banner.tsx`) แสดงเฉพาะในแท็บ dashboard เท่านั้น (ไม่อยู่ที่ header อีกต่อไป) — ที่แท็บ ④ เองมีจุดแดงเล็กๆ บอกสถานะ (`workspace-tabs.tsx` รับ prop `dashboardAlert` จาก `reminderActive` เดิม) ส่วนข้อความในแบนเนอร์บอกชื่อคลิปที่รอจริง (`awaitingClips`) ไม่ใช่แค่ตัวเลข
+- แถบเตือน (`reminder-banner.tsx`) แสดงเฉพาะในแท็บ dashboard เท่านั้น (ไม่อยู่ที่ header อีกต่อไป) — ที่แท็บ ④ เองมีจุดแดงเล็กๆ บอกสถานะ (`workspace-tabs.tsx` รับ prop `dashboardAlert` จาก `reminderActive` เดิม)
+
+### ค่าคงที่ที่ผูกกับสเกลข้อมูล (ต้องทบทวนเป็นระยะ)
+
+- `MIN_VIEWS_FOR_CONV` / `MIN_ORDERS_FOR_CONV` ใน `lib/recommender.ts` — ตั้งไว้ตอนช่องยังเล็ก ผูกกับสเกลของวิว/ยอดขายปัจจุบัน จะเริ่มหลวมเกินไปเมื่อช่องโตขึ้น — `checkGuardHealth` (ในไฟล์เดียวกัน) เช็กให้อัตโนมัติแล้วขึ้นโน้ตเตือนใน `components/recommendations.tsx` เมื่อวิวกลางของช่องสูงกว่าเกณฑ์ขั้นต่ำเกิน 10 เท่า
+- `MAX_BAD_RATIO` ใน `lib/recommender.ts` เป็นสัดส่วน (scale-free) — ไม่ต้องกังวลเรื่องนี้
+- `IMPORT_STALE_DAYS` ใน `lib/dashboard.ts` ผูกกับรอบ settlement ของ TikTok (7 วัน) ถ้า TikTok เปลี่ยนรอบ ค่านี้จะไม่มีอะไรมาเตือน ต้องแก้เอง
+- บทเรียน: `CLIP_AWAITING_THRESHOLD` เคยติด active ถาวรมานานโดยไม่มีใครสังเกต (ดูหัวข้อ Dashboard ด้านบน) — threshold ใหม่ๆ ควรปรับตัวเองตามข้อมูล หรืออย่างน้อยมี staleness check แบบ `checkGuardHealth` แนบมาด้วย
 
 ## Testing / verification
 

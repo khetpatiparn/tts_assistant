@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { PromptWorkspace } from "@/components/prompt-workspace";
 import { sortEntriesForRail } from "@/lib/entry-sort";
-import { videoIdFromUrl } from "@/lib/affiliate";
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const CLIP_AWAITING_THRESHOLD = 3;
 
 // แยกออกมาเป็น helper แยกจาก component เพราะ Date.now() เป็น impure call —
 // eslint-plugin-react-hooks (purity rule) ห้ามเรียกตรงใน render body ของ component
@@ -39,15 +37,6 @@ export default async function PoolingPrompt() {
     daysSinceImport = daysSince(last);
   }
 
-  // คลิปที่มี videoUrl แต่ยังไม่มีออเดอร์จับคู่
-  const matchedEntryIds = new Set(
-    orders.map((o) => o.matchedEntryId).filter((v): v is string => v !== null)
-  );
-  const awaitingClips = prompts
-    .filter((p) => videoIdFromUrl(p.videoUrl) !== null && !matchedEntryIds.has(p.id))
-    .map((p) => ({ id: p.id, productName: p.productName }));
-  const clipsAwaitingRevenue = awaitingClips.length;
-
   // สินค้าที่ขายได้แต่ยังไม่มี entry (content id ที่จับคู่ไม่ได้)
   const unmatchedSoldProducts = new Set(
     orders.filter((o) => o.matchedEntryId === null).map((o) => o.contentId)
@@ -55,13 +44,11 @@ export default async function PoolingPrompt() {
 
   const reminder: ReminderState = {
     daysSinceImport,
-    clipsAwaitingRevenue,
     unmatchedSoldProducts,
   };
 
   const reminderActive =
     (daysSinceImport !== null && daysSinceImport > IMPORT_STALE_DAYS) ||
-    clipsAwaitingRevenue >= CLIP_AWAITING_THRESHOLD ||
     unmatchedSoldProducts > 0;
 
   return (
@@ -72,7 +59,6 @@ export default async function PoolingPrompt() {
       clipMetrics={clipMetrics}
       reminder={reminder}
       reminderActive={reminderActive}
-      awaitingClips={awaitingClips}
       lastImportedAt={lastImportedAt}
       now={currentTime()}
     />
