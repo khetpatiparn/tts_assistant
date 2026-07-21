@@ -6,6 +6,7 @@ import {
   createPrompt,
   deletePrompt,
   generateWithAI,
+  updateProductImageCaption,
   uploadProductImages,
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
@@ -15,7 +16,7 @@ import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductionPanel } from "@/components/production-panel";
 import { CorePromptPanel } from "@/components/core-prompt-panel";
-import { buildPromptText, DEFAULT_IMAGE_LABELS } from "@/lib/prompt-template";
+import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import { DashboardPanel } from "@/components/dashboard-panel";
 import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
@@ -25,6 +26,7 @@ export type ProductImageRecord = {
   entryId: string;
   filename: string;
   mimeType: string;
+  caption: string;
   sortOrder: number;
 };
 
@@ -60,22 +62,14 @@ const emptyForm: FormState = {
   productInfo: "",
   riskModule: "",
   extraNotes: "",
-  images: DEFAULT_IMAGE_LABELS,
 };
 
 function entryToForm(entry: PromptEntry): FormState {
-  let images: string[] = [];
-  try {
-    images = JSON.parse(entry.images);
-  } catch {
-    images = [];
-  }
   return {
     productName: entry.productName,
     productInfo: entry.productInfo,
     riskModule: entry.riskModule,
     extraNotes: entry.extraNotes,
-    images: images.length > 0 ? images : DEFAULT_IMAGE_LABELS,
   };
 }
 
@@ -108,14 +102,17 @@ export function PromptWorkspace({
 
   // Photos pasted before the entry exists. They ride along in memory and are
   // uploaded the moment createPrompt hands back an id to attach them to.
-  const [pendingImages, setPendingImages] = useState<File[]>([]);
+  const [pendingImages, setPendingImages] = useState<{ file: File; caption: string }[]>([]);
   const [isUploading, startUploading] = useTransition();
   const [imageError, setImageError] = useState<string | null>(null);
 
-  function uploadImagesTo(entryId: string, files: File[]) {
+  function uploadImagesTo(entryId: string, items: { file: File; caption: string }[]) {
     const formData = new FormData();
     formData.set("entryId", entryId);
-    for (const file of files) formData.append("files", file);
+    for (const { file, caption } of items) {
+      formData.append("files", file);
+      formData.append("captions", caption);
+    }
     return uploadProductImages(formData);
   }
 
@@ -139,13 +136,13 @@ export function PromptWorkspace({
     // With an entry to hang them on, photos save immediately. Without one, they
     // wait — either way the user just pastes and it works.
     if (selectedId === null) {
-      setPendingImages((prev) => [...prev, ...files]);
+      setPendingImages((prev) => [...prev, ...files.map((file) => ({ file, caption: "" }))]);
       return;
     }
 
     startUploading(async () => {
       try {
-        await uploadImagesTo(selectedId, files);
+        await uploadImagesTo(selectedId, files.map((file) => ({ file, caption: "" })));
       } catch (e) {
         setImageError(e instanceof Error ? e.message : "แนบรูปไม่สำเร็จ");
       }
@@ -154,6 +151,10 @@ export function PromptWorkspace({
 
   function handleRemovePending(index: number) {
     setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updatePendingCaption(index: number, caption: string) {
+    setPendingImages((prev) => prev.map((it, i) => (i === index ? { ...it, caption } : it)));
   }
 
   function selectPrompt(entry: PromptEntry) {
@@ -177,21 +178,6 @@ export function PromptWorkspace({
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function updateImage(index: number, value: string) {
-    setForm((f) => ({
-      ...f,
-      images: f.images.map((v, i) => (i === index ? value : v)),
-    }));
-  }
-
-  function addImage() {
-    setForm((f) => ({ ...f, images: [...f.images, ""] }));
-  }
-
-  function removeImage(index: number) {
-    setForm((f) => ({ ...f, images: f.images.filter((_, i) => i !== index) }));
-  }
-
   function handleDelete(id: string, event: React.MouseEvent) {
     event.stopPropagation();
     if (!confirm("ลบรายการนี้?")) return;
@@ -201,17 +187,21 @@ export function PromptWorkspace({
     });
   }
 
-  const output = useMemo(
-    () =>
-      buildPromptText({
-        productName: form.productName,
-        productInfo: form.productInfo,
-        riskModule: form.riskModule,
-        extraNotes: form.extraNotes,
-        imageCaptions: form.images,
-      }),
-    [form]
-  );
+  const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
+
+  const output = useMemo(() => {
+    const imageCaptions =
+      selectedEntry !== null
+        ? selectedEntry.productImages.map((p) => p.caption)
+        : pendingImages.map((p) => p.caption);
+    return buildPromptText({
+      productName: form.productName,
+      productInfo: form.productInfo,
+      riskModule: form.riskModule,
+      extraNotes: form.extraNotes,
+      imageCaptions,
+    });
+  }, [form, selectedEntry, pendingImages]);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(output);
@@ -239,8 +229,6 @@ export function PromptWorkspace({
   const selectedIndex = prompts.findIndex((p) => p.id === selectedId);
   const takeNumber =
     selectedIndex >= 0 ? prompts.length - selectedIndex : prompts.length + 1;
-
-  const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
 
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
@@ -278,14 +266,13 @@ export function PromptWorkspace({
                 form={form}
                 isCreating={isCreating}
                 onFieldChange={updateField}
-                onImageChange={updateImage}
-                onAddImage={addImage}
-                onRemoveImage={removeImage}
                 action={createAction}
                 productImages={selectedEntry?.productImages ?? []}
                 pendingImages={pendingImages}
                 onAddImages={handleAddImages}
                 onRemovePending={handleRemovePending}
+                onUpdatePendingCaption={updatePendingCaption}
+                onSaveCaption={(id, caption) => updateProductImageCaption(id, caption)}
                 isUploading={isUploading}
                 imageError={imageError}
               />

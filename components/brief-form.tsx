@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, Plus, X } from "lucide-react";
+import { ClipboardPaste, X } from "lucide-react";
 
 import { deleteProductImage } from "@/app/actions";
 import type { ProductImageRecord } from "@/components/prompt-workspace";
@@ -14,7 +14,6 @@ export type FormState = {
   productInfo: string;
   riskModule: string;
   extraNotes: string;
-  images: string[];
 };
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -55,28 +54,26 @@ export function BriefForm({
   form,
   isCreating,
   onFieldChange,
-  onImageChange,
-  onAddImage,
-  onRemoveImage,
   action,
   productImages,
   pendingImages,
   onAddImages,
   onRemovePending,
+  onUpdatePendingCaption,
+  onSaveCaption,
   isUploading,
   imageError,
 }: {
   form: FormState;
   isCreating: boolean;
   onFieldChange: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
-  onImageChange: (index: number, value: string) => void;
-  onAddImage: () => void;
-  onRemoveImage: (index: number) => void;
   action: (formData: FormData) => void;
   productImages: ProductImageRecord[];
-  pendingImages: File[];
+  pendingImages: { file: File; caption: string }[];
   onAddImages: (files: File[]) => void;
   onRemovePending: (index: number) => void;
+  onUpdatePendingCaption: (index: number, caption: string) => void;
+  onSaveCaption: (id: string, caption: string) => void;
   isUploading: boolean;
   imageError: string | null;
 }) {
@@ -85,7 +82,7 @@ export function BriefForm({
   const [localError, setLocalError] = useState<string | null>(null);
 
   const pendingPreviews = useMemo(
-    () => pendingImages.map((file) => URL.createObjectURL(file)),
+    () => pendingImages.map((it) => URL.createObjectURL(it.file)),
     [pendingImages]
   );
 
@@ -177,43 +174,6 @@ export function BriefForm({
           />
         </Field>
 
-        <Field label="รูปอ้างอิงที่แนบ">
-          <div className="flex flex-col gap-2">
-            {form.images.map((label, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <span className="w-16 shrink-0 font-mono text-xs text-muted-foreground">
-                  รูปที่ {index + 1}
-                </span>
-                <Input
-                  name="images"
-                  value={label}
-                  onChange={(e) => onImageChange(index, e.target.value)}
-                />
-                {index >= 2 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onRemoveImage(index)}
-                  >
-                    <X className="size-3.5" />
-                  </Button>
-                )}
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onAddImage}
-              className="self-start"
-            >
-              <Plus className="size-3.5" />
-              เพิ่มรูป
-            </Button>
-          </div>
-        </Field>
-
         <Button
           type="submit"
           disabled={isCreating}
@@ -257,49 +217,64 @@ export function BriefForm({
           {(pendingImages.length > 0 || productImages.length > 0) && (
             <div className="flex flex-wrap gap-2">
               {productImages.map((image) => (
-                <div key={image.id} className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/api/uploads/${image.entryId}/${image.filename}`}
-                    alt="รูปสินค้า"
-                    className="size-20 rounded-md border border-border object-cover"
+                <div key={image.id} className="flex w-24 flex-col gap-1">
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/uploads/${image.entryId}/${image.filename}`}
+                      alt="รูปสินค้า"
+                      className="size-24 rounded-md border border-border object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label="ลบรูป"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteProductImage(image.id);
+                      }}
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                  <Input
+                    defaultValue={image.caption}
+                    placeholder="อธิบายรูปนี้ เช่น ด้านหน้า มี logo"
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => onSaveCaption(image.id, e.target.value)}
+                    className="h-7 text-xs"
                   />
-                  <button
-                    type="button"
-                    aria-label="ลบรูป"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteProductImage(image.id);
-                    }}
-                    className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
-                  >
-                    <X className="size-3" />
-                  </button>
                 </div>
               ))}
 
-              {pendingImages.map((file, index) => (
-                <div key={`${file.name}-${index}`} className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={pendingPreviews[index]}
-                    alt="รูปสินค้า (ยังไม่บันทึก)"
-                    className="size-20 rounded-md border border-dashed border-marigold object-cover"
+              {pendingImages.map((item, index) => (
+                <div key={`${item.file.name}-${index}`} className="flex w-24 flex-col gap-1">
+                  <div className="relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={pendingPreviews[index]}
+                      alt="รูปสินค้า (ยังไม่บันทึก)"
+                      className="size-24 rounded-md border border-dashed border-marigold object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label="ลบรูป"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemovePending(index);
+                      }}
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                  <Input
+                    value={item.caption}
+                    placeholder="อธิบายรูปนี้ เช่น ด้านหลัง ไม่มี logo"
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onUpdatePendingCaption(index, e.target.value)}
+                    className="h-7 text-xs"
                   />
-                  <span className="absolute inset-x-0 bottom-0 rounded-b-md bg-ink/75 text-center font-mono text-[0.55rem] text-paper">
-                    ยังไม่บันทึก
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="ลบรูป"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRemovePending(index);
-                    }}
-                    className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
-                  >
-                    <X className="size-3" />
-                  </button>
                 </div>
               ))}
             </div>

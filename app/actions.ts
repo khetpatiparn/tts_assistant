@@ -20,10 +20,6 @@ export async function createPrompt(formData: FormData) {
   const productInfo = String(formData.get("productInfo") ?? "").trim();
   const riskModule = String(formData.get("riskModule") ?? "").trim();
   const extraNotes = String(formData.get("extraNotes") ?? "").trim();
-  const images = formData
-    .getAll("images")
-    .map((value) => String(value).trim())
-    .filter((value) => value.length > 0);
 
   if (!productName || !productInfo) {
     throw new Error("กรุณากรอกชื่อสินค้าและข้อมูลสินค้า");
@@ -39,7 +35,7 @@ export async function createPrompt(formData: FormData) {
       productInfo,
       riskModule,
       extraNotes,
-      images: JSON.stringify(images),
+      images: "[]",
       corePromptId: activeCorePrompt?.id ?? null,
     },
   });
@@ -186,6 +182,7 @@ export async function uploadProductImages(formData: FormData) {
   if (files.length === 0) {
     throw new Error("กรุณาเลือกรูปอย่างน้อย 1 รูป");
   }
+  const captions = formData.getAll("captions").map((c) => String(c));
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
@@ -215,11 +212,20 @@ export async function uploadProductImages(formData: FormData) {
         entryId,
         filename,
         mimeType: file.type,
+        caption: (captions[index] ?? "").trim(),
         sortOrder: existingCount + index,
       },
     });
   }
 
+  revalidatePath("/");
+}
+
+export async function updateProductImageCaption(id: string, caption: string) {
+  await prisma.productImage.update({
+    where: { id },
+    data: { caption: caption.trim() },
+  });
   revalidatePath("/");
 }
 
