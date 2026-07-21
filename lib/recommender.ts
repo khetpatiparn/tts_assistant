@@ -1,4 +1,3 @@
-import { PAID_STATUS } from "@/lib/affiliate";
 import { INELIGIBLE_STATUS, type AffiliateOrderRecord } from "@/lib/dashboard";
 
 export type ClipMetricRecord = {
