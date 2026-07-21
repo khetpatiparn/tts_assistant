@@ -176,13 +176,20 @@ export async function uploadProductImages(formData: FormData) {
     throw new Error("ไม่พบรายการที่ต้องการแนบรูป");
   }
 
-  const files = formData
-    .getAll("files")
-    .filter((value): value is File => value instanceof File && value.size > 0);
+  const rawFiles = formData.getAll("files");
+  const rawCaptions = formData.getAll("captions").map((c) => String(c));
+  const files: File[] = [];
+  const captions: string[] = [];
+  for (let i = 0; i < rawFiles.length; i++) {
+    const value = rawFiles[i];
+    if (value instanceof File && value.size > 0) {
+      files.push(value);
+      captions.push(rawCaptions[i] ?? "");
+    }
+  }
   if (files.length === 0) {
     throw new Error("กรุณาเลือกรูปอย่างน้อย 1 รูป");
   }
-  const captions = formData.getAll("captions").map((c) => String(c));
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
