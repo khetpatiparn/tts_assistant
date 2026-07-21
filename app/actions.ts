@@ -13,6 +13,7 @@ import {
 } from "@/lib/gemini";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
+import { parseContentCsv } from "@/lib/clip-metrics";
 import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
 
 export async function createPrompt(formData: FormData) {
@@ -403,6 +404,65 @@ export async function importAffiliateOrders(
     unmatched: orders.length - matched,
     unmatchedProducts: [...unmatchedMap.values()].sort((a, b) => b.orders - a.orders),
   };
+}
+
+export type ClipMetricImportSummary = {
+  total: number;
+  matched: number;
+  unmatched: number;
+};
+
+export async function importClipMetrics(
+  formData: FormData
+): Promise<ClipMetricImportSummary> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("กรุณาเลือกไฟล์ Content (.csv)");
+  }
+
+  const text = await file.text();
+  const importedAt = new Date();
+  let metrics;
+  try {
+    metrics = parseContentCsv(text, importedAt);
+  } catch {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Content (.csv) จาก TikTok Studio");
+  }
+  if (metrics.length === 0) {
+    throw new Error("ไม่พบข้อมูลคลิปในไฟล์");
+  }
+
+  const entries = await prisma.promptEntry.findMany({
+    select: { id: true, videoUrl: true },
+  });
+  const videoToEntry = new Map<string, string>();
+  for (const e of entries) {
+    const vid = videoIdFromUrl(e.videoUrl);
+    if (vid) videoToEntry.set(vid, e.id);
+  }
+
+  // upsert ด้วย (videoId, capturedOn) — โยนไฟล์เดิมซ้ำได้ ไม่เกิด snapshot ซ้ำ
+  for (const m of metrics) {
+    const matchedEntryId = videoToEntry.get(m.videoId) ?? null;
+    await prisma.clipMetric.upsert({
+      where: { videoId_capturedOn: { videoId: m.videoId, capturedOn: m.capturedOn } },
+      create: { ...m, matchedEntryId },
+      update: {
+        title: m.title,
+        postedDate: m.postedDate,
+        views: m.views,
+        likes: m.likes,
+        comments: m.comments,
+        shares: m.shares,
+        matchedEntryId,
+        importedAt: new Date(),
+      },
+    });
+  }
+
+  const matched = metrics.filter((m) => videoToEntry.has(m.videoId)).length;
+  revalidatePath("/");
+  return { total: metrics.length, matched, unmatched: metrics.length - matched };
 }
 
 export async function deleteProductImage(id: string) {

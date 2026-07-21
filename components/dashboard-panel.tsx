@@ -3,8 +3,9 @@
 import { useActionState } from "react";
 import { Upload } from "lucide-react";
 
-import { importAffiliateOrders } from "@/app/actions";
-import type { AffiliateImportSummary } from "@/app/actions";
+import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
+import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
+import type { ClipMetricRecord } from "@/components/prompt-workspace";
 import {
   IMPORT_STALE_DAYS,
   summarizeOrders,
@@ -32,12 +33,14 @@ type ImportState = { summary: AffiliateImportSummary | null; error: string | nul
 
 export function DashboardPanel({
   orders,
+  clipMetrics,
   reminder,
   reminderActive,
   awaitingClips,
   lastImportedAt,
 }: {
   orders: AffiliateOrderRecord[];
+  clipMetrics: ClipMetricRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
@@ -55,6 +58,21 @@ export function DashboardPanel({
           summary: null,
           error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ",
         };
+      }
+    },
+    { summary: null, error: null }
+  );
+
+  const [metricState, metricAction, isImportingMetrics] = useActionState<
+    { summary: ClipMetricImportSummary | null; error: string | null },
+    FormData
+  >(
+    async (_prev, formData) => {
+      try {
+        const summary = await importClipMetrics(formData);
+        return { summary, error: null };
+      } catch (e) {
+        return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
       }
     },
     { summary: null, error: null }
@@ -95,6 +113,41 @@ export function DashboardPanel({
           โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
         </span>
       </form>
+
+      <form action={metricAction} className="flex flex-wrap items-center gap-2">
+        <Input
+          type="file"
+          name="file"
+          accept=".csv,text/csv"
+          className="h-auto max-w-xs py-1.5"
+          required
+        />
+        <Button
+          type="submit"
+          size="sm"
+          variant="outline"
+          disabled={isImportingMetrics}
+        >
+          <Upload className="size-3.5" />
+          {isImportingMetrics ? "กำลังนำเข้า..." : "นำเข้าข้อมูลวิว"}
+        </Button>
+        <span className="font-mono text-[0.7rem] text-muted-foreground">
+          โหลดจาก TikTok Studio → Analytics → Content → Download (.csv)
+        </span>
+      </form>
+
+      {metricState.error && (
+        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+          {metricState.error}
+        </p>
+      )}
+
+      {metricState.summary && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+          นำเข้า {metricState.summary.total} คลิป · จับคู่ได้ {metricState.summary.matched} ·
+          ไม่มีในแอป {metricState.summary.unmatched}
+        </div>
+      )}
 
       {lastImportedAt !== null && reminder.daysSinceImport !== null && (
         reminder.daysSinceImport > IMPORT_STALE_DAYS ? (

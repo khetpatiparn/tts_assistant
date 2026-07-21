@@ -14,13 +14,14 @@ function daysSince(lastMs: number): number {
 }
 
 export default async function PoolingPrompt() {
-  const [prompts, corePrompts, orders] = await Promise.all([
+  const [prompts, corePrompts, orders, clipMetrics] = await Promise.all([
     prisma.promptEntry.findMany({
       orderBy: { createdAt: "desc" },
       include: { productImages: { orderBy: { sortOrder: "asc" } } },
     }),
     prisma.corePrompt.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
+    prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
   ]);
 
   // reminder: ผ่านไปกี่วันจาก import ล่าสุด (เก็บ Date จริงไว้ให้บรรทัดสถานะใน dashboard ด้วย)
@@ -62,6 +63,7 @@ export default async function PoolingPrompt() {
       prompts={sortEntriesForRail(prompts)}
       corePrompts={corePrompts}
       affiliateOrders={orders}
+      clipMetrics={clipMetrics}
       reminder={reminder}
       reminderActive={reminderActive}
       awaitingClips={awaitingClips}

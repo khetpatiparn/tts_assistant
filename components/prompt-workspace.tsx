@@ -55,6 +55,20 @@ export type CorePromptRecord = {
   kind: string;
 };
 
+export type ClipMetricRecord = {
+  id: string;
+  videoId: string;
+  matchedEntryId: string | null;
+  title: string;
+  postedDate: string;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  capturedOn: Date;
+  importedAt: Date;
+};
+
 export type { AffiliateOrderRecord } from "@/lib/dashboard";
 
 const emptyForm: FormState = {
@@ -77,6 +91,7 @@ export function PromptWorkspace({
   prompts,
   corePrompts,
   affiliateOrders,
+  clipMetrics,
   reminder,
   reminderActive,
   awaitingClips,
@@ -85,6 +100,7 @@ export function PromptWorkspace({
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
   affiliateOrders: AffiliateOrderRecord[];
+  clipMetrics: ClipMetricRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
@@ -315,6 +331,7 @@ export function PromptWorkspace({
           <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
             <DashboardPanel
               orders={affiliateOrders}
+              clipMetrics={clipMetrics}
               reminder={reminder}
               reminderActive={reminderActive}
               awaitingClips={awaitingClips}
