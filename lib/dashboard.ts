@@ -10,6 +10,7 @@ export type AffiliateOrderRecord = {
   status: string;
   gmv: number;
   itemsSold: number;
+  itemsRefunded: number;
   actualCommission: number | null;
   finalRevenue: number | null;
   orderDate: Date;

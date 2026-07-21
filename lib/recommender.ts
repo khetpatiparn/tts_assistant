@@ -87,7 +87,7 @@ export function buildClipStats(args: {
       viewDelta: previous ? latest.views - previous.views : null,
       orders: entryOrders.length,
       badOrders: entryOrders.filter(
-        (o) => o.status === INELIGIBLE_STATUS || o.itemsSold === 0
+        (o) => o.status === INELIGIBLE_STATUS || o.itemsSold === 0 || o.itemsRefunded > 0
       ).length,
       ordersLast7Days: entryOrders.filter(
         (o) => now.getTime() - o.orderDate.getTime() <= 7 * DAY_MS
