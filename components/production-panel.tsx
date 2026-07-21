@@ -40,6 +40,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
+  const [postedTimeOfDay, setPostedTimeOfDay] = useState(entry.postedTimeOfDay ?? "");
   const [caption, setCaption] = useState(entry.caption);
   const [hashtags, setHashtags] = useState(entry.hashtags);
   const [copied, setCopied] = useState(false);
@@ -202,6 +203,19 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             />
             <p className="font-mono text-[0.7rem] text-muted-foreground">
               {postedAt ? " " : "ยังไม่ได้ลงคลิป"}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground/90">เวลาที่ลงคลิป</label>
+            <Input
+              name="postedTimeOfDay"
+              type="time"
+              value={postedTimeOfDay}
+              onChange={(e) => setPostedTimeOfDay(e.target.value)}
+            />
+            <p className="font-mono text-[0.7rem] text-muted-foreground">
+              เก็บไว้วิเคราะห์ช่วงเวลาที่ได้ผลในอนาคต
             </p>
           </div>
 

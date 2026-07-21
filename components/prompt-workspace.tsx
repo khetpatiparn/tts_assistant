@@ -44,6 +44,7 @@ export type PromptEntry = {
   hashtags: string;
   videoUrl: string;
   postedAt: Date | null;
+  postedTimeOfDay: string | null;
   createdAt: Date;
   productImages: ProductImageRecord[];
 };

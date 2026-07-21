@@ -62,6 +62,11 @@ export async function updateProduction(formData: FormData) {
   const hashtags = String(formData.get("hashtags") ?? "").trim();
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
   const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
+  const rawPostedTime = String(formData.get("postedTimeOfDay") ?? "").trim();
+  // <input type="time"> ส่ง "HH:MM" — ค่าว่างแปลว่ายังไม่ระบุ
+  if (rawPostedTime !== "" && !/^\d{2}:\d{2}$/.test(rawPostedTime)) {
+    throw new Error("เวลาที่ลงคลิปไม่ถูกต้อง");
+  }
 
   if (videoUrl !== "") {
     let isValidUrl = false;
@@ -102,6 +107,7 @@ export async function updateProduction(formData: FormData) {
       hashtags,
       videoUrl,
       postedAt: parsedPostedAt,
+      postedTimeOfDay: rawPostedTime === "" ? null : rawPostedTime,
     },
   });
 
