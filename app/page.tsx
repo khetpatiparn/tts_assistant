@@ -13,6 +13,12 @@ function daysSince(lastMs: number): number {
   return Math.floor((Date.now() - lastMs) / DAY_MS);
 }
 
+// เหตุผลเดียวกับ daysSince ด้านบน — คำนวณ `new Date()` ที่นี่ (Server Component)
+// แล้วส่งลงเป็น prop แทนการเรียกใน client component ที่ผิด purity rule
+function currentTime(): Date {
+  return new Date();
+}
+
 export default async function PoolingPrompt() {
   const [prompts, corePrompts, orders, clipMetrics] = await Promise.all([
     prisma.promptEntry.findMany({
@@ -68,6 +74,7 @@ export default async function PoolingPrompt() {
       reminderActive={reminderActive}
       awaitingClips={awaitingClips}
       lastImportedAt={lastImportedAt}
+      now={currentTime()}
     />
   );
 }

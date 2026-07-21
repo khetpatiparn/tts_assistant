@@ -84,6 +84,7 @@ export function PromptWorkspace({
   reminderActive,
   awaitingClips,
   lastImportedAt,
+  now,
 }: {
   prompts: PromptEntry[];
   corePrompts: CorePromptRecord[];
@@ -93,6 +94,7 @@ export function PromptWorkspace({
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
   lastImportedAt: Date | null;
+  now: Date;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -230,6 +232,11 @@ export function PromptWorkspace({
     });
   }
 
+  const dashboardEntries = useMemo(
+    () => prompts.map((p) => ({ id: p.id, productName: p.productName })),
+    [prompts]
+  );
+
   const selectedIndex = prompts.findIndex((p) => p.id === selectedId);
   const takeNumber =
     selectedIndex >= 0 ? prompts.length - selectedIndex : prompts.length + 1;
@@ -324,6 +331,8 @@ export function PromptWorkspace({
               reminderActive={reminderActive}
               awaitingClips={awaitingClips}
               lastImportedAt={lastImportedAt}
+              entries={dashboardEntries}
+              now={now}
             />
           </div>
         )}

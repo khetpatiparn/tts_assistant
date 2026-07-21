@@ -13,6 +13,7 @@ import {
   type ReminderState,
 } from "@/lib/dashboard";
 import { Reconciliation } from "@/components/reconciliation";
+import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
 import { RevenueTrend } from "@/components/revenue-charts";
@@ -38,6 +39,8 @@ export function DashboardPanel({
   reminderActive,
   awaitingClips,
   lastImportedAt,
+  entries,
+  now,
 }: {
   orders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
@@ -45,6 +48,8 @@ export function DashboardPanel({
   reminderActive: boolean;
   awaitingClips: { id: string; productName: string }[];
   lastImportedAt: Date | null;
+  entries: { id: string; productName: string }[];
+  now: Date;
 }) {
   const summary = summarizeOrders(orders);
 
@@ -90,6 +95,13 @@ export function DashboardPanel({
       {reminderActive && (
         <ReminderBanner reminder={reminder} awaitingClips={awaitingClips} />
       )}
+
+      <Recommendations
+        entries={entries}
+        metrics={clipMetrics}
+        orders={orders}
+        now={now}
+      />
 
       {/* อัปโหลด */}
       <form action={action} className="flex flex-wrap items-center gap-2">
