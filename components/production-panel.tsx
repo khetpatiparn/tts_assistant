@@ -35,12 +35,23 @@ function toLocalDateInputValue(value: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function ProductionPanel({ entry }: { entry: PromptEntry }) {
+export function ProductionPanel({
+  entry,
+  defaultScheduled,
+}: {
+  entry: PromptEntry;
+  defaultScheduled: boolean;
+}) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
   const [postedTimeOfDay, setPostedTimeOfDay] = useState(entry.postedTimeOfDay ?? "");
+  const [isScheduledPost, setIsScheduledPost] = useState(
+    entry.postedTimeSource === null && !entry.isScheduledPost
+      ? defaultScheduled
+      : entry.isScheduledPost
+  );
   const [caption, setCaption] = useState(entry.caption);
   const [hashtags, setHashtags] = useState(entry.hashtags);
   const [copied, setCopied] = useState(false);
@@ -207,18 +218,47 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-foreground/90">เวลาที่ลงคลิป</label>
-            <Input
-              name="postedTimeOfDay"
-              type="time"
-              value={postedTimeOfDay}
-              onChange={(e) => setPostedTimeOfDay(e.target.value)}
-            />
-            <p className="font-mono text-[0.7rem] text-muted-foreground">
-              เก็บไว้วิเคราะห์ช่วงเวลาที่ได้ผลในอนาคต
-            </p>
+            <label className="text-sm font-medium text-foreground/90">วิธีลงคลิป</label>
+            <input type="hidden" name="isScheduledPost" value={String(isScheduledPost)} />
+            <div className="flex gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={isScheduledPost ? "outline" : "default"}
+                onClick={() => setIsScheduledPost(false)}
+              >
+                โพสต์สด
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={isScheduledPost ? "default" : "outline"}
+                onClick={() => setIsScheduledPost(true)}
+              >
+                ตั้งเวลา
+              </Button>
+            </div>
+            {isScheduledPost ? (
+              <>
+                <Input
+                  name="postedTimeOfDay"
+                  type="time"
+                  value={postedTimeOfDay}
+                  onChange={(e) => setPostedTimeOfDay(e.target.value)}
+                />
+                <p className="font-mono text-[0.7rem] text-muted-foreground">
+                  เวลาที่เผยแพร่จริง — ไม่กรอกก็ได้ แต่คลิปนี้จะไม่ถูกนำไปวิเคราะห์
+                </p>
+              </>
+            ) : (
+              <>
+                <input type="hidden" name="postedTimeOfDay" value="" />
+                <p className="font-mono text-[0.7rem] text-muted-foreground">
+                  ระบบอ่านเวลาจากลิงก์คลิปให้เอง ไม่ต้องกรอก
+                </p>
+              </>
+            )}
           </div>
-
         </div>
 
         <div className="flex items-center gap-3">

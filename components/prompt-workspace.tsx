@@ -46,6 +46,8 @@ export type PromptEntry = {
   videoUrl: string;
   postedAt: Date | null;
   postedTimeOfDay: string | null;
+  postedTimeSource: string | null;
+  isScheduledPost: boolean;
   createdAt: Date;
   productImages: ProductImageRecord[];
 };
@@ -197,6 +199,14 @@ export function PromptWorkspace({
 
   const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
 
+  // default ของ toggle = แบบที่ผู้ใช้ทำบ่อยกว่า ถ้าวันหนึ่งพฤติกรรมพลิก default ก็สลับเอง
+  const defaultScheduled = useMemo(() => {
+    const posted = prompts.filter((p) => p.videoUrl !== "");
+    if (posted.length === 0) return false;
+    const scheduled = posted.filter((p) => p.isScheduledPost).length;
+    return scheduled > posted.length / 2;
+  }, [prompts]);
+
   const output = useMemo(() => {
     const imageCaptions =
       selectedEntry !== null
@@ -305,7 +315,11 @@ export function PromptWorkspace({
 
         {tab === "production" && selectedEntry && (
           <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
-            <ProductionPanel key={selectedEntry.id} entry={selectedEntry} />
+            <ProductionPanel
+              key={selectedEntry.id}
+              entry={selectedEntry}
+              defaultScheduled={defaultScheduled}
+            />
           </div>
         )}
 
