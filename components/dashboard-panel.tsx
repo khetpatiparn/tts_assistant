@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
-import { Upload } from "lucide-react";
+import { useActionState, useState } from "react";
+import { ChevronDown, ChevronRight, Upload } from "lucide-react";
 
 import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
@@ -56,6 +56,10 @@ export function DashboardPanel({
   now: Date;
 }) {
   const summary = summarizeOrders(orders);
+
+  // กางเองเมื่อข้อมูลถึงรอบต้องนำเข้า — ผู้ใช้ลืมง่าย ระบบจึงยกงานขึ้นมาเองแทนที่จะให้จำ
+  // หลังจากนั้นกดสลับเองได้อิสระ (ค่านี้เป็นแค่ค่าตั้งต้นตอน mount)
+  const [importsOpen, setImportsOpen] = useState(reminderActive);
 
   const [state, action, isImporting] = useActionState<ImportState, FormData>(
     async (_prev, formData) => {
@@ -182,122 +186,143 @@ export function DashboardPanel({
         followerActivity={followerActivity}
       />
 
-      {/* นำเข้าข้อมูล — งานประจำสัปดาห์ อยู่ล่างสุด */}
-      <form action={action} className="flex flex-wrap items-center gap-2">
-        <Input
-          type="file"
-          name="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="h-auto max-w-xs py-1.5"
-          required
-        />
-        <Button
-          type="submit"
-          size="sm"
-          disabled={isImporting}
-          className="bg-rust text-primary-foreground hover:bg-rust/90"
+      {/* นำเข้าข้อมูล — งานประจำสัปดาห์ อยู่ล่างสุด พับไว้เมื่อยังไม่ถึงรอบ */}
+      <div className="flex flex-col gap-3 border-t border-border pt-4">
+        <button
+          type="button"
+          onClick={() => setImportsOpen((open) => !open)}
+          aria-expanded={importsOpen}
+          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
         >
-          <Upload className="size-3.5" />
-          {isImporting ? "กำลังนำเข้า..." : "นำเข้าไฟล์รายได้"}
-        </Button>
-        <span className="font-mono text-[0.7rem] text-muted-foreground">
-          โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
-        </span>
-      </form>
+          {importsOpen ? (
+            <ChevronDown className="size-3.5" />
+          ) : (
+            <ChevronRight className="size-3.5" />
+          )}
+          นำเข้าข้อมูล
+        </button>
 
-      {state.error && (
-        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
-          {state.error}
-        </p>
-      )}
+        {/* บรรทัดสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
+        {lastImportedAt !== null && reminder.daysSinceImport !== null && (
+          reminder.daysSinceImport > IMPORT_STALE_DAYS ? (
+            <p className="font-mono text-[0.7rem] text-record">
+              เกินกำหนดมา {reminder.daysSinceImport - IMPORT_STALE_DAYS} วัน — ไป export
+              ไฟล์ใหม่จาก TikTok Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastImportedAt)})
+            </p>
+          ) : (
+            <p className="font-mono text-[0.7rem] text-muted-foreground">
+              นำเข้าล่าสุด {thaiShortDate(lastImportedAt)}{" "}
+              {reminder.daysSinceImport === 0
+                ? "(วันนี้)"
+                : `(${reminder.daysSinceImport} วันก่อน)`}{" "}
+              · รอบถัดไป ~
+              {thaiShortDate(new Date(lastImportedAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
+            </p>
+          )
+        )}
 
-      {state.summary && (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched}
-        </div>
-      )}
+        {importsOpen && (
+          <>
+            <form action={action} className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                name="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="h-auto max-w-xs py-1.5"
+                required
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isImporting}
+                className="bg-rust text-primary-foreground hover:bg-rust/90"
+              >
+                <Upload className="size-3.5" />
+                {isImporting ? "กำลังนำเข้า..." : "นำเข้าไฟล์รายได้"}
+              </Button>
+              <span className="font-mono text-[0.7rem] text-muted-foreground">
+                โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
+              </span>
+            </form>
 
-      <form action={metricAction} className="flex flex-wrap items-center gap-2">
-        <Input
-          type="file"
-          name="file"
-          accept=".csv,text/csv"
-          className="h-auto max-w-xs py-1.5"
-          required
-        />
-        <Button
-          type="submit"
-          size="sm"
-          variant="outline"
-          disabled={isImportingMetrics}
-        >
-          <Upload className="size-3.5" />
-          {isImportingMetrics ? "กำลังนำเข้า..." : "นำเข้าข้อมูลวิว"}
-        </Button>
-        <span className="font-mono text-[0.7rem] text-muted-foreground">
-          โหลดจาก TikTok Studio → Analytics → Content → Download (.csv)
-        </span>
-      </form>
+            {state.error && (
+              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+                {state.error}
+              </p>
+            )}
 
-      {metricState.error && (
-        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
-          {metricState.error}
-        </p>
-      )}
+            {state.summary && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched}
+              </div>
+            )}
 
-      {metricState.summary && (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          นำเข้า {metricState.summary.total} คลิป · จับคู่ได้ {metricState.summary.matched} ·
-          ไม่มีในแอป {metricState.summary.unmatched}
-        </div>
-      )}
+            <form action={metricAction} className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                name="file"
+                accept=".csv,text/csv"
+                className="h-auto max-w-xs py-1.5"
+                required
+              />
+              <Button
+                type="submit"
+                size="sm"
+                variant="outline"
+                disabled={isImportingMetrics}
+              >
+                <Upload className="size-3.5" />
+                {isImportingMetrics ? "กำลังนำเข้า..." : "นำเข้าข้อมูลวิว"}
+              </Button>
+              <span className="font-mono text-[0.7rem] text-muted-foreground">
+                โหลดจาก TikTok Studio → Analytics → Content → Download (.csv)
+              </span>
+            </form>
 
-      <form action={followerAction} className="flex flex-wrap items-center gap-2">
-        <Input
-          type="file"
-          name="file"
-          accept=".csv,text/csv"
-          className="h-auto max-w-xs py-1.5"
-          required
-        />
-        <Button type="submit" size="sm" variant="outline" disabled={isImportingFollowers}>
-          <Upload className="size-3.5" />
-          {isImportingFollowers ? "กำลังนำเข้า..." : "นำเข้าผู้ติดตามรายชั่วโมง"}
-        </Button>
-        <span className="font-mono text-[0.7rem] text-muted-foreground">
-          โหลดจาก TikTok Studio → Analytics → Followers → Download (FollowerActivity.csv)
-        </span>
-      </form>
+            {metricState.error && (
+              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+                {metricState.error}
+              </p>
+            )}
 
-      {followerState.error && (
-        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
-          {followerState.error}
-        </p>
-      )}
+            {metricState.summary && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                นำเข้า {metricState.summary.total} คลิป · จับคู่ได้ {metricState.summary.matched} ·
+                ไม่มีในแอป {metricState.summary.unmatched}
+              </div>
+            )}
 
-      {followerState.summary && (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          นำเข้า {followerState.summary.total} แถว · {followerState.summary.days} วัน
-        </div>
-      )}
+            <form action={followerAction} className="flex flex-wrap items-center gap-2">
+              <Input
+                type="file"
+                name="file"
+                accept=".csv,text/csv"
+                className="h-auto max-w-xs py-1.5"
+                required
+              />
+              <Button type="submit" size="sm" variant="outline" disabled={isImportingFollowers}>
+                <Upload className="size-3.5" />
+                {isImportingFollowers ? "กำลังนำเข้า..." : "นำเข้าผู้ติดตามรายชั่วโมง"}
+              </Button>
+              <span className="font-mono text-[0.7rem] text-muted-foreground">
+                โหลดจาก TikTok Studio → Analytics → Followers → Download (FollowerActivity.csv)
+              </span>
+            </form>
 
-      {lastImportedAt !== null && reminder.daysSinceImport !== null && (
-        reminder.daysSinceImport > IMPORT_STALE_DAYS ? (
-          <p className="font-mono text-[0.7rem] text-record">
-            เกินกำหนดมา {reminder.daysSinceImport - IMPORT_STALE_DAYS} วัน — ไป export
-            ไฟล์ใหม่จาก TikTok Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastImportedAt)})
-          </p>
-        ) : (
-          <p className="font-mono text-[0.7rem] text-muted-foreground">
-            นำเข้าล่าสุด {thaiShortDate(lastImportedAt)}{" "}
-            {reminder.daysSinceImport === 0
-              ? "(วันนี้)"
-              : `(${reminder.daysSinceImport} วันก่อน)`}{" "}
-            · รอบถัดไป ~
-            {thaiShortDate(new Date(lastImportedAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
-          </p>
-        )
-      )}
+            {followerState.error && (
+              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+                {followerState.error}
+              </p>
+            )}
+
+            {followerState.summary && (
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                นำเข้า {followerState.summary.total} แถว · {followerState.summary.days} วัน
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }
