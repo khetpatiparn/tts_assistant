@@ -17,8 +17,8 @@
 - **ห้ามเขียน `dev.db` ด้วย standalone script** — อ่านอย่างเดียว `{readonly: true}` และ `require()` better-sqlite3 ด้วย absolute path เข้า `node_modules` ของ repo
 - **runtime LLM ต้องเป็น Gemini free tier เท่านั้น** — ฟีเจอร์นี้ไม่เรียก LLM เลย ห้ามเพิ่ม
 - **Recharts อยู่ที่ v3.9.2 — API ต่างจากตัวอย่าง v2 ทั่วไป** ห้ามเดา prop shape เช็ค `node_modules/recharts/types/` จริง และตามแพทเทิร์นใน `components/revenue-charts.tsx`
-- **เวลาทุกจุดเป็น 24 ชั่วโมง ห้ามมี AM/PM** — ทั้งช่องกรอก แกนกราฟ (`00:00`–`23:00`) และข้อความสรุป
-- **🔴 timezone: เวลาจาก video ID เป็น UTC ต้อง +7 · `Hour` ใน FollowerActivity.csv เป็นเวลาไทยอยู่แล้ว ห้ามแปลงซ้ำ** — ตรวจด้วยข้อมูลจริง: พีค FollowerActivity ต้องอยู่ที่ **20:00** ถ้าได้ 03:00 แปลว่าแปลงเกิน
+- **แสดงชั่วโมงเป็นแบบ 12 ชั่วโมง AM/PM ในทุกจุดที่ผู้ใช้เห็น** (แกนกราฟ, ข้อความสรุป) — เปลี่ยนจากดีไซน์เดิม (24 ชม.) ตามคำขอผู้ใช้ เพราะ TikTok Studio เองก็แสดงเวลาแบบ AM/PM ผู้ใช้คุ้นเคยกับฟอร์แมตนี้มากกว่า ข้อมูลที่เก็บภายใน (`hour` เป็นเลข 0-23, `postedTimeOfDay` เป็น `"HH:MM"`) **ไม่เปลี่ยน** — แปลงเป็น AM/PM แค่ตอนแสดงผลเท่านั้น ช่องกรอก `<input type="time">` เป็นของเบราว์เซอร์เอง แสดงผลตาม locale อยู่แล้ว ไม่ต้องบังคับ
+- **🔴 timezone: เวลาจาก video ID เป็น UTC ต้อง +7 · `Hour` ใน FollowerActivity.csv เป็นเวลาไทยอยู่แล้ว ห้ามแปลงซ้ำ** — ตรวจด้วยข้อมูลจริง: พีค FollowerActivity ต้องอยู่ที่ชั่วโมงดิบ **20** (แสดงผลเป็น **8:00 PM**) ถ้าได้ชั่วโมงดิบ 3 (แสดงเป็น 3:00 AM) แปลว่าแปลงเกิน
 - UI: ห้าม emoji · ข้อความไทย · design token เดิม (`ink`/`paper`/`marigold`/`rust`/`smoke`/`record`)
 - ห้าม `git add -A` / `git add .` — stage เฉพาะไฟล์ที่ระบุ
 - branch: `feature/post-time-analysis` (มี spec commit `2ea6ea9` แล้ว)
@@ -654,7 +654,7 @@ const peak = db.prepare('SELECT hour, AVG(active) a FROM FollowerActivity GROUP 
 console.log('พีค 3 อันดับ:', peak.map(p => p.hour + ':00 (' + Math.round(p.a) + ')').join(', '));
 db.close();
 ```
-Expected: 167 แถว · **พีคอันดับ 1 = 20:00 (~210)** — ถ้าได้ 03:00 แปลว่าแปลง timezone เกิน ให้หยุดแก้
+Expected: 167 แถว · **พีคอันดับ 1 = ชั่วโมงดิบ 20 (~210)** ซึ่งจะแสดงผลใน UI เป็น **8:00 PM** — ถ้าได้ชั่วโมงดิบ 3 แปลว่าแปลง timezone เกิน ให้หยุดแก้
 
 อัปโหลดไฟล์เดิมซ้ำ → Expected: ยังคง 167 แถว (unique constraint ทำงาน)
 
@@ -783,7 +783,7 @@ import { parseMonthDayLabel } from "@/lib/csv";
                   onChange={(e) => setPostedTimeOfDay(e.target.value)}
                 />
                 <p className="font-mono text-[0.7rem] text-muted-foreground">
-                  เวลาที่เผยแพร่จริง (24 ชม.) — ไม่กรอกก็ได้ แต่คลิปนี้จะไม่ถูกนำไปวิเคราะห์
+                  เวลาที่เผยแพร่จริง — ไม่กรอกก็ได้ แต่คลิปนี้จะไม่ถูกนำไปวิเคราะห์
                 </p>
               </>
             ) : (
@@ -836,7 +836,7 @@ Expected: สะอาด
 รัน dev server แยก (`NEXT_DIST_DIR=.next-dev DATABASE_URL="file:./dev-test.db" npm run dev -- -p 3001`)
 
 - เลือก entry ที่มีคลิป → toggle default ควรเป็น **โพสต์สด** (เพราะ 13/15) → บันทึก → เลือก entry อื่นแล้วกลับมา ค่าคงอยู่
-- สลับเป็น **ตั้งเวลา** → ช่องเวลาโผล่ เป็นแบบ 24 ชม. ไม่มี AM/PM → กรอก `20:30` → บันทึก → กลับมาดู ค่าคงอยู่
+- สลับเป็น **ตั้งเวลา** → ช่องเวลาโผล่ (`<input type="time">` แสดงผลตาม locale ของเบราว์เซอร์เอง) → กรอกเวลา (ค่าที่เก็บภายในเป็น `"HH:MM"` 24 ชม. เสมอ เช่น `20:30`) → บันทึก → กลับมาดู ค่าคงอยู่
 - import `Content.csv` อีกครั้ง → ตรวจ readonly ว่า **"ที่ลับเล็บแมว" (video 7656417754160958737) ถูกตั้ง `isScheduledPost = 1`** โดยอัตโนมัติ:
 
 ```js
@@ -902,9 +902,14 @@ export type PostTimeEntry = {
   isScheduledPost: boolean;
 };
 
-/** แสดงชั่วโมงแบบ 24 ชม. เสมอ ห้าม AM/PM */
+/**
+ * แสดงชั่วโมงแบบ 12 ชม. AM/PM (ไม่ใช่ 24 ชม.) — TikTok Studio เองก็แสดงเวลาแบบนี้
+ * ข้อมูลภายในยังเป็นเลข 0-23 เหมือนเดิม แปลงแค่ตอนแสดงผล
+ */
 function hourLabel(hour: number): string {
-  return String(hour).padStart(2, "0") + ":00";
+  const period = hour < 12 ? "AM" : "PM";
+  const twelveHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${twelveHour} ${period}`;
 }
 
 export function PostTimePanel({
@@ -1026,7 +1031,7 @@ export function PostTimePanel({
 }
 ```
 
-**หมายเหตุ:** ห้ามเพิ่มข้อความชี้นำแบบ "ควรโพสต์ 20:00" — บรรทัด peak เป็นการรายงานข้อเท็จจริงสองอย่างคู่กันเท่านั้น การสรุปว่าอะไรดีกว่าเป็นหน้าที่ผู้ใช้จนกว่า `enoughData` จะเป็น true
+**หมายเหตุ:** ห้ามเพิ่มข้อความชี้นำแบบ "ควรโพสต์ 8 โมงเย็น" — บรรทัด peak เป็นการรายงานข้อเท็จจริงสองอย่างคู่กันเท่านั้น การสรุปว่าอะไรดีกว่าเป็นหน้าที่ผู้ใช้จนกว่า `enoughData` จะเป็น true
 
 - [ ] **Step 2: ต่อเข้า `components/dashboard-panel.tsx`**
 
@@ -1074,7 +1079,7 @@ import { PostTimePanel, type PostTimeEntry } from "@/components/post-time-panel"
 ในหัวข้อ **Dashboard** เพิ่มบรรทัดอธิบายฟีเจอร์:
 
 ```markdown
-- `lib/video-id-time.ts` ถอด "เวลาอัปโหลด" จาก TikTok video id (snowflake: `BigInt(id) >> 32n` = Unix seconds) — **เป็นเวลาอัปโหลด ไม่ใช่เวลาเผยแพร่** คลิปที่ตั้งเวลาไว้จะได้เวลาผิด จึงมี cross-check ใน `importClipMetrics` ที่เทียบวันจาก id กับ `postedDate` ในไฟล์ ถ้าไม่ตรงจะตั้ง `isScheduledPost` แล้ว `analyzePostTimes` (`lib/post-time.ts`) จะตัดออก · **timezone: เวลาจาก id เป็น UTC ต้อง +7 ส่วน `hour` ใน FollowerActivity.csv เป็นเวลาไทยอยู่แล้ว ห้ามแปลงซ้ำ** (ตรวจว่าถูกด้วยการดูพีคผู้ติดตาม ต้องอยู่ที่ 20:00)
+- `lib/video-id-time.ts` ถอด "เวลาอัปโหลด" จาก TikTok video id (snowflake: `BigInt(id) >> 32n` = Unix seconds) — **เป็นเวลาอัปโหลด ไม่ใช่เวลาเผยแพร่** คลิปที่ตั้งเวลาไว้จะได้เวลาผิด จึงมี cross-check ใน `importClipMetrics` ที่เทียบวันจาก id กับ `postedDate` ในไฟล์ ถ้าไม่ตรงจะตั้ง `isScheduledPost` แล้ว `analyzePostTimes` (`lib/post-time.ts`) จะตัดออก · **timezone: เวลาจาก id เป็น UTC ต้อง +7 ส่วน `hour` ใน FollowerActivity.csv เป็นเวลาไทยอยู่แล้ว ห้ามแปลงซ้ำ** (ตรวจว่าถูกด้วยการดูพีคผู้ติดตาม ต้องอยู่ที่ชั่วโมงดิบ 20 = 8:00 PM) · UI แสดงชั่วโมงเป็น AM/PM (`hourLabel` ใน `post-time-panel.tsx`) ไม่ใช่ 24 ชม. — ข้อมูลภายในยังเป็นเลข 0-23 เหมือนเดิม
 ```
 
 - [ ] **Step 4: Verify type-check + lint**
@@ -1089,8 +1094,8 @@ Expected: สะอาด ไม่มี warning ใหม่ (warning `followe
 
 รัน dev server แยก (`NEXT_DIST_DIR=.next-dev DATABASE_URL="file:./dev-test.db" npm run dev -- -p 3001`) เปิดแท็บ Dashboard
 Expected:
-- เห็นกล่อง "เวลาโพสต์ vs ยอดวิว" มีกราฟแท่ง (วิว) + เส้น (ผู้ติดตาม) บนแกน `00:00`–`23:00` **ไม่มี AM/PM**
-- เส้นผู้ติดตามพีคที่ **20:00** (ถ้าพีคไปอยู่ตี 3 = แปลง timezone เกิน ต้องแก้)
+- เห็นกล่อง "เวลาโพสต์ vs ยอดวิว" มีกราฟแท่ง (วิว) + เส้น (ผู้ติดตาม) บนแกนที่แสดงเป็น **AM/PM** (เช่น `8 AM`, `1 PM`, `8 PM`)
+- เส้นผู้ติดตามพีคที่ **8 PM** (ถ้าพีคไปอยู่ตี 3 = แปลง timezone เกิน ต้องแก้)
 - แท่งวิวกระจุกช่วง **10:00–13:00**
 - บรรทัดสถานะขึ้น "ยังน้อยเกินจะสรุป" และบอกจำนวนที่ข้าม
 - **ไม่มีข้อความแนะนำว่าควรโพสต์เวลาไหน**
@@ -1110,10 +1115,10 @@ git commit -m "Chart posting hour against views and audience activity"
 
 ## Self-Review (ผู้เขียนแผนตรวจแล้ว)
 
-**Spec coverage:** §1 รูปแบบ 24 ชม. → Global Constraints + `hourLabel` (Task 5) · §2 data model → Task 1 · §3 ป้ายที่มา → Task 4 Step 1 + `analyzePostTimes` · §4 toggle + default ปรับเอง → Task 4 Step 3-4 · §5 cross-check → Task 4 Step 2 · §6 parser → Task 3 · §7 วิเคราะห์ → Task 2 · §8 UI → Task 5 · §9 ช่องอัปโหลด → Task 3 Step 6 · §timezone → Global Constraints + verify ทุก task ที่เกี่ยวข้อง · §ไม่ทำ (ไม่ฟันธงเวลา/ไม่ถามย้อนหลัง/ไม่แตะ postedAt) → ระบุเป็นข้อห้ามใน Task 4-5
+**Spec coverage:** §1 รูปแบบ AM/PM (แก้ไขจาก 24 ชม. เดิมตามคำขอผู้ใช้ระหว่าง implement — Task 1 เสร็จแล้วตอนแก้ ไม่กระทบเพราะ schema เก็บเป็นเลขดิบ/`HH:MM` ไม่เปลี่ยน) → Global Constraints + `hourLabel` (Task 5) · §2 data model → Task 1 · §3 ป้ายที่มา → Task 4 Step 1 + `analyzePostTimes` · §4 toggle + default ปรับเอง → Task 4 Step 3-4 · §5 cross-check → Task 4 Step 2 · §6 parser → Task 3 · §7 วิเคราะห์ → Task 2 · §8 UI → Task 5 · §9 ช่องอัปโหลด → Task 3 Step 6 · §timezone → Global Constraints + verify ทุก task ที่เกี่ยวข้อง · §ไม่ทำ (ไม่ฟันธงเวลา/ไม่ถามย้อนหลัง/ไม่แตะ postedAt) → ระบุเป็นข้อห้ามใน Task 4-5
 
 **Type consistency:** `PostTimeClip`/`FollowerActivityRecord`/`HourBucket`/`PostTimeAnalysis` ประกาศครั้งเดียวใน `lib/post-time.ts` ใช้ตรงกันทุกที่ · `PostTimeEntry` ประกาศใน `post-time-panel.tsx` และ `prompt-workspace.tsx` สร้างให้ครบฟิลด์ (Task 5 Step 2) · `parseCsvRows`/`parseMonthDayLabel` ย้ายไป `lib/csv.ts` แล้ว `clip-metrics.ts` import ใช้ (Task 3 Step 2) ไม่มีนิยามซ้ำ · `uploadedAtFromVideoId`/`thaiHourOf`/`thaiDateKey` จาก `lib/video-id-time.ts` ใช้ทั้งใน `post-time.ts` และ `actions.ts`
 
-**Placeholder scan:** ไม่มี TBD/TODO — ทุก step ที่แก้โค้ดมีโค้ดจริงครบ · verification เป็นคำสั่งจริงพร้อมค่าที่คาดหวังเจาะจง (167 แถว, พีค 20:00, ที่ลับเล็บแมวต้องถูก mark) · ไม่มี unit test เพราะโปรเจกต์ไม่มี test runner (ระบุใน Global Constraints)
+**Placeholder scan:** ไม่มี TBD/TODO — ทุก step ที่แก้โค้ดมีโค้ดจริงครบ · verification เป็นคำสั่งจริงพร้อมค่าที่คาดหวังเจาะจง (167 แถว, พีคชั่วโมงดิบ 20 = 8:00 PM, ที่ลับเล็บแมวต้องถูก mark) · ไม่มี unit test เพราะโปรเจกต์ไม่มี test runner (ระบุใน Global Constraints)
 
 **จุดที่ต้องระวังเป็นพิเศษ:** Task 3 ย้าย helper ออกจาก `clip-metrics.ts` — ถ้าลบไม่ครบจะเหลือนิยามซ้ำและ lint จะฟ้อง · Task 5 เปลี่ยน type ของ prop `entries` ใน `DashboardPanel` ซึ่งกระทบ `Recommendations` ด้วย (เป็น superset จึงยังทำงานได้ แต่ต้องส่งฟิลด์ครบจาก `prompt-workspace.tsx`)
