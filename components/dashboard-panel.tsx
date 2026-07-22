@@ -120,13 +120,69 @@ export function DashboardPanel({
         now={now}
       />
 
+      {orders.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          ยังไม่มีข้อมูลรายได้ — นำเข้าไฟล์ด้านล่างเพื่อเริ่ม
+        </p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* เงินจริง — พระเอก */}
+            <div className="flex flex-col gap-1 rounded-xl border border-marigold/40 bg-marigold/5 p-5">
+              <span className="font-mono text-[0.65rem] tracking-widest text-marigold uppercase">
+                เงินที่ได้จริงแล้ว
+              </span>
+              <span className="font-display text-4xl text-foreground">
+                {baht(summary.settledRevenue)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                จาก {summary.paidOrderCount.toLocaleString("th-TH")} ออเดอร์ที่ชำระแล้ว
+              </span>
+            </div>
+
+            {/* กำลังรอ — รอง จางกว่า */}
+            <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-5">
+              <span className="font-mono text-[0.65rem] tracking-widest text-smoke uppercase">
+                กำลังรอ (ยังไม่ใช่เงินเรา)
+              </span>
+              <span className="font-display text-2xl text-foreground/80">
+                {summary.pendingOrders.toLocaleString("th-TH")} ออเดอร์ ·{" "}
+                {baht(summary.pendingGmv)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {summary.estimatedPendingCommission !== null
+                  ? `ประเมินค่าคอมถ้าจ่ายครบ ~${baht(summary.estimatedPendingCommission)}*`
+                  : "ยังประเมินค่าคอมไม่ได้ (ยังไม่มีออเดอร์ที่ชำระแล้ว)"}
+              </span>
+            </div>
+          </div>
+
+          {/* แถวเล็กจาง + หมายเหตุความซื่อสัตย์ */}
+          <p className="font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
+            ยอดสั่งรวมทุกสถานะ {baht(summary.totalGmv)} · ขายได้{" "}
+            {summary.itemCount.toLocaleString("th-TH")} ชิ้น · ไม่มีสิทธิ์{" "}
+            {summary.ineligibleOrders} ออเดอร์ (ไม่ได้ค่าคอม)
+            <br />
+            {summary.realizedRate !== null && (
+              <>*ประเมินจากอัตราค่าคอมจริง{" "}
+              {(summary.realizedRate * 100).toFixed(1)}% · </>
+            )}
+            ตัวเลขฝั่งเงินเท่านั้น (ไม่มียอดวิว) และช้ากว่าจริง ~สัปดาห์ เพราะออเดอร์ทยอย settle
+          </p>
+        </div>
+      )}
+
+      {orders.length > 0 && <RevenueByClipList orders={orders} />}
+      {orders.length > 0 && <RevenueTrend orders={orders} />}
+      {orders.length > 0 && <Reconciliation orders={orders} />}
+
       <PostTimePanel
         entries={entries}
         metrics={clipMetrics}
         followerActivity={followerActivity}
       />
 
-      {/* อัปโหลด */}
+      {/* นำเข้าข้อมูล — งานประจำสัปดาห์ อยู่ล่างสุด */}
       <form action={action} className="flex flex-wrap items-center gap-2">
         <Input
           type="file"
@@ -148,6 +204,18 @@ export function DashboardPanel({
           โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
         </span>
       </form>
+
+      {state.error && (
+        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+          {state.error}
+        </p>
+      )}
+
+      {state.summary && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+          นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched}
+        </div>
+      )}
 
       <form action={metricAction} className="flex flex-wrap items-center gap-2">
         <Input
@@ -230,74 +298,6 @@ export function DashboardPanel({
           </p>
         )
       )}
-
-      {state.error && (
-        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
-          {state.error}
-        </p>
-      )}
-
-      {state.summary && (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-          นำเข้า {state.summary.total} ออเดอร์ · จับคู่คลิปได้ {state.summary.matched}
-        </div>
-      )}
-
-      {orders.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          ยังไม่มีข้อมูลรายได้ — นำเข้าไฟล์ด้านบนเพื่อเริ่ม
-        </p>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {/* เงินจริง — พระเอก */}
-            <div className="flex flex-col gap-1 rounded-xl border border-marigold/40 bg-marigold/5 p-5">
-              <span className="font-mono text-[0.65rem] tracking-widest text-marigold uppercase">
-                เงินที่ได้จริงแล้ว
-              </span>
-              <span className="font-display text-4xl text-foreground">
-                {baht(summary.settledRevenue)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                จาก {summary.paidOrderCount.toLocaleString("th-TH")} ออเดอร์ที่ชำระแล้ว
-              </span>
-            </div>
-
-            {/* กำลังรอ — รอง จางกว่า */}
-            <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-5">
-              <span className="font-mono text-[0.65rem] tracking-widest text-smoke uppercase">
-                กำลังรอ (ยังไม่ใช่เงินเรา)
-              </span>
-              <span className="font-display text-2xl text-foreground/80">
-                {summary.pendingOrders.toLocaleString("th-TH")} ออเดอร์ ·{" "}
-                {baht(summary.pendingGmv)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {summary.estimatedPendingCommission !== null
-                  ? `ประเมินค่าคอมถ้าจ่ายครบ ~${baht(summary.estimatedPendingCommission)}*`
-                  : "ยังประเมินค่าคอมไม่ได้ (ยังไม่มีออเดอร์ที่ชำระแล้ว)"}
-              </span>
-            </div>
-          </div>
-
-          {/* แถวเล็กจาง + หมายเหตุความซื่อสัตย์ */}
-          <p className="font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
-            ยอดสั่งรวมทุกสถานะ {baht(summary.totalGmv)} · ขายได้{" "}
-            {summary.itemCount.toLocaleString("th-TH")} ชิ้น · ไม่มีสิทธิ์{" "}
-            {summary.ineligibleOrders} ออเดอร์ (ไม่ได้ค่าคอม)
-            <br />
-            {summary.realizedRate !== null && (
-              <>*ประเมินจากอัตราค่าคอมจริง{" "}
-              {(summary.realizedRate * 100).toFixed(1)}% · </>
-            )}
-            ตัวเลขฝั่งเงินเท่านั้น (ไม่มียอดวิว) และช้ากว่าจริง ~สัปดาห์ เพราะออเดอร์ทยอย settle
-          </p>
-        </div>
-      )}
-
-      {orders.length > 0 && <Reconciliation orders={orders} />}
-      {orders.length > 0 && <RevenueByClipList orders={orders} />}
-      {orders.length > 0 && <RevenueTrend orders={orders} />}
     </section>
   );
 }
