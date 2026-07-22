@@ -18,7 +18,7 @@
 | **① Brief & Script** | กรอกข้อมูลสินค้า + แนบรูปสินค้าจริง (paste/drag-drop) แล้วกด "สร้างด้วย AI" ให้ Gemini ประกอบ prompt ให้อัตโนมัติ (เลือกได้ระหว่างโมเดลเร็ว/ละเอียด) |
 | **② ผลลัพธ์ & คลิป** | 10-part prompt ที่พร้อมส่งเข้า Gemini Flow, Caption/Hashtag ที่สร้างอัตโนมัติพร้อมปุ่มคัดลอก, ลิงก์คลิปที่ลงจริง + วันที่โพสต์ (auto-fill ให้เมื่อวางลิงก์) |
 | **③ Core Prompt** | จัดการ template หลักแบบมีเวอร์ชัน แยกกันระหว่าง prompt สร้างวิดีโอ กับ SEO prompt สำหรับ Caption |
-| **④ รายได้** | นำเข้าไฟล์ affiliate order จาก TikTok Studio, จับคู่ออเดอร์กับคลิปด้วย video ID, แยกเงินที่ได้จริงออกจากเงินที่ยังรอ, thumbnail คลิปจริงผ่าน TikTok oEmbed, แจ้งเตือนเมื่อถึงรอบต้องนำเข้าข้อมูลใหม่ |
+| **④ รายได้** | นำเข้าไฟล์ affiliate order จาก TikTok Studio, จับคู่ออเดอร์กับคลิปด้วย video ID, แยกเงินที่ได้จริงออกจากเงินที่ยังรอ, thumbnail คลิปจริงผ่าน TikTok oEmbed, แจ้งเตือนเมื่อถึงรอบต้องนำเข้าข้อมูลใหม่ · **Recommender** ("ควรทำอะไรต่อ") วิเคราะห์วิว×conversion จากไฟล์ content เพื่อชี้คลิปที่กำลังมา/ของดีคนไม่เห็น/ดูเยอะไม่ซื้อ/หยุดแล้ว · **เวลาโพสต์** ถอดเวลาจาก video ID อัตโนมัติ (ไม่ต้องกรอกเอง) เทียบกับผู้ติดตามออนไลน์รายชั่วโมง เพื่อดูว่าช่วงเวลาโพสต์ส่งผลต่อวิวไหม |
 
 **หลักการออกแบบที่ยึดตลอดทั้งแอป:** ข้อมูลเงิน (GMV vs. เงินที่ settle แล้ว) ต้องไม่ทำให้เข้าใจผิด, ไม่มี emoji ใน UI, ทุกอย่างใช้งานได้แม้ Gemini API ล่ม (มี manual fallback เสมอ)
 
@@ -31,7 +31,7 @@
 | Styling | Tailwind CSS v4 (CSS-first config) + shadcn/ui (`@base-ui/react` primitives) |
 | AI | Gemini API ผ่าน `@google/genai` |
 | Charts | Recharts |
-| Data import | SheetJS (`xlsx`) สำหรับไฟล์ affiliate order |
+| Data import | SheetJS (`xlsx`) สำหรับไฟล์ affiliate order, parser เขียนเองสำหรับไฟล์ CSV จาก TikTok Studio (content/follower export) |
 
 ## เริ่มต้นใช้งาน
 
