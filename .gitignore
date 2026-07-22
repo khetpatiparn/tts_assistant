@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next-dev/
 /out/
 
 # production
@@ -45,6 +46,7 @@ next-env.d.ts
 # sqlite database
 /dev.db
 /prisma/dev.db
+/dev-test.db
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days

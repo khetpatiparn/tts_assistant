@@ -18,7 +18,21 @@ No test runner is configured in this project.
 
 `start.bat` / `stop.bat` ที่ root ของ repo ใช้ build+รัน / หยุด production server แบบ background ให้ใช้งานได้โดยไม่ต้องเปิด terminal
 
-**ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันหลายตัวพร้อมกันในโฟลเดอร์นี้** (เช่น agent รันพร้อมที่ผู้ใช้เปิด `start.bat` เอง) — `.next` จะเขียนทับกันจนพังแบบ `Cannot find module 'better-sqlite3-...'` ตอน `npm run start` ถ้าเจอ ให้ `rm -rf .next` แล้ว build ใหม่
+**ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันบน `.next` โฟลเดอร์เดียวกัน** — จะเขียนทับกันจนพังแบบ `Cannot find module 'better-sqlite3-...'` ตอน `npm run start` ถ้าเจอ ให้ `rm -rf .next` แล้ว build ใหม่
+
+**แต่ไม่ต้องให้ผู้ใช้ปิด `start.bat` เพื่อให้ agent ทำงาน** — เขาใช้แอปนี้ทำคลิปหาเงินอยู่ทุกวัน การบล็อกเขาคือการทำให้เขาเสียรายได้ ใช้ลำดับนี้แทน:
+
+1. **เช็ก type/lint (ครอบคลุมงานส่วนใหญ่) — ไม่ต้องแตะ `.next` เลย ไม่ชนกับ server ผู้ใช้:**
+   - `npx tsc --noEmit` ← ใช้แทน `npm run build` สำหรับเช็ก type (build เขียน `.next` แต่ tsc ไม่เขียน)
+   - `npm run lint` ← ปลอดภัยเสมอ ไม่แตะ `.next`
+2. **ต้องรันแอปดู UI จริง — แยกทุกอย่างออกจากของผู้ใช้:**
+   ```bash
+   NEXT_DIST_DIR=.next-dev DATABASE_URL="file:./dev-test.db" npm run dev -- -p 3001
+   ```
+   (ก๊อป `cp dev.db dev-test.db` ก่อน · `distDir` override ได้จาก `next.config.ts` · dotenv ไม่ override env ที่ตั้งจาก shell จึงชี้ DB สำเนาได้ · ทั้ง `.next-dev` และ `dev-test.db` ถูก gitignore แล้ว)
+3. **`npm run build` เต็มรูปแบบ** ทำเฉพาะตอนจะปิดงาน/ก่อน merge และ**ต้องเช็ก port 3000 ว่าง**ก่อนเท่านั้น — ถ้าไม่ว่าง ให้ถามผู้ใช้ ห้าม kill เอง
+
+**ห้ามใช้ `dev.db` ตัวจริงตอนทดสอบ UI** — เคยมี entry ทดสอบ ("สินค้าทดสอบ caption") ค้างในข้อมูลจริงมาแล้ว และ SQLite ไม่ได้เปิด WAL จึงเสี่ยง lock ชนกันถ้าเขียนพร้อมผู้ใช้
 
 ## Architecture
 
