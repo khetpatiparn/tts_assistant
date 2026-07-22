@@ -21,6 +21,7 @@ import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import { DashboardPanel } from "@/components/dashboard-panel";
 import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
 import type { ClipMetricRecord } from "@/lib/recommender";
+import type { FollowerActivityRecord } from "@/lib/post-time";
 
 export type ProductImageRecord = {
   id: string;
@@ -81,6 +82,7 @@ export function PromptWorkspace({
   corePrompts,
   affiliateOrders,
   clipMetrics,
+  followerActivity,
   reminder,
   reminderActive,
   lastImportedAt,
@@ -90,6 +92,7 @@ export function PromptWorkspace({
   corePrompts: CorePromptRecord[];
   affiliateOrders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
+  followerActivity: FollowerActivityRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   lastImportedAt: Date | null;
@@ -326,6 +329,7 @@ export function PromptWorkspace({
             <DashboardPanel
               orders={affiliateOrders}
               clipMetrics={clipMetrics}
+              followerActivity={followerActivity}
               reminder={reminder}
               reminderActive={reminderActive}
               lastImportedAt={lastImportedAt}

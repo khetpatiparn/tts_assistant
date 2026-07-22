@@ -18,7 +18,7 @@ function currentTime(): Date {
 }
 
 export default async function PoolingPrompt() {
-  const [prompts, corePrompts, orders, clipMetrics] = await Promise.all([
+  const [prompts, corePrompts, orders, clipMetrics, followerActivity] = await Promise.all([
     prisma.promptEntry.findMany({
       orderBy: { createdAt: "desc" },
       include: { productImages: { orderBy: { sortOrder: "asc" } } },
@@ -26,6 +26,7 @@ export default async function PoolingPrompt() {
     prisma.corePrompt.findMany({ orderBy: { createdAt: "desc" } }),
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
     prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
+    prisma.followerActivity.findMany({ orderBy: [{ activityOn: "asc" }, { hour: "asc" }] }),
   ]);
 
   // reminder: ผ่านไปกี่วันจาก import ล่าสุด (เก็บ Date จริงไว้ให้บรรทัดสถานะใน dashboard ด้วย)
@@ -57,6 +58,7 @@ export default async function PoolingPrompt() {
       corePrompts={corePrompts}
       affiliateOrders={orders}
       clipMetrics={clipMetrics}
+      followerActivity={followerActivity}
       reminder={reminder}
       reminderActive={reminderActive}
       lastImportedAt={lastImportedAt}

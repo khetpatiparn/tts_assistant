@@ -5,7 +5,10 @@ import { Upload } from "lucide-react";
 
 import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
+import { importFollowerActivity } from "@/app/actions";
+import type { FollowerActivityImportSummary } from "@/app/actions";
 import type { ClipMetricRecord } from "@/lib/recommender";
+import type { FollowerActivityRecord } from "@/lib/post-time";
 import {
   IMPORT_STALE_DAYS,
   summarizeOrders,
@@ -35,6 +38,7 @@ type ImportState = { summary: AffiliateImportSummary | null; error: string | nul
 export function DashboardPanel({
   orders,
   clipMetrics,
+  followerActivity,
   reminder,
   reminderActive,
   lastImportedAt,
@@ -43,6 +47,7 @@ export function DashboardPanel({
 }: {
   orders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
+  followerActivity: FollowerActivityRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   lastImportedAt: Date | null;
@@ -73,6 +78,21 @@ export function DashboardPanel({
     async (_prev, formData) => {
       try {
         const summary = await importClipMetrics(formData);
+        return { summary, error: null };
+      } catch (e) {
+        return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
+      }
+    },
+    { summary: null, error: null }
+  );
+
+  const [followerState, followerAction, isImportingFollowers] = useActionState<
+    { summary: FollowerActivityImportSummary | null; error: string | null },
+    FormData
+  >(
+    async (_prev, formData) => {
+      try {
+        const summary = await importFollowerActivity(formData);
         return { summary, error: null };
       } catch (e) {
         return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
@@ -154,6 +174,35 @@ export function DashboardPanel({
         <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
           นำเข้า {metricState.summary.total} คลิป · จับคู่ได้ {metricState.summary.matched} ·
           ไม่มีในแอป {metricState.summary.unmatched}
+        </div>
+      )}
+
+      <form action={followerAction} className="flex flex-wrap items-center gap-2">
+        <Input
+          type="file"
+          name="file"
+          accept=".csv,text/csv"
+          className="h-auto max-w-xs py-1.5"
+          required
+        />
+        <Button type="submit" size="sm" variant="outline" disabled={isImportingFollowers}>
+          <Upload className="size-3.5" />
+          {isImportingFollowers ? "กำลังนำเข้า..." : "นำเข้าผู้ติดตามรายชั่วโมง"}
+        </Button>
+        <span className="font-mono text-[0.7rem] text-muted-foreground">
+          โหลดจาก TikTok Studio → Analytics → Followers → Download (FollowerActivity.csv)
+        </span>
+      </form>
+
+      {followerState.error && (
+        <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+          {followerState.error}
+        </p>
+      )}
+
+      {followerState.summary && (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+          นำเข้า {followerState.summary.total} แถว · {followerState.summary.days} วัน
         </div>
       )}
 

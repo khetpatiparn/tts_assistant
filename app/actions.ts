@@ -14,6 +14,7 @@ import {
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
 import { parseContentCsv } from "@/lib/clip-metrics";
+import { parseFollowerActivityCsv } from "@/lib/follower-activity";
 import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
 
 export async function createPrompt(formData: FormData) {
@@ -469,6 +470,47 @@ export async function importClipMetrics(
   const matched = metrics.filter((m) => videoToEntry.has(m.videoId)).length;
   revalidatePath("/");
   return { total: metrics.length, matched, unmatched: metrics.length - matched };
+}
+
+export type FollowerActivityImportSummary = {
+  total: number;
+  days: number;
+};
+
+export async function importFollowerActivity(
+  formData: FormData
+): Promise<FollowerActivityImportSummary> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("กรุณาเลือกไฟล์ FollowerActivity (.csv)");
+  }
+
+  const text = await file.text();
+  const importedAt = new Date();
+  let rows;
+  try {
+    rows = parseFollowerActivityCsv(text, importedAt);
+  } catch {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ FollowerActivity (.csv) จาก TikTok Studio");
+  }
+  if (rows.length === 0) {
+    throw new Error("ไม่พบข้อมูลผู้ติดตามในไฟล์");
+  }
+
+  // upsert ด้วย (activityOn, hour) — โยนไฟล์เดิมซ้ำได้ ไม่เกิดแถวซ้ำ
+  for (const r of rows) {
+    await prisma.followerActivity.upsert({
+      where: { activityOn_hour: { activityOn: r.activityOn, hour: r.hour } },
+      create: r,
+      update: { active: r.active, importedAt: new Date() },
+    });
+  }
+
+  revalidatePath("/");
+  return {
+    total: rows.length,
+    days: new Set(rows.map((r) => r.activityOn.getTime())).size,
+  };
 }
 
 export async function deleteProductImage(id: string) {
