@@ -41,6 +41,8 @@ model PromptEntry {
   hashtags       String      @default("")
   affiliateOrders AffiliateOrder[]
   postedTimeOfDay String?
+  postedTimeSource String?
+  isScheduledPost  Boolean @default(false)
   clipMetrics     ClipMetric[]
 }
 
@@ -100,4 +102,14 @@ model ClipMetric {
 
   @@unique([videoId, capturedOn])
   @@index([matchedEntryId])
+}
+
+model FollowerActivity {
+  id         String   @id @default(cuid())
+  activityOn DateTime
+  hour       Int
+  active     Int
+  importedAt DateTime @default(now())
+
+  @@unique([activityOn, hour])
 }
