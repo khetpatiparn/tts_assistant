@@ -89,12 +89,14 @@ No test runner is configured in this project.
 - **ธีม dashboard ทำเป็นกลางๆ ไม่ใส่ motif คลปเปอร์บอร์ด** (ผู้ใช้กำลังจะเลิกธีมหนัง — การเปลี่ยนชื่อ+re-theme ทั้งแอปเป็นโปรเจกต์แยก)
 - `revenueByClip` (ราย-คลิปใน `components/revenue-by-clip.tsx`) ต้องแบ่งเงินแบบ 3 ทาง (จ่ายแล้ว/รอ/ไม่มีสิทธิ์) **ให้ตรงกับ `summarizeOrders` เสมอ** — เคยพลาดโยนออเดอร์ "ไม่มีสิทธิ์" ไปปนกับ "รอ" มาแล้ว ถ้าแก้ตรรกะแบ่งเงินฝั่งใดฝั่งหนึ่ง ต้องเช็กอีกฝั่งด้วย
 - แถบเตือน (`reminder-banner.tsx`) แสดงเฉพาะในแท็บ dashboard เท่านั้น (ไม่อยู่ที่ header อีกต่อไป) — ที่แท็บ ④ เองมีจุดแดงเล็กๆ บอกสถานะ (`workspace-tabs.tsx` รับ prop `dashboardAlert` จาก `reminderActive` เดิม)
+- `lib/video-id-time.ts` ถอด "เวลาอัปโหลด" จาก TikTok video id (snowflake: `BigInt(id) >> 32n` = Unix seconds) — **เป็นเวลาอัปโหลด ไม่ใช่เวลาเผยแพร่** คลิปที่ตั้งเวลาไว้จะได้เวลาผิด จึงมี cross-check ใน `importClipMetrics` ที่เทียบวันจาก id กับ `postedDate` ในไฟล์ ถ้าไม่ตรงจะตั้ง `isScheduledPost` แล้ว `analyzePostTimes` (`lib/post-time.ts`) จะตัดออก · **timezone: เวลาจาก id เป็น UTC ต้อง +7 ส่วน `hour` ใน FollowerActivity.csv เป็นเวลาไทยอยู่แล้ว ห้ามแปลงซ้ำ** (ตรวจว่าถูกด้วยการดูพีคผู้ติดตาม ต้องอยู่ที่ชั่วโมงดิบ 20 = 8:00 PM) · UI แสดงชั่วโมงเป็น AM/PM (`hourLabel` ใน `post-time-panel.tsx`) ไม่ใช่ 24 ชม. — ข้อมูลภายในยังเป็นเลข 0-23 เหมือนเดิม
 
 ### ค่าคงที่ที่ผูกกับสเกลข้อมูล (ต้องทบทวนเป็นระยะ)
 
 - `MIN_VIEWS_FOR_CONV` / `MIN_ORDERS_FOR_CONV` ใน `lib/recommender.ts` — ตั้งไว้ตอนช่องยังเล็ก ผูกกับสเกลของวิว/ยอดขายปัจจุบัน จะเริ่มหลวมเกินไปเมื่อช่องโตขึ้น — `checkGuardHealth` (ในไฟล์เดียวกัน) เช็กให้อัตโนมัติแล้วขึ้นโน้ตเตือนใน `components/recommendations.tsx` เมื่อวิวกลางของช่องสูงกว่าเกณฑ์ขั้นต่ำเกิน 10 เท่า
 - `MAX_BAD_RATIO` ใน `lib/recommender.ts` เป็นสัดส่วน (scale-free) — ไม่ต้องกังวลเรื่องนี้
 - `IMPORT_STALE_DAYS` ใน `lib/dashboard.ts` ผูกกับรอบ settlement ของ TikTok (7 วัน) ถ้า TikTok เปลี่ยนรอบ ค่านี้จะไม่มีอะไรมาเตือน ต้องแก้เอง
+- `MIN_CLIPS_FOR_CONFIDENCE` (30) ใน `lib/post-time.ts` — จำนวนคลิปขั้นต่ำก่อนจะเชื่อรูปแบบ "เวลาโพสต์ vs วิว" ได้ ตั้งไว้ตอนมีคลิปใช้ได้จริงแค่ 13 ตัวและวิวถูกครอบงำโดย outlier 2 ตัว · `SCHEDULED_RATIO_WARN` (0.4) ในไฟล์เดียวกันเป็นสัดส่วน (scale-free) ไม่ต้องทบทวน
 - บทเรียน: `CLIP_AWAITING_THRESHOLD` เคยติด active ถาวรมานานโดยไม่มีใครสังเกต (ดูหัวข้อ Dashboard ด้านบน) — threshold ใหม่ๆ ควรปรับตัวเองตามข้อมูล หรืออย่างน้อยมี staleness check แบบ `checkGuardHealth` แนบมาด้วย
 
 ## Testing / verification

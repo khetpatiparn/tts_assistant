@@ -245,7 +245,15 @@ export function PromptWorkspace({
   }
 
   const dashboardEntries = useMemo(
-    () => prompts.map((p) => ({ id: p.id, productName: p.productName })),
+    () =>
+      prompts.map((p) => ({
+        id: p.id,
+        productName: p.productName,
+        videoUrl: p.videoUrl,
+        postedTimeOfDay: p.postedTimeOfDay,
+        postedTimeSource: p.postedTimeSource,
+        isScheduledPost: p.isScheduledPost,
+      })),
     [prompts]
   );
 

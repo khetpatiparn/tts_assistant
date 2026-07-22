@@ -15,6 +15,7 @@ import {
   type AffiliateOrderRecord,
   type ReminderState,
 } from "@/lib/dashboard";
+import { PostTimePanel, type PostTimeEntry } from "@/components/post-time-panel";
 import { Reconciliation } from "@/components/reconciliation";
 import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
@@ -51,7 +52,7 @@ export function DashboardPanel({
   reminder: ReminderState;
   reminderActive: boolean;
   lastImportedAt: Date | null;
-  entries: { id: string; productName: string }[];
+  entries: PostTimeEntry[];
   now: Date;
 }) {
   const summary = summarizeOrders(orders);
@@ -117,6 +118,12 @@ export function DashboardPanel({
         metrics={clipMetrics}
         orders={orders}
         now={now}
+      />
+
+      <PostTimePanel
+        entries={entries}
+        metrics={clipMetrics}
+        followerActivity={followerActivity}
       />
 
       {/* อัปโหลด */}
