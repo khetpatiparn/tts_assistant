@@ -458,6 +458,13 @@ export async function importClipMetrics(
   }
 
   // upsert ด้วย (videoId, capturedOn) — โยนไฟล์เดิมซ้ำได้ ไม่เกิด snapshot ซ้ำ
+  //
+  // สำคัญ: matchedEntryId ถูก set ที่นี่เท่านั้น (ไม่มีที่อื่นแตะ ClipMetric.matchedEntryId เลย)
+  // และ cross-check เรื่อง isScheduledPost ด้านล่างก็รันในรอบเดียวกันนี้พอดี — เพราะเหตุนี้
+  // คลิปที่ตั้งเวลาไว้จะไม่มีทาง "โผล่เป็น live" ได้เลย: ถ้ายังไม่เคย import ไฟล์นี้ คลิปจะยังไม่มี
+  // views จับคู่ (analyzePostTimes ข้ามไปเป็น skippedNoViews) และพอ import ครั้งแรกที่มันได้ views
+  // มัน ก็จะได้ isScheduledPost มาพร้อมกันในรอบเดียวกันเสมอ — **ถ้าวันหน้ามีจุดอื่นมา set
+  // ClipMetric.matchedEntryId แยกจากตรงนี้ (เช่น re-link ตอนแก้ videoUrl) การรับประกันนี้จะพังทันที**
   for (const m of metrics) {
     const matchedEntryId = videoToEntry.get(m.videoId) ?? null;
     await prisma.clipMetric.upsert({
