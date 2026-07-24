@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Copy, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, EllipsisVertical, Plus, Search, Trash2 } from "lucide-react";
+import { Menu } from "@base-ui/react/menu";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,8 +58,8 @@ export function HistoryRail({
   selectedId: string | null;
   onSelect: (entry: PromptEntry) => void;
   onNew: () => void;
-  onDuplicate: (id: string, event: React.MouseEvent) => void;
-  onDelete: (id: string, event: React.MouseEvent) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [onlyIncomplete, setOnlyIncomplete] = useState(false);
@@ -148,14 +149,17 @@ export function HistoryRail({
                 const isActive = selectedId === entry.id;
                 const date = shortDate(entry.postedAt);
                 return (
-                  <li key={entry.id}>
+                  <li
+                    key={entry.id}
+                    className={cn(
+                      "group flex items-center rounded-md border-l-2 border-transparent text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
+                      isActive && "border-marigold bg-ink-2 text-paper"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => onSelect(entry)}
-                      className={cn(
-                        "group flex w-full items-center gap-2 rounded-md border-l-2 border-transparent px-2.5 py-2 text-left text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
-                        isActive && "border-marigold bg-ink-2 text-paper"
-                      )}
+                      className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2.5 text-left"
                     >
                       <span className="shrink-0 font-mono text-[0.65rem] text-marigold/80">
                         T{String(takeNumber).padStart(2, "0")}
@@ -166,23 +170,41 @@ export function HistoryRail({
                           {date}
                         </span>
                       )}
-                      <span
-                        role="button"
-                        aria-label="ทำซ้ำรายการ"
-                        onClick={(event) => onDuplicate(entry.id, event)}
-                        className="shrink-0 text-paper/30 opacity-0 transition-opacity group-hover:opacity-100 hover:text-marigold"
-                      >
-                        <Copy className="size-3.5" />
-                      </span>
-                      <span
-                        role="button"
-                        aria-label="ลบรายการ"
-                        onClick={(event) => onDelete(entry.id, event)}
-                        className="shrink-0 text-paper/30 opacity-0 transition-opacity group-hover:opacity-100 hover:text-record"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </span>
                     </button>
+
+                    <Menu.Root>
+                      <Menu.Trigger
+                        aria-label="เมนูรายการ"
+                        className="shrink-0 rounded-md px-1.5 py-2 text-paper/30 opacity-0 transition-opacity hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
+                      >
+                        <EllipsisVertical className="size-3.5" />
+                      </Menu.Trigger>
+                      <Menu.Portal>
+                        <Menu.Positioner
+                          side="bottom"
+                          align="end"
+                          sideOffset={4}
+                          className="z-50"
+                        >
+                          <Menu.Popup className="min-w-32 rounded-md border border-paper/15 bg-ink-2 py-1 text-sm text-paper shadow-lg">
+                            <Menu.Item
+                              onClick={() => onDuplicate(entry.id)}
+                              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 outline-none data-[highlighted]:bg-ink"
+                            >
+                              <Copy className="size-3.5" />
+                              ทำซ้ำ
+                            </Menu.Item>
+                            <Menu.Item
+                              onClick={() => onDelete(entry.id)}
+                              className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-record outline-none data-[highlighted]:bg-ink"
+                            >
+                              <Trash2 className="size-3.5" />
+                              ลบ
+                            </Menu.Item>
+                          </Menu.Popup>
+                        </Menu.Positioner>
+                      </Menu.Portal>
+                    </Menu.Root>
                   </li>
                 );
               })}

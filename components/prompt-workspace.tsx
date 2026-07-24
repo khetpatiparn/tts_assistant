@@ -190,8 +190,7 @@ export function PromptWorkspace({
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function handleDelete(id: string, event: React.MouseEvent) {
-    event.stopPropagation();
+  function handleDelete(id: string) {
     if (!confirm("ลบรายการนี้?")) return;
     startDeleteTransition(async () => {
       await deletePrompt(id);
@@ -199,8 +198,7 @@ export function PromptWorkspace({
     });
   }
 
-  function handleDuplicate(id: string, event: React.MouseEvent) {
-    event.stopPropagation();
+  function handleDuplicate(id: string) {
     const source = prompts.find((p) => p.id === id);
     if (!source) return;
     startDuplicateTransition(async () => {
