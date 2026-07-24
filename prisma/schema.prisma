@@ -30,6 +30,7 @@ model PromptEntry {
   extraNotes  String
   images      String
   createdAt   DateTime @default(now())
+  duplicatedFromId String?
 
   corePromptId   String?
   corePrompt     CorePrompt? @relation(fields: [corePromptId], references: [id])
