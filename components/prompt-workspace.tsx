@@ -5,6 +5,7 @@ import { useActionState, useMemo, useState, useTransition } from "react";
 import {
   createPrompt,
   deletePrompt,
+  duplicatePrompt,
   generateWithAI,
   updateProductImageCaption,
   uploadProductImages,
@@ -105,6 +106,7 @@ export function PromptWorkspace({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [copied, setCopied] = useState(false);
   const [, startDeleteTransition] = useTransition();
+  const [, startDuplicateTransition] = useTransition();
   const [isGenerating, startGenerating] = useTransition();
   const [genError, setGenError] = useState<string | null>(null);
   // Defaults to the fast, high-quota model; the other one is slower but richer.
@@ -197,6 +199,21 @@ export function PromptWorkspace({
     });
   }
 
+  function handleDuplicate(id: string, event: React.MouseEvent) {
+    event.stopPropagation();
+    const source = prompts.find((p) => p.id === id);
+    if (!source) return;
+    startDuplicateTransition(async () => {
+      const newId = await duplicatePrompt(id);
+      setSelectedId(newId);
+      setForm(entryToForm(source)); // ข้อความคลิปซ้ำ = source เป๊ะ — ตั้งตรงไม่พึ่ง auto-sync
+      setPendingImages([]);
+      setImageError(null);
+      setGenError(null);
+      setTab("brief");
+    });
+  }
+
   const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
 
   // default ของ toggle = แบบที่ผู้ใช้ทำบ่อยกว่า ถ้าวันหนึ่งพฤติกรรมพลิก default ก็สลับเอง
@@ -284,6 +301,7 @@ export function PromptWorkspace({
           selectedId={selectedId}
           onSelect={selectPrompt}
           onNew={startNew}
+          onDuplicate={handleDuplicate}
           onDelete={handleDelete}
         />
 

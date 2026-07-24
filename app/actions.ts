@@ -49,6 +49,61 @@ export async function createPrompt(formData: FormData) {
   return created.id;
 }
 
+export async function duplicatePrompt(sourceId: string): Promise<string> {
+  const source = await prisma.promptEntry.findUnique({
+    where: { id: sourceId },
+    include: { productImages: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!source) {
+    throw new Error("ไม่พบรายการที่ต้องการทำซ้ำ");
+  }
+
+  // ก๊อปเฉพาะฟิลด์ที่ใช้ซ้ำได้ — ปล่อย videoUrl/วันเวลาโพสต์เป็น default เพราะเป็นข้อเท็จจริงรายคลิป
+  const created = await prisma.promptEntry.create({
+    data: {
+      productName: source.productName,
+      productInfo: source.productInfo,
+      riskModule: source.riskModule,
+      extraNotes: source.extraNotes,
+      images: source.images,
+      corePromptId: source.corePromptId,
+      chatgptOutput: source.chatgptOutput,
+      caption: source.caption,
+      hashtags: source.hashtags,
+      duplicatedFromId: source.id,
+    },
+  });
+
+  await mkdir(path.join(UPLOAD_ROOT, created.id), { recursive: true });
+
+  for (const image of source.productImages) {
+    let data: Buffer;
+    try {
+      data = await readFile(path.join(UPLOAD_ROOT, image.entryId, image.filename));
+    } catch {
+      // ไฟล์ต้นฉบับหายบนดิสก์ — ข้ามรูปใบนี้ ไม่ให้ทั้ง action ล้ม (row เป็น source of truth
+      // แต่คลิปซ้ำที่ขาดรูปบางใบ ดีกว่า error ทั้งหมด — แนวเดียวกับ deleteProductImage)
+      continue;
+    }
+    const ext =
+      image.mimeType === "image/png" ? "png" : image.mimeType === "image/webp" ? "webp" : "jpg";
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    await writeFile(path.join(UPLOAD_ROOT, created.id, filename), data);
+    await prisma.productImage.create({
+      data: {
+        entryId: created.id,
+        filename,
+        mimeType: image.mimeType,
+        caption: image.caption,
+        sortOrder: image.sortOrder,
+      },
+    });
+  }
+
+  revalidatePath("/");
+  return created.id;
+}
+
 export async function deletePrompt(id: string) {
   await prisma.promptEntry.delete({ where: { id } });
   revalidatePath("/");

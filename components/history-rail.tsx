@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Copy, Plus, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,12 +38,14 @@ export function HistoryRail({
   selectedId,
   onSelect,
   onNew,
+  onDuplicate,
   onDelete,
 }: {
   prompts: PromptEntry[];
   selectedId: string | null;
   onSelect: (entry: PromptEntry) => void;
   onNew: () => void;
+  onDuplicate: (id: string, event: React.MouseEvent) => void;
   onDelete: (id: string, event: React.MouseEvent) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -152,6 +154,14 @@ export function HistoryRail({
                           {date}
                         </span>
                       )}
+                      <span
+                        role="button"
+                        aria-label="ทำซ้ำรายการ"
+                        onClick={(event) => onDuplicate(entry.id, event)}
+                        className="shrink-0 text-paper/30 opacity-0 transition-opacity group-hover:opacity-100 hover:text-marigold"
+                      >
+                        <Copy className="size-3.5" />
+                      </span>
                       <span
                         role="button"
                         aria-label="ลบรายการ"
