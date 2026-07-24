@@ -15,6 +15,18 @@ function isIncomplete(entry: PromptEntry) {
   return entry.chatgptOutput.trim() === "" || entry.videoUrl.trim() === "";
 }
 
+/**
+ * ฟิลด์ที่คำค้นจะถูกนำไปแมตช์ — riskModule ถูกตัดออกตั้งใจ เพราะเนื้อหาเป็นวลีซ้ำทั่วไป
+ * ("พับได้" / "มีกลไก") ที่ใช้ร่วมกันหลายสิบรายการ ถ้ารวมเข้ามาผลค้นหาจะกว้างขึ้นแทนที่จะแคบลง
+ */
+function matchesQuery(entry: PromptEntry, needle: string) {
+  return (
+    entry.productName.toLowerCase().includes(needle) ||
+    entry.productInfo.toLowerCase().includes(needle) ||
+    entry.extraNotes.toLowerCase().includes(needle)
+  );
+}
+
 /** "ก.ค. 2026" — the month bucket an entry belongs to. */
 function monthLabel(postedAt: Date | null) {
   if (!postedAt) return UNDATED_GROUP;
@@ -64,7 +76,7 @@ export function HistoryRail({
     const needle = query.trim().toLowerCase();
     const visible = numbered.filter(({ entry }) => {
       if (onlyIncomplete && !isIncomplete(entry)) return false;
-      if (needle && !entry.productName.toLowerCase().includes(needle)) return false;
+      if (needle && !matchesQuery(entry, needle)) return false;
       return true;
     });
 
