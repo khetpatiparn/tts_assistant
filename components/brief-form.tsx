@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ClipboardPaste, ScanText, X } from "lucide-react";
+import { ClipboardPaste, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import type { ProductImageRecord } from "@/components/prompt-workspace";
@@ -89,6 +89,18 @@ export function BriefForm({
   const [extractError, setExtractError] = useState<string | null>(null);
   const [isExtracting, startExtracting] = useTransition();
   const extractInputRef = useRef<HTMLInputElement>(null);
+
+  // ช่อง Risk Module พับเป็น default — สำรวจจริง (2026-07-25) พบใช้เนื้อหาจริงแค่ 2/55 entries
+  // ที่เหลือ 49 อันเป็น placeholder "-" ล้วนๆ จึงถือว่า "-" = ว่าง ไม่นับเป็นเนื้อหา
+  // effect นี้เปิดอย่างเดียว (ตอนสลับไป entry ที่มี risk จริง) ไม่เคยปิดให้อัตโนมัติ —
+  // ผู้ใช้พับเองได้เสมอโดยไม่โดนดึงกลับ
+  const [riskOpen, setRiskOpen] = useState(false);
+  const hasRealRisk =
+    form.riskModule.trim() !== "" && form.riskModule.trim() !== "-";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (hasRealRisk) setRiskOpen(true);
+  }, [hasRealRisk]);
 
   const extractPreviews = useMemo(
     () => extractImages.map((file) => URL.createObjectURL(file)),
@@ -296,15 +308,31 @@ export function BriefForm({
           />
         </Field>
 
-        <Field label="Product Risk Module">
-          <Textarea
-            name="riskModule"
-            rows={3}
-            value={form.riskModule}
-            onChange={(e) => onFieldChange("riskModule", e.target.value)}
-            placeholder="ความเสี่ยงที่ต้องระวัง เช่น พับได้ / กางได้ / มีกลไก"
-          />
-        </Field>
+        {/* พับไว้เพราะใช้จริงแค่ 2/55 entries — ตอนพับต้องมี hidden input ถือค่าแทน
+            เพราะฟอร์ม submit ผ่าน native FormData ซึ่งอ่านเฉพาะ input ที่ render อยู่:
+            ถ้าพิมพ์ risk แล้วพับก่อนกดสร้าง ค่าจะหายจาก submission เงียบๆ */}
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setRiskOpen((open) => !open)}
+            aria-expanded={riskOpen}
+            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+          >
+            <TriangleAlert className="size-3.5" />
+            Product Risk Module (ถ้ามี)
+          </button>
+          {riskOpen ? (
+            <Textarea
+              name="riskModule"
+              rows={3}
+              value={form.riskModule}
+              onChange={(e) => onFieldChange("riskModule", e.target.value)}
+              placeholder="ความเสี่ยงที่ต้องระวัง เช่น พับได้ / กางได้ / มีกลไก"
+            />
+          ) : (
+            <input type="hidden" name="riskModule" value={form.riskModule} />
+          )}
+        </div>
 
         <Field label="ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)">
           <Textarea
