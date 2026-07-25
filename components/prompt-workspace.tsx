@@ -212,6 +212,15 @@ export function PromptWorkspace({
     });
   }
 
+  function handleExtracted(fields: { productName: string; productInfo: string }) {
+    // ค่าว่างไม่ทับของเดิม — กันเคส parser fallback คืน productName ว่างมาลบชื่อที่พิมพ์ไว้แล้ว
+    setForm((f) => ({
+      ...f,
+      productName: fields.productName || f.productName,
+      productInfo: fields.productInfo || f.productInfo,
+    }));
+  }
+
   const selectedEntry = prompts.find((p) => p.id === selectedId) ?? null;
 
   // default ของ toggle = แบบที่ผู้ใช้ทำบ่อยกว่า ถ้าวันหนึ่งพฤติกรรมพลิก default ก็สลับเอง
@@ -320,6 +329,7 @@ export function PromptWorkspace({
                 onRemovePending={handleRemovePending}
                 onUpdatePendingCaption={updatePendingCaption}
                 onSaveCaption={(id, caption) => updateProductImageCaption(id, caption)}
+                onExtracted={handleExtracted}
                 isUploading={isUploading}
                 imageError={imageError}
               />

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ClipboardPaste, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ClipboardPaste, ScanText, X } from "lucide-react";
 
-import { deleteProductImage } from "@/app/actions";
+import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import type { ProductImageRecord } from "@/components/prompt-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,7 @@ export function BriefForm({
   onRemovePending,
   onUpdatePendingCaption,
   onSaveCaption,
+  onExtracted,
   isUploading,
   imageError,
 }: {
@@ -74,12 +75,30 @@ export function BriefForm({
   onRemovePending: (index: number) => void;
   onUpdatePendingCaption: (index: number, caption: string) => void;
   onSaveCaption: (id: string, caption: string) => void;
+  onExtracted: (fields: { productName: string; productInfo: string }) => void;
   isUploading: boolean;
   imageError: string | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // แผงสกัดข้อมูลจากแคปหน้าสินค้า — รูปชุดนี้ใช้แล้วทิ้ง อยู่แค่ใน memory ฝั่ง client
+  const [extractOpen, setExtractOpen] = useState(false);
+  const [extractImages, setExtractImages] = useState<File[]>([]);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [isExtracting, startExtracting] = useTransition();
+  const extractInputRef = useRef<HTMLInputElement>(null);
+
+  const extractPreviews = useMemo(
+    () => extractImages.map((file) => URL.createObjectURL(file)),
+    [extractImages]
+  );
+  useEffect(() => {
+    return () => {
+      for (const url of extractPreviews) URL.revokeObjectURL(url);
+    };
+  }, [extractPreviews]);
 
   const pendingPreviews = useMemo(
     () => pendingImages.map((it) => URL.createObjectURL(it.file)),
@@ -105,6 +124,34 @@ export function BriefForm({
     onAddImages(files);
   }
 
+  function acceptExtractFiles(files: File[]) {
+    if (files.length === 0) return;
+    const reason = rejectionReason(files);
+    if (reason) {
+      setExtractError(reason);
+      return;
+    }
+    setExtractError(null);
+    setExtractImages((prev) => [...prev, ...files]);
+  }
+
+  function handleExtract() {
+    if (extractImages.length === 0) return;
+    setExtractError(null);
+    startExtracting(async () => {
+      try {
+        const formData = new FormData();
+        for (const file of extractImages) formData.append("files", file);
+        const fields = await extractProductInfo(formData);
+        onExtracted(fields);
+        setExtractImages([]);
+        setExtractOpen(false);
+      } catch (e) {
+        setExtractError(e instanceof Error ? e.message : "สกัดข้อมูลไม่สำเร็จ");
+      }
+    });
+  }
+
   // Pasting a screenshot must work wherever the cursor happens to be, so the
   // listener lives on the window. BriefForm only renders on the Brief tab, so it
   // cannot swallow pastes elsewhere. Text pastes carry no files and fall through
@@ -114,7 +161,14 @@ export function BriefForm({
       const files = imageFilesFrom(event.clipboardData?.files);
       if (files.length === 0) return;
       event.preventDefault();
-      acceptFiles(files);
+      // ตอนแผงสกัดเปิดอยู่ paste ต้องเข้าแผงสกัด ไม่ใช่รูปสินค้าจริง — ตัดสินใน
+      // handler เดียว ไม่ตั้ง listener ซ้อนกันสองตัวแข่งกัน (effect นี้ไม่มี deps
+      // array ตั้งใจ: ลงทะเบียนใหม่ทุก render closure จึงเห็น state สดเสมอ)
+      if (extractOpen) {
+        acceptExtractFiles(files);
+      } else {
+        acceptFiles(files);
+      }
     }
 
     window.addEventListener("paste", handlePaste);
@@ -302,6 +356,93 @@ export function BriefForm({
 
         {shownError && (
           <p className="font-mono text-[0.7rem] text-record">{shownError}</p>
+        )}
+      </div>
+
+      {/* สกัดข้อมูลจากแคปหน้าสินค้า — รูปชุดนี้เป็นคนละชุดกับรูปสินค้าจริงด้านบน:
+          ส่งให้ AI อ่านข้อความแล้วทิ้ง ไม่ถูกเก็บลงดิสก์/DB และห้ามปนเข้ารูปสินค้าจริง
+          เพราะแคปหน้าข้อความจะทำให้ 10-part prompt ตอน generate วิดีโอเพี้ยน */}
+      <div className="flex flex-col gap-1.5 border-t border-border pt-5">
+        <button
+          type="button"
+          onClick={() => setExtractOpen((open) => !open)}
+          aria-expanded={extractOpen}
+          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+        >
+          <ScanText className="size-3.5" />
+          สกัดจากแคปหน้าสินค้า
+        </button>
+
+        {extractOpen && (
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-marigold/40 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="วางหรือเลือกแคปหน้าสินค้าเพื่อสกัดข้อมูล"
+              onClick={() => extractInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") extractInputRef.current?.click();
+              }}
+              className="flex cursor-pointer flex-col gap-2"
+            >
+              {extractImages.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {extractImages.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={extractPreviews[index]}
+                        alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
+                        className="size-24 rounded-md border border-dashed border-marigold object-cover"
+                      />
+                      <button
+                        type="button"
+                        aria-label="ลบแคป"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExtractImages((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
+                <ClipboardPaste className="size-3.5 shrink-0" />
+                กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
+              </p>
+
+              <input
+                ref={extractInputRef}
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                hidden
+                onChange={(e) => {
+                  acceptExtractFiles(imageFilesFrom(e.target.files));
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleExtract}
+              disabled={isExtracting || extractImages.length === 0}
+              className="self-start bg-marigold text-ink hover:bg-marigold/90"
+            >
+              {isExtracting ? "กำลังสกัด..." : "สกัดข้อมูล"}
+            </Button>
+
+            {extractError && (
+              <p className="font-mono text-[0.7rem] text-record">{extractError}</p>
+            )}
+          </div>
         )}
       </div>
     </section>
