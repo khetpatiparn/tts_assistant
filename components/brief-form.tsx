@@ -186,6 +186,94 @@ export function BriefForm({
         </h2>
       </div>
 
+      {/* สกัดข้อมูลจากแคปหน้าสินค้า — วางก่อนฟอร์มเพราะเติมช่องชื่อ/ข้อมูลสินค้าด้านล่าง
+          ตรงตามลำดับงานจริง (สกัดก่อน แล้วค่อยกรอก/แก้ที่เหลือ) รูปชุดนี้เป็นคนละชุด
+          กับรูปสินค้าจริงด้านล่าง: ส่งให้ AI อ่านข้อความแล้วทิ้ง ไม่ถูกเก็บลงดิสก์/DB
+          และห้ามปนเข้ารูปสินค้าจริง เพราะแคปหน้าข้อความจะทำให้ 10-part prompt เพี้ยน */}
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={() => setExtractOpen((open) => !open)}
+          aria-expanded={extractOpen}
+          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+        >
+          <ScanText className="size-3.5" />
+          สกัดจากแคปหน้าสินค้า
+        </button>
+
+        {extractOpen && (
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-marigold/40 p-3">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="วางหรือเลือกแคปหน้าสินค้าเพื่อสกัดข้อมูล"
+              onClick={() => extractInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") extractInputRef.current?.click();
+              }}
+              className="flex cursor-pointer flex-col gap-2"
+            >
+              {extractImages.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {extractImages.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={extractPreviews[index]}
+                        alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
+                        className="size-24 rounded-md border border-dashed border-marigold object-cover"
+                      />
+                      <button
+                        type="button"
+                        aria-label="ลบแคป"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExtractImages((prev) => prev.filter((_, i) => i !== index));
+                        }}
+                        className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
+                <ClipboardPaste className="size-3.5 shrink-0" />
+                กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
+              </p>
+
+              <input
+                ref={extractInputRef}
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/webp"
+                hidden
+                onChange={(e) => {
+                  acceptExtractFiles(imageFilesFrom(e.target.files));
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleExtract}
+              disabled={isExtracting || extractImages.length === 0}
+              className="self-start bg-marigold text-ink hover:bg-marigold/90"
+            >
+              {isExtracting ? "กำลังสกัด..." : "สกัดข้อมูล"}
+            </Button>
+
+            {extractError && (
+              <p className="font-mono text-[0.7rem] text-record">{extractError}</p>
+            )}
+          </div>
+        )}
+      </div>
+
       <form action={action} className="flex flex-col gap-5">
         <Field label="ชื่อสินค้า">
           <Input
@@ -356,93 +444,6 @@ export function BriefForm({
 
         {shownError && (
           <p className="font-mono text-[0.7rem] text-record">{shownError}</p>
-        )}
-      </div>
-
-      {/* สกัดข้อมูลจากแคปหน้าสินค้า — รูปชุดนี้เป็นคนละชุดกับรูปสินค้าจริงด้านบน:
-          ส่งให้ AI อ่านข้อความแล้วทิ้ง ไม่ถูกเก็บลงดิสก์/DB และห้ามปนเข้ารูปสินค้าจริง
-          เพราะแคปหน้าข้อความจะทำให้ 10-part prompt ตอน generate วิดีโอเพี้ยน */}
-      <div className="flex flex-col gap-1.5 border-t border-border pt-5">
-        <button
-          type="button"
-          onClick={() => setExtractOpen((open) => !open)}
-          aria-expanded={extractOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
-        >
-          <ScanText className="size-3.5" />
-          สกัดจากแคปหน้าสินค้า
-        </button>
-
-        {extractOpen && (
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-marigold/40 p-3">
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label="วางหรือเลือกแคปหน้าสินค้าเพื่อสกัดข้อมูล"
-              onClick={() => extractInputRef.current?.click()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") extractInputRef.current?.click();
-              }}
-              className="flex cursor-pointer flex-col gap-2"
-            >
-              {extractImages.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {extractImages.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="relative">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={extractPreviews[index]}
-                        alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
-                        className="size-24 rounded-md border border-dashed border-marigold object-cover"
-                      />
-                      <button
-                        type="button"
-                        aria-label="ลบแคป"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExtractImages((prev) => prev.filter((_, i) => i !== index));
-                        }}
-                        className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
-                <ClipboardPaste className="size-3.5 shrink-0" />
-                กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
-              </p>
-
-              <input
-                ref={extractInputRef}
-                type="file"
-                multiple
-                accept="image/jpeg,image/png,image/webp"
-                hidden
-                onChange={(e) => {
-                  acceptExtractFiles(imageFilesFrom(e.target.files));
-                  e.target.value = "";
-                }}
-              />
-            </div>
-
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleExtract}
-              disabled={isExtracting || extractImages.length === 0}
-              className="self-start bg-marigold text-ink hover:bg-marigold/90"
-            >
-              {isExtracting ? "กำลังสกัด..." : "สกัดข้อมูล"}
-            </Button>
-
-            {extractError && (
-              <p className="font-mono text-[0.7rem] text-record">{extractError}</p>
-            )}
-          </div>
         )}
       </div>
     </section>
