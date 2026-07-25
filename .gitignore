@@ -47,6 +47,7 @@ next-env.d.ts
 /dev.db
 /prisma/dev.db
 /dev-test.db
+/dev-backup-*.db
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days
