@@ -9,9 +9,11 @@ import { getFewShotExamples } from "@/lib/few-shot";
 import {
   generateTenPartPrompt,
   generateCaptionAndHashtags,
+  extractProductFields,
   isGeminiModelId,
 } from "@/lib/gemini";
 import { parseCaptionOutput } from "@/lib/caption";
+import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
 import { parseContentCsv } from "@/lib/clip-metrics";
 import { parseFollowerActivityCsv } from "@/lib/follower-activity";
@@ -306,6 +308,44 @@ export async function updateProductImageCaption(id: string, caption: string) {
     data: { caption: caption.trim() },
   });
   revalidatePath("/");
+}
+
+/**
+ * สกัดชื่อสินค้า+รายละเอียดจากแคปหน้าสินค้า TikTok Shop — รูปเป็นของใช้แล้วทิ้ง:
+ * อยู่แค่ใน memory ไม่เขียนดิสก์ ไม่สร้างแถว DB (คนละชุดกับรูปสินค้าจริงใน ProductImage)
+ */
+export async function extractProductInfo(
+  formData: FormData
+): Promise<{ productName: string; productInfo: string }> {
+  const rawFiles = formData.getAll("files");
+  const files: File[] = [];
+  for (const value of rawFiles) {
+    if (value instanceof File && value.size > 0) files.push(value);
+  }
+  if (files.length === 0) {
+    throw new Error("กรุณาแนบแคปหน้าสินค้าอย่างน้อย 1 รูป");
+  }
+
+  for (const file of files) {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP");
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      throw new Error("ไฟล์ใหญ่เกิน 10MB");
+    }
+  }
+
+  const images = await Promise.all(
+    files.map(async (file) => ({
+      base64: Buffer.from(await file.arrayBuffer()).toString("base64"),
+      mimeType: file.type,
+      caption: "",
+    }))
+  );
+
+  const raw = await extractProductFields({ images });
+  // ไม่ revalidatePath — action นี้ไม่แตะข้อมูลใดๆ
+  return parseExtractOutput(raw);
 }
 
 export async function generateWithAI(

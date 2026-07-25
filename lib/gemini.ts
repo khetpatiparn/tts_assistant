@@ -110,3 +110,49 @@ export async function generateCaptionAndHashtags(args: {
   }
   return text;
 }
+
+/**
+ * งานสกัดข้อความจากแคปหน้าสินค้าล็อกที่โมเดลเร็วเสมอ เหตุผลเดียวกับ CAPTION_MODEL:
+ * เป็นงานอ่านข้อความล้วน ไม่ควรจ่ายโควตาโมเดลละเอียด (20/วัน) ให้งานที่ flash-lite (500/วัน) ทำได้
+ */
+export const EXTRACT_MODEL: GeminiModelId = "gemini-3.1-flash-lite";
+
+const EXTRACT_INSTRUCTION = `คุณคือผู้ช่วยสกัดข้อความจากภาพแคปหน้าจอสินค้า TikTok Shop
+อ่านทุกภาพที่แนบมา แล้วตอบกลับในรูปแบบนี้เท่านั้น:
+
+ชื่อสินค้า: <ชื่อสินค้าตามที่เห็นในภาพ>
+รายละเอียดสินค้า: <รายละเอียด/คำอธิบายสินค้าทั้งหมดที่อ่านได้จากภาพ เรียงต่อกัน>
+
+กติกา: คัดลอกข้อความตามที่เห็นจริงในภาพ ใช้ภาษาเดิมตามภาพ ไม่แต่งเติม ไม่สรุปย่อ ไม่ใส่ความเห็น
+ถ้าข้อความบางส่วนถูกตัดขอบภาพ ให้ใส่เท่าที่อ่านได้`;
+
+export async function extractProductFields(args: {
+  images: GeminiImage[];
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  }
+
+  const client = new GoogleGenAI({ apiKey });
+
+  const input: object[] = [];
+  for (const image of args.images) {
+    input.push({ type: "image", data: image.base64, mime_type: image.mimeType });
+  }
+
+  const response = await client.interactions.create({
+    model: EXTRACT_MODEL,
+    // snake_case — camelCase จะถูก API เมินแบบเงียบๆ (ดูคอมเมนต์ใน generateTenPartPrompt)
+    system_instruction: EXTRACT_INSTRUCTION,
+    // temperature 0 — งานคัดลอกข้อความ ไม่ใช่งานสร้างสรรค์
+    generation_config: { temperature: 0 },
+    input,
+  });
+
+  const text = response.output_text;
+  if (!text || text.trim() === "") {
+    throw new Error("AI ไม่ได้ตอบกลับตอนสกัดข้อมูล ลองใหม่อีกครั้ง");
+  }
+  return text;
+}
