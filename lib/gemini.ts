@@ -160,3 +160,65 @@ export async function extractProductFields(args: {
   }
   return text;
 }
+
+/**
+ * งานคิด angle ล็อกที่โมเดลเร็วเสมอ เหตุผลเดียวกับ CAPTION_MODEL/EXTRACT_MODEL:
+ * เป็นงานข้อความล้วนสั้นๆ ไม่ควรจ่ายโควตาโมเดลละเอียด (20/วัน) ให้งานที่ flash-lite (500/วัน) ทำได้
+ */
+export const ANGLE_MODEL: GeminiModelId = "gemini-3.1-flash-lite";
+
+const ANGLE_INSTRUCTION = `คุณคือผู้ช่วยคิดมุมนำเสนอ (angle) สำหรับคลิปสั้นขายสินค้าบน TikTok Shop ความยาว 10 วินาที
+เสนอ angle ใหม่ 3 แบบที่ต่างกันชัดเจน และต้องไม่ซ้ำแนวกับ angle ที่เคยใช้ไปแล้ว
+
+ตอบกลับในรูปแบบนี้เท่านั้น:
+1. <angle: ปัญหาหรือแรงจูงใจที่ใช้เปิดคลิป + ฉากที่ใช้ + สิ่งที่โชว์ เขียนรวมใน 1-2 บรรทัด>
+เพราะ: <เหตุผลสั้นบรรทัดเดียวว่าทำไม angle นี้น่าลอง และต่างจากของเดิมอย่างไร>
+2. <angle>
+เพราะ: <เหตุผล>
+3. <angle>
+เพราะ: <เหตุผล>
+
+กติกา: ทุก angle ต้องถ่ายได้จริงในคลิป 10 วินาที ไม่มีข้อความบนจอ ไม่มีหน้าคน
+ห้ามเขียนบทพูด ห้ามบรรยายโครงสร้างสินค้า ห้ามใส่หัวข้ออื่นนอกเหนือจากฟอร์แมตด้านบน
+เขียนเป็นภาษาไทย`;
+
+export async function suggestAngleOptions(args: {
+  productName: string;
+  productInfo: string;
+  usedAngles: string[];
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  }
+
+  const client = new GoogleGenAI({ apiKey });
+
+  const usedBlock =
+    args.usedAngles.length === 0
+      ? "ยังไม่เคยทำคลิปสินค้านี้มาก่อน"
+      : args.usedAngles.map((a, i) => `${i + 1}. ${a}`).join("\n");
+
+  const response = await client.interactions.create({
+    model: ANGLE_MODEL,
+    // snake_case — camelCase จะถูก API เมินแบบเงียบๆ (ดูคอมเมนต์ใน generateTenPartPrompt)
+    system_instruction: ANGLE_INSTRUCTION,
+    // อุณหภูมิสูงกว่างานสกัด/caption เพราะงานนี้ต้องการความหลากหลาย ไม่ใช่ความแม่น
+    generation_config: { temperature: 0.9 },
+    input: [
+      {
+        type: "text",
+        text:
+          `### ชื่อสินค้า\n${args.productName}\n\n` +
+          `### ข้อมูลสินค้า\n${args.productInfo}\n\n` +
+          `### angle ที่เคยใช้ไปแล้ว (ห้ามซ้ำแนวนี้)\n${usedBlock}`,
+      },
+    ],
+  });
+
+  const text = response.output_text;
+  if (!text || text.trim() === "") {
+    throw new Error("AI ไม่ได้ตอบกลับตอนคิด angle ลองใหม่อีกครั้ง");
+  }
+  return text;
+}

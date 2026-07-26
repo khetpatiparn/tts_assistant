@@ -10,8 +10,15 @@ import {
   generateTenPartPrompt,
   generateCaptionAndHashtags,
   extractProductFields,
+  suggestAngleOptions,
   isGeminiModelId,
 } from "@/lib/gemini";
+import {
+  collectFamily,
+  collectUsedAngles,
+  parseAngleSuggestions,
+  type AngleSuggestion,
+} from "@/lib/angle";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
@@ -311,6 +318,53 @@ export async function updateProductImageCaption(id: string, caption: string) {
 }
 
 /**
+ * บันทึก angle ของคลิป — ต้องเป็น action แยกไม่ผ่าน form submit เพราะ generateWithAI
+ * อ่านค่าจาก DB ไม่ใช่จากฟอร์ม (ถ้าเก็บใน form state โมเดลจะไม่เห็น angle เลย)
+ * แนวเดียวกับ updateProductImageCaption ด้านบน
+ */
+export async function saveAngle(entryId: string, angle: string) {
+  await prisma.promptEntry.update({
+    where: { id: entryId },
+    data: { angle: angle.trim() },
+  });
+  revalidatePath("/");
+}
+
+/**
+ * ขอ angle ใหม่ 3 แบบจาก AI โดยให้เห็น angle ที่เคยใช้กับสินค้าเดียวกัน (สายเลือดการทำซ้ำ)
+ * ไม่ revalidatePath — action นี้ไม่แตะข้อมูลใดๆ (แนวเดียวกับ extractProductInfo)
+ */
+export async function suggestAngles(entryId: string): Promise<AngleSuggestion[]> {
+  const entries = await prisma.promptEntry.findMany({
+    select: {
+      id: true,
+      duplicatedFromId: true,
+      angle: true,
+      videoUrl: true,
+      postedAt: true,
+      chatgptOutput: true,
+      productName: true,
+      productInfo: true,
+    },
+  });
+
+  const current = entries.find((e) => e.id === entryId);
+  if (!current) {
+    throw new Error("ไม่พบรายการที่ต้องการคิด angle");
+  }
+
+  const family = collectFamily(entries, entryId);
+  const used = collectUsedAngles(family, entryId);
+
+  const raw = await suggestAngleOptions({
+    productName: current.productName,
+    productInfo: current.productInfo,
+    usedAngles: used.map((u) => u.text),
+  });
+  return parseAngleSuggestions(raw);
+}
+
+/**
  * สกัดชื่อสินค้า+รายละเอียดจากแคปหน้าสินค้า TikTok Shop — รูปเป็นของใช้แล้วทิ้ง:
  * อยู่แค่ใน memory ไม่เขียนดิสก์ ไม่สร้างแถว DB (คนละชุดกับรูปสินค้าจริงใน ProductImage)
  */
@@ -380,7 +434,7 @@ export async function generateWithAI(
     riskModule: entry.riskModule,
     extraNotes: entry.extraNotes,
     imageCaptions: photos.map((p) => p.caption),
-    angle: "", // TODO(task-3): change to entry.angle
+    angle: entry.angle,
   });
 
   const geminiImages = await Promise.all(
