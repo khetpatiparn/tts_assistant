@@ -88,7 +88,8 @@ export function PromptWorkspace({
   followerActivity,
   reminder,
   reminderActive,
-  lastImportedAt,
+  lastOrdersImportedAt,
+  lastMetricsImportedAt,
   now,
 }: {
   prompts: PromptEntry[];
@@ -98,7 +99,8 @@ export function PromptWorkspace({
   followerActivity: FollowerActivityRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
-  lastImportedAt: Date | null;
+  lastOrdersImportedAt: Date | null;
+  lastMetricsImportedAt: Date | null;
   now: Date;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -381,7 +383,8 @@ export function PromptWorkspace({
               followerActivity={followerActivity}
               reminder={reminder}
               reminderActive={reminderActive}
-              lastImportedAt={lastImportedAt}
+              lastOrdersImportedAt={lastOrdersImportedAt}
+              lastMetricsImportedAt={lastMetricsImportedAt}
               entries={dashboardEntries}
               now={now}
             />

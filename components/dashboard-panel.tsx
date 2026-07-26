@@ -36,6 +36,34 @@ function thaiShortDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
 
+/** บรรทัดสถานะของไฟล์นำเข้าหนึ่งไฟล์ — ไฟล์รายได้กับไฟล์วิวใช้ข้อความชุดเดียวกัน */
+function ImportStatusLine({
+  label,
+  lastAt,
+  days,
+}: {
+  label: string;
+  lastAt: Date | null;
+  days: number | null;
+}) {
+  if (lastAt === null || days === null) return null;
+  if (days > IMPORT_STALE_DAYS) {
+    return (
+      <p className="font-mono text-[0.7rem] text-record">
+        {label}: เกินกำหนดมา {days - IMPORT_STALE_DAYS} วัน — ไป export ไฟล์ใหม่จาก TikTok
+        Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastAt)})
+      </p>
+    );
+  }
+  return (
+    <p className="font-mono text-[0.7rem] text-muted-foreground">
+      {label}: นำเข้าล่าสุด {thaiShortDate(lastAt)}{" "}
+      {days === 0 ? "(วันนี้)" : `(${days} วันก่อน)`} · รอบถัดไป ~
+      {thaiShortDate(new Date(lastAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
+    </p>
+  );
+}
+
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
 export function DashboardPanel({
@@ -44,7 +72,8 @@ export function DashboardPanel({
   followerActivity,
   reminder,
   reminderActive,
-  lastImportedAt,
+  lastOrdersImportedAt,
+  lastMetricsImportedAt,
   entries,
   now,
 }: {
@@ -53,7 +82,8 @@ export function DashboardPanel({
   followerActivity: FollowerActivityRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
-  lastImportedAt: Date | null;
+  lastOrdersImportedAt: Date | null;
+  lastMetricsImportedAt: Date | null;
   entries: (PostTimeEntry & ScoreboardEntry)[];
   now: Date;
 }) {
@@ -206,24 +236,18 @@ export function DashboardPanel({
           นำเข้าข้อมูล
         </button>
 
-        {/* บรรทัดสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
-        {lastImportedAt !== null && reminder.daysSinceImport !== null && (
-          reminder.daysSinceImport > IMPORT_STALE_DAYS ? (
-            <p className="font-mono text-[0.7rem] text-record">
-              เกินกำหนดมา {reminder.daysSinceImport - IMPORT_STALE_DAYS} วัน — ไป export
-              ไฟล์ใหม่จาก TikTok Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastImportedAt)})
-            </p>
-          ) : (
-            <p className="font-mono text-[0.7rem] text-muted-foreground">
-              นำเข้าล่าสุด {thaiShortDate(lastImportedAt)}{" "}
-              {reminder.daysSinceImport === 0
-                ? "(วันนี้)"
-                : `(${reminder.daysSinceImport} วันก่อน)`}{" "}
-              · รอบถัดไป ~
-              {thaiShortDate(new Date(lastImportedAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
-            </p>
-          )
-        )}
+        {/* บรรทัดสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น · แยกรายไฟล์เพราะ
+            อัปไฟล์เดียวไม่ได้แปลว่าข้อมูลอีกไฟล์สดตามไปด้วย */}
+        <ImportStatusLine
+          label="รายได้"
+          lastAt={lastOrdersImportedAt}
+          days={reminder.daysSinceOrdersImport}
+        />
+        <ImportStatusLine
+          label="วิวคลิป"
+          lastAt={lastMetricsImportedAt}
+          days={reminder.daysSinceMetricsImport}
+        />
 
         {importsOpen && (
           <>

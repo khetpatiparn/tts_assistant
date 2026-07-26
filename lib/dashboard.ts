@@ -174,6 +174,9 @@ export function ordersByStatus(orders: AffiliateOrderRecord[]) {
 }
 
 export type ReminderState = {
-  daysSinceImport: number | null;
+  /** ไฟล์รายได้ (xlsx) — ตัววัดผลหลัก */
+  daysSinceOrdersImport: number | null;
+  /** ไฟล์วิวคลิป (Content.csv) — เดิมไม่ถูกติดตามเลย ทำให้เตือนผิดเมื่ออัปแค่ไฟล์เดียว */
+  daysSinceMetricsImport: number | null;
   unmatchedSoldProducts: number;
 };

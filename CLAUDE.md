@@ -85,6 +85,14 @@ No test runner is configured in this project.
   **Recharts อยู่ที่ v3.9.2 — API ต่างจากตัวอย่าง/เอกสารทั่วไปที่มักเป็น v2** ห้ามเดา prop shape เอง ให้เช็ค `node_modules/recharts/types/` จริงก่อนแก้กราฟ (เหมือนกฎเดียวกับ Gemini SDK ด้านบน)
 - ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — ห้าม commit
 - **`lib/csv.ts`** เป็นที่เดียวที่มี `parseCsvRows`/`parseMonthDayLabel` ใช้ร่วมกันโดย `lib/clip-metrics.ts` (Content.csv) และ `lib/follower-activity.ts` (FollowerActivity.csv) — parser ไฟล์ CSV ใหม่จาก TikTok Studio ควร import จากตรงนี้ ไม่ต้องเขียน BOM-strip/quoted-field parser ซ้ำ (xlsx ยังใช้ `lib/affiliate.ts` แยกต่างหากเพราะเป็นคนละ format)
+
+### ข้อจำกัดของไฟล์ที่ export จาก TikTok Studio (ตรวจจากไฟล์จริง 2026-07-26)
+
+- **Content.csv ให้สูงสุด 15 แถวเสมอ** ไม่ว่าเลือกช่วง 7/28/60/365 วัน — เป็น "ท็อป N ตามวิว" ของช่วงนั้น ไม่ใช่คลิปทั้งหมด (ยืนยันแล้ว: ช่วง 60 วันได้ 15 แถวเรียงวิว 67,703→1,159 · ช่วง 7 วันได้ 15 แถวคนละชุด มีคลิปวิวต่ำถึง 321)
+- **วิธีเลี่ยงเพดาน: export 2 ครั้งในวันเดียวกัน (ช่วง 7 วัน + ช่วง 365 วัน) แล้วอัปทั้งคู่** — `ClipMetric` unique ที่ `(videoId, capturedOn)` และ `capturedOn` มาจากคอลัมน์ `Time` (วันที่ export) ทั้งสองไฟล์จึงรวมเป็น snapshot เดียวที่ครอบคลุมกว่า (พิสูจน์แล้ว: 15+15 → 23 คลิปใน snapshot เดียว) · สัปดาห์ที่ลงคลิปเกิน ~12 ควร export กลางสัปดาห์เพิ่มอีกรอบ ไม่งั้นคลิปวิวน้อยหลุดเพดาน
+- **ไฟล์รายได้ (xlsx) ให้เลือกช่วงกว้างที่สุดเสมอ** — `importAffiliateOrders` เป็น upsert by `orderId` ที่อัปเดตสถานะย้อนหลัง (รอ→ชำระแล้ว) ถ้าเลือกช่วงแคบ ออเดอร์เก่าที่เพิ่ง settle จะไม่ถูกอัปเดต ทำให้รายได้จริงต่ำกว่าความเป็นจริง
+- **ผลข้างเคียงที่ต้องรู้เวลาอ่านสถิติ:** ตอนมีแต่ข้อมูลท็อป 15 ค่า median วิวของช่องอยู่ที่ 1,828 พอเติมคลิปวิวน้อยเข้าไปเหลือ 1,538 — `detectSignals` ใช้ median เป็นเกณฑ์ (`max(500, median*2)`) เกณฑ์จึงเคยตั้งสูงเกินจริง ยิ่งอัปครอบคลุมยิ่งแม่น
+
 - ส่วนเงินแยก "เงินที่ได้จริง" (`settledRevenue`) เป็นพระเอก กับ "กำลังรอ" (`pendingGmv` + `estimatedPendingCommission` = pendingGmv × อัตราจริง) — ไม่โชว์ GMV รวมเป็นหัวอีก (`summarizeOrders` ใน `lib/dashboard.ts` คืน field แยกครบ)
 - thumbnail คลิปมาจาก **TikTok oEmbed** (สาธารณะ ไม่ต้อง auth) — `lib/tiktok-oembed.ts` ไฟล์เดียวที่รู้จัก endpoint, cache ในตาราง `VideoThumbnail` (เก็บแม้ล้มเหลว ok=false กันยิงซ้ำ), resolve ผ่าน Server Action `resolveThumbnail` (client เรียก lazy), fallback เป็นไอคอนเมื่อคลิปโดนลบ — นี่คือการยิงเน็ตออกนอกเครื่องที่เดียวของแอป
 - `createEntryFromOrder` สร้าง entry ขั้นต่ำจากออเดอร์ที่ยังไม่มีในแอป แล้ว `updateMany` ผูก `matchedEntryId` ให้ทันที

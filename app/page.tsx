@@ -29,13 +29,22 @@ export default async function PoolingPrompt() {
     prisma.followerActivity.findMany({ orderBy: [{ activityOn: "asc" }, { hour: "asc" }] }),
   ]);
 
-  // reminder: ผ่านไปกี่วันจาก import ล่าสุด (เก็บ Date จริงไว้ให้บรรทัดสถานะใน dashboard ด้วย)
-  let daysSinceImport: number | null = null;
-  let lastImportedAt: Date | null = null;
+  // reminder: ผ่านไปกี่วันจาก import ล่าสุด แยกรายไฟล์ —
+  // ไฟล์รายได้กับไฟล์วิวถูกอัปคนละรอบได้ ถ้านับรวมเป็นค่าเดียวจะเตือนผิด
+  let daysSinceOrdersImport: number | null = null;
+  let lastOrdersImportedAt: Date | null = null;
   if (orders.length > 0) {
     const last = Math.max(...orders.map((o) => o.importedAt.getTime()));
-    lastImportedAt = new Date(last);
-    daysSinceImport = daysSince(last);
+    lastOrdersImportedAt = new Date(last);
+    daysSinceOrdersImport = daysSince(last);
+  }
+
+  let daysSinceMetricsImport: number | null = null;
+  let lastMetricsImportedAt: Date | null = null;
+  if (clipMetrics.length > 0) {
+    const last = Math.max(...clipMetrics.map((m) => m.importedAt.getTime()));
+    lastMetricsImportedAt = new Date(last);
+    daysSinceMetricsImport = daysSince(last);
   }
 
   // สินค้าที่ขายได้แต่ยังไม่มี entry (content id ที่จับคู่ไม่ได้)
@@ -44,12 +53,14 @@ export default async function PoolingPrompt() {
   ).size;
 
   const reminder: ReminderState = {
-    daysSinceImport,
+    daysSinceOrdersImport,
+    daysSinceMetricsImport,
     unmatchedSoldProducts,
   };
 
   const reminderActive =
-    (daysSinceImport !== null && daysSinceImport > IMPORT_STALE_DAYS) ||
+    (daysSinceOrdersImport !== null && daysSinceOrdersImport > IMPORT_STALE_DAYS) ||
+    (daysSinceMetricsImport !== null && daysSinceMetricsImport > IMPORT_STALE_DAYS) ||
     unmatchedSoldProducts > 0;
 
   return (
@@ -61,7 +72,8 @@ export default async function PoolingPrompt() {
       followerActivity={followerActivity}
       reminder={reminder}
       reminderActive={reminderActive}
-      lastImportedAt={lastImportedAt}
+      lastOrdersImportedAt={lastOrdersImportedAt}
+      lastMetricsImportedAt={lastMetricsImportedAt}
       now={currentTime()}
     />
   );

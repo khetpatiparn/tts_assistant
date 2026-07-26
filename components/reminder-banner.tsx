@@ -13,8 +13,11 @@ const DISMISS_EVENT = "reminder-banner:dismissed";
 
 function messages(r: ReminderState): string[] {
   const out: string[] = [];
-  if (r.daysSinceImport !== null && r.daysSinceImport > IMPORT_STALE_DAYS) {
-    out.push(`ไม่ได้นำเข้าข้อมูลรายได้มา ${r.daysSinceImport} วันแล้ว`);
+  if (r.daysSinceOrdersImport !== null && r.daysSinceOrdersImport > IMPORT_STALE_DAYS) {
+    out.push(`ไม่ได้นำเข้าข้อมูลรายได้มา ${r.daysSinceOrdersImport} วันแล้ว`);
+  }
+  if (r.daysSinceMetricsImport !== null && r.daysSinceMetricsImport > IMPORT_STALE_DAYS) {
+    out.push(`ไม่ได้นำเข้าข้อมูลวิวมา ${r.daysSinceMetricsImport} วันแล้ว`);
   }
   if (r.unmatchedSoldProducts > 0) {
     out.push(`มี ${r.unmatchedSoldProducts} สินค้าที่ขายได้แต่ยังไม่มีในแอป`);
@@ -45,7 +48,7 @@ export function ReminderBanner({
 }) {
   const msgs = messages(reminder);
   // ลายเซ็นของสถานะ — ถ้าเปลี่ยน (มีข้อมูลใหม่) banner จะกลับมาแสดง
-  const signature = `${reminder.daysSinceImport}|${reminder.unmatchedSoldProducts}`;
+  const signature = `${reminder.daysSinceOrdersImport}|${reminder.daysSinceMetricsImport}|${reminder.unmatchedSoldProducts}`;
 
   // อ่าน localStorage (external system) ผ่าน useSyncExternalStore แทน useEffect+setState —
   // ฝั่ง server ไม่มี localStorage เลยต้องมี server snapshot แยก (คืน "dismissed" เสมอ
