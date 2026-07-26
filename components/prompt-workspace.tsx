@@ -272,6 +272,7 @@ export function PromptWorkspace({
     () =>
       prompts.map((p) => ({
         id: p.id,
+        postedAt: p.postedAt,
         productName: p.productName,
         videoUrl: p.videoUrl,
         postedTimeOfDay: p.postedTimeOfDay,

@@ -21,6 +21,8 @@ import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
 import { RevenueTrend } from "@/components/revenue-charts";
+import { WeeklyScoreboard } from "@/components/weekly-scoreboard";
+import type { ScoreboardEntry } from "@/lib/weekly-scoreboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -52,7 +54,7 @@ export function DashboardPanel({
   reminder: ReminderState;
   reminderActive: boolean;
   lastImportedAt: Date | null;
-  entries: PostTimeEntry[];
+  entries: (PostTimeEntry & ScoreboardEntry)[];
   now: Date;
 }) {
   const summary = summarizeOrders(orders);
@@ -116,6 +118,8 @@ export function DashboardPanel({
       </div>
 
       {reminderActive && <ReminderBanner reminder={reminder} />}
+
+      <WeeklyScoreboard entries={entries} orders={orders} now={now} />
 
       <Recommendations
         entries={entries}
