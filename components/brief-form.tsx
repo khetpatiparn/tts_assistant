@@ -68,6 +68,7 @@ export function BriefForm({
   angleEntryId,
   angleValue,
   usedAngles,
+  hasSelectedEntry,
 }: {
   form: FormState;
   isCreating: boolean;
@@ -85,6 +86,7 @@ export function BriefForm({
   angleEntryId: string | null;
   angleValue: string;
   usedAngles: UsedAngleWithOutcome[];
+  hasSelectedEntry: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -378,14 +380,27 @@ export function BriefForm({
           )}
         </div>
 
-        <Button
-          type="submit"
-          disabled={isCreating}
-          size="lg"
-          className="mt-1 self-start bg-rust text-primary-foreground hover:bg-rust/90"
-        >
-          {isCreating ? "กำลังสร้าง..." : "สร้าง Prompt"}
-        </Button>
+        <div className="flex flex-col gap-1">
+          <Button
+            type="submit"
+            disabled={isCreating}
+            size="lg"
+            className="mt-1 self-start bg-rust text-primary-foreground hover:bg-rust/90"
+          >
+            {isCreating
+              ? "กำลังสร้าง..."
+              : hasSelectedEntry
+                ? "สร้างเป็นรายการใหม่"
+                : "สร้าง Prompt"}
+          </Button>
+          {/* ปุ่มนี้เรียก createPrompt ซึ่งสร้าง entry ใหม่ที่ duplicatedFromId = null เสมอ
+              กดพลาดหลังกดทำซ้ำ = สายเลือดขาด ระบบตามรอย angle ไม่ได้ */}
+          {hasSelectedEntry && (
+            <span className="font-mono text-[0.7rem] text-muted-foreground">
+              จะได้รายการใหม่ที่ไม่ผูกกับสินค้าเดิม — ถ้าจะแก้รายการนี้ ใช้ปุ่ม &quot;สร้างด้วย AI&quot; ทางขวา
+            </span>
+          )}
+        </div>
       </form>
 
       {/* Photos attach to a saved entry, so this lives outside the create form —

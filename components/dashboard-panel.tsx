@@ -84,7 +84,7 @@ export function DashboardPanel({
   reminderActive: boolean;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
-  entries: (PostTimeEntry & ScoreboardEntry)[];
+  entries: (PostTimeEntry & ScoreboardEntry & { duplicatedFromId: string | null })[];
   now: Date;
 }) {
   const summary = summarizeOrders(orders);

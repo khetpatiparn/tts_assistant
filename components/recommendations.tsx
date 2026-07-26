@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Lightbulb } from "lucide-react";
 
 import type { AffiliateOrderRecord } from "@/lib/dashboard";
+import { repeatStatus } from "@/lib/angle";
 import {
   buildClipStats,
   checkGuardHealth,
@@ -19,13 +20,50 @@ const KIND_STYLE: Record<ClipSignalKind, { label: string; className: string }> =
   fading: { label: "หยุดแล้ว", className: "border-border bg-muted text-muted-foreground" },
 };
 
+/**
+ * บรรทัดบอกว่าทำตามคำแนะนำนี้ไปแล้วหรือยัง — ตรวจจากสายเลือดการทำซ้ำ ไม่ใช่ให้ติ๊กเอง
+ * (ปัญหาต้นทางของผู้ใช้คือลืม/ไม่ได้ทำ ของที่ต้องจำไปติ๊กคือของที่ลืมได้อีกอย่าง)
+ * เลือก "บอกสถานะ" ไม่ใช่ "ซ่อนคำแนะนำ" เพราะถ้าซ่อนจะไม่รู้ว่าคลิปต้นฉบับยังโตอยู่
+ */
+function repeatLine(
+  entries: {
+    id: string;
+    duplicatedFromId: string | null;
+    videoUrl: string;
+    postedAt: Date | null;
+  }[],
+  entryId: string
+): string | null {
+  const status = repeatStatus(entries, entryId);
+  if (status.repeats === 0) return null;
+  const bits = [`ทำซ้ำไปแล้ว ${status.repeats} คลิป`];
+  if (status.lastPostedAt) {
+    bits.push(
+      "ลงล่าสุด " +
+        status.lastPostedAt.toLocaleDateString("th-TH", {
+          day: "numeric",
+          month: "short",
+          timeZone: "UTC",
+        })
+    );
+  }
+  if (status.hasUnposted) bits.push("มีที่ยังไม่ได้ลง");
+  return bits.join(" · ");
+}
+
 export function Recommendations({
   entries,
   metrics,
   orders,
   now,
 }: {
-  entries: { id: string; productName: string }[];
+  entries: {
+    id: string;
+    productName: string;
+    duplicatedFromId: string | null;
+    videoUrl: string;
+    postedAt: Date | null;
+  }[];
   metrics: ClipMetricRecord[];
   orders: AffiliateOrderRecord[];
   now: Date;
@@ -69,6 +107,12 @@ export function Recommendations({
               </div>
               <p className="text-sm text-foreground/80">{s.headline}</p>
               <p className="font-mono text-[0.7rem] text-muted-foreground">{s.detail}</p>
+              {(() => {
+                const line = repeatLine(entries, s.entryId);
+                return line === null ? null : (
+                  <p className="font-mono text-[0.7rem] text-marigold">{line}</p>
+                );
+              })()}
             </div>
           );
         })

@@ -283,6 +283,7 @@ export function PromptWorkspace({
     () =>
       prompts.map((p) => ({
         id: p.id,
+        duplicatedFromId: p.duplicatedFromId,
         postedAt: p.postedAt,
         productName: p.productName,
         videoUrl: p.videoUrl,
@@ -369,6 +370,7 @@ export function PromptWorkspace({
                 angleEntryId={selectedId}
                 angleValue={selectedEntry?.angle ?? ""}
                 usedAngles={usedAngles}
+                hasSelectedEntry={selectedId !== null}
               />
               <ScriptOutput
                 output={output}
