@@ -57,3 +57,5 @@ next-env.d.ts
 # product reference photos (local only)
 /image_example
 /uploads
+
+/.superpowers/brainstorm/
