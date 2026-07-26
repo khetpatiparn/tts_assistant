@@ -11,6 +11,12 @@ import {
   uploadProductImages,
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
+import {
+  collectFamily,
+  collectUsedAngles,
+  summarizeEntryOutcome,
+} from "@/lib/angle";
+import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
@@ -39,6 +45,8 @@ export type PromptEntry = {
   productInfo: string;
   riskModule: string;
   extraNotes: string;
+  angle: string;
+  duplicatedFromId: string | null;
   images: string;
   corePromptId: string | null;
   chatgptOutput: string;
@@ -244,7 +252,7 @@ export function PromptWorkspace({
       riskModule: form.riskModule,
       extraNotes: form.extraNotes,
       imageCaptions,
-      angle: "", // TODO(task-3): connect to form.angle
+      angle: selectedEntry?.angle ?? "",
     });
   }, [form, selectedEntry, pendingImages]);
 
@@ -284,6 +292,28 @@ export function PromptWorkspace({
       })),
     [prompts]
   );
+
+  // angle ที่เคยใช้กับสินค้าเดียวกัน (จับกลุ่มด้วยสายเลือดการทำซ้ำ ไม่ใช่ชื่อสินค้า)
+  const usedAngles = useMemo<UsedAngleWithOutcome[]>(() => {
+    if (selectedId === null) return [];
+    const lineage = prompts.map((p) => ({
+      id: p.id,
+      duplicatedFromId: p.duplicatedFromId,
+      angle: p.angle,
+      videoUrl: p.videoUrl,
+      postedAt: p.postedAt,
+      chatgptOutput: p.chatgptOutput,
+    }));
+    const family = collectFamily(lineage, selectedId);
+    return collectUsedAngles(family, selectedId).map((u) => ({
+      ...u,
+      outcome: summarizeEntryOutcome({
+        entryId: u.entryId,
+        orders: affiliateOrders,
+        metrics: clipMetrics,
+      }),
+    }));
+  }, [prompts, selectedId, affiliateOrders, clipMetrics]);
 
   const selectedIndex = prompts.findIndex((p) => p.id === selectedId);
   const takeNumber =
@@ -336,6 +366,9 @@ export function PromptWorkspace({
                 onExtracted={handleExtracted}
                 isUploading={isUploading}
                 imageError={imageError}
+                angleEntryId={selectedId}
+                angleValue={selectedEntry?.angle ?? ""}
+                usedAngles={usedAngles}
               />
               <ScriptOutput
                 output={output}

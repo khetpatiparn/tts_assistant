@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
+import { AnglePanel, type UsedAngleWithOutcome } from "@/components/angle-panel";
 import type { ProductImageRecord } from "@/components/prompt-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,9 @@ export function BriefForm({
   onExtracted,
   isUploading,
   imageError,
+  angleEntryId,
+  angleValue,
+  usedAngles,
 }: {
   form: FormState;
   isCreating: boolean;
@@ -78,6 +82,9 @@ export function BriefForm({
   onExtracted: (fields: { productName: string; productInfo: string }) => void;
   isUploading: boolean;
   imageError: string | null;
+  angleEntryId: string | null;
+  angleValue: string;
+  usedAngles: UsedAngleWithOutcome[];
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -501,6 +508,12 @@ export function BriefForm({
           <p className="font-mono text-[0.7rem] text-record">{shownError}</p>
         )}
       </div>
+
+      {/* แผง angle อยู่นอก <form> เพราะมีปุ่ม/ช่องของตัวเองที่ต้องไม่ submit ฟอร์ม
+          และ angle บันทึกผ่าน server action ของมันเอง (generateWithAI อ่านจาก DB) */}
+      {angleEntryId !== null && (
+        <AnglePanel entryId={angleEntryId} angle={angleValue} used={usedAngles} />
+      )}
     </section>
   );
 }
