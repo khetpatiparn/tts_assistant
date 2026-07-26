@@ -107,13 +107,13 @@ export function buildWeeklyScoreboard(args: {
     if (idx !== undefined) rows[idx].newWinners++;
   }
 
-  const currentWeekStart = rows[0].weekStart;
+  // Count all clips posted within the last 7 days, regardless of week bucket.
+  // A clip posted late in the previous calendar week can still be under 7 days old
+  // when a new week starts and should be marked as too fresh to trust for revenue data.
   const tooEarlyClips = entries.filter((e) => {
     if (!e.postedAt) return false;
     const age = now.getTime() - e.postedAt.getTime();
-    if (age < 0 || age >= 7 * DAY_MS) return false;
-    const weekStart = weekStartOfPostedAt(e.postedAt);
-    return weekStart.getTime() === currentWeekStart.getTime();
+    return age >= 0 && age < 7 * DAY_MS;
   }).length;
 
   return { weeks: rows, tooEarlyClips };
