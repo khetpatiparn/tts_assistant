@@ -68,6 +68,9 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
   }
 
   // ก๊อปเฉพาะฟิลด์ที่ใช้ซ้ำได้ — ปล่อย videoUrl/วันเวลาโพสต์เป็น default เพราะเป็นข้อเท็จจริงรายคลิป
+  // ตั้งใจไม่ก๊อป `angle` (ปล่อยเป็น default "") — คลิปใหม่ต้องได้ angle ใหม่เสมอ นี่คือหัวใจของ
+  // ฟีเจอร์ angle tracking ถ้าเพิ่ม angle: source.angle กลับเข้ามาทีหลัง จะทำให้ collectUsedAngles
+  // (lib/angle.ts) นับ angle เดิมว่า "ใช้ไปแล้ว" ทันทีทั้งที่คลิปใหม่ยังไม่ได้ถ่ายจริง — ห้ามเพิ่มกลับ
   const created = await prisma.promptEntry.create({
     data: {
       productName: source.productName,

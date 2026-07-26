@@ -59,6 +59,7 @@ No test runner is configured in this project.
 - `CorePrompt` แยกชนิดด้วยคอลัมน์ `kind` — `core` (สร้างวิดีโอ) กับ `caption` (SEO prompt) **active ได้ทีละอันต่อ kind** ห้ามลืมใส่ `kind` ใน `where` ของ transaction ไม่งั้นการเพิ่มเวอร์ชันฝั่งหนึ่งจะไปปิด active ของอีกฝั่ง เนื้อหาตั้งต้นของ SEO prompt อยู่ที่ `prisma/seed/seo-prompt-v1.md` seed ด้วย `node prisma/seed/seed-seo-prompt.mjs` (idempotent)
 - **กฎเดียวกันนี้ใช้กับทุก query ที่อ่าน `isActive: true` ด้วย ไม่ใช่แค่ตอนเขียน** — `findFirst({ where: { isActive: true } })` แบบไม่ใส่ `kind` จะได้แถวมั่วเมื่อมี 2 kind active พร้อมกัน (เคยพังเงียบมาแล้ว 2 จุดคือใน `generateWithAI` และ `createPrompt` ก่อนถูกแก้)
 - `ProductImage` เก็บแค่ metadata ของรูปสินค้าจริง — ตัวไฟล์อยู่บนดิสก์ที่ `uploads/<entryId>/` (gitignore ไว้) เสิร์ฟกลับผ่าน `app/api/uploads/[...path]/route.ts` ลบ entry แล้วแถวรูปหายตาม (`onDelete: Cascade`) แต่ไฟล์บนดิสก์ไม่ได้ถูกลบ
+- `PromptEntry.angle` (`String @default("")`) เก็บ angle/แนวคลิปที่เลือกใช้ ค่าว่างหมายถึง "ยังไม่ได้เลือก angle" (ทุก entry เก่าก่อนฟีเจอร์นี้เป็นค่านี้หมด) — `lib/angle.ts` เป็นไฟล์เดียวที่รู้จักตรรกะ angle **ห้ามจัดกลุ่ม "สินค้าเดียวกัน" ด้วย `productName` เด็ดขาด ต้องใช้สายเลือด `duplicatedFromId`** (`collectFamily`) — `dev.db` จริงมี entry ชื่อ `"ที่ลับเล็บแมว"` ซ้ำกันหลายอันที่เป็นสินค้าคนละชิ้น จับด้วยชื่อจะเอา angle ของสินค้าอื่นมาปนทันที · `collectUsedAngles` ข้าม "ร่างเปล่า" (ยังไม่ลงคลิป + ยังไม่ตั้ง angle) เพราะ `duplicatePrompt` ก๊อป `chatgptOutput` ของต้นฉบับมาด้วย ถ้าไม่กรอง ร่างที่ยังไม่ได้ regenerate จะถูกอ่านว่าใช้ angle เดิมไปแล้ว
 
 ## Gemini API (ปุ่ม "สร้างด้วย AI")
 
@@ -74,6 +75,11 @@ No test runner is configured in this project.
 - ปุ่ม "สร้างด้วย AI" ทำงาน 2 ขั้นใน action เดียว: (1) รูป+บรีฟ+Core Prompt → 10-part prompt ด้วยโมเดลที่ผู้ใช้เลือก (2) 10-part prompt (ข้อความล้วน ไม่ส่งรูป) + SEO Prompt → Caption/Hashtags ด้วย `CAPTION_MODEL` = `gemini-3.1-flash-lite` **เสมอ** (โควตาแยก pool และ 3.5-flash มีแค่ 20 ครั้ง/วัน)
 - **ขั้น 1 ต้องบันทึกลง DB ก่อนขั้น 2 เสมอ และขั้น 2 ห้าม throw** — `generateWithAI` คืน `{ captionError }` แทน ถ้า throw ก่อน `revalidatePath` หน้าเว็บจะไม่เห็น 10-part prompt ที่บันทึกไปแล้ว
 - `lib/caption.ts` แยกคำตอบเป็น caption/hashtags ถ้าโมเดลตอบผิดฟอร์แมตจะยัดทั้งก้อนลง caption ไม่ทิ้งของ
+- `buildPromptText` (`lib/prompt-template.ts`) รับ `angle` เพิ่ม — **`angle` ว่างต้องให้ output เหมือนเดิมทุกตัวอักษรกับก่อนมีฟีเจอร์นี้** (55 entries เดิมทั้งหมดไม่มี angle จึงพึ่งพฤติกรรมนี้อยู่ตลอด ความเบี่ยงเบนตรงนี้คือ regression จริง ไม่ใช่เรื่องสไตล์) angle ไม่ว่างถึงจะเพิ่มบล็อกสั่งใช้ angle นั้นแทนให้โมเดลเลือกเอง — เรียกที่ `generateWithAI` และ `getFewShotExamples` (ส่ง `angle: ""` เสมอเพราะ golden examples ไม่มี angle) ทั้งสองจุดต้องแก้พร้อมกันถ้าจะเปลี่ยน signature
+- ช่อง angle บันทึกผ่าน Server Action ของตัวเอง `saveAngle(entryId, angle)` (ตอน blur เหมือน `updateProductImageCaption`) ไม่ผ่านฟอร์ม submit ของ Brief — เพราะ `generateWithAI` อ่าน `angle` จาก DB ไม่ใช่จาก form state ถ้าเก็บใน form state โมเดลจะไม่เห็นค่าเลย
+- `suggestAngleOptions` (ปุ่ม "เสนอ angle ใหม่") ล็อกโมเดลไว้ที่ `ANGLE_MODEL = gemini-3.1-flash-lite` เสมอ เหตุผลเดียวกับ `CAPTION_MODEL`/`EXTRACT_MODEL` ด้านบน (งานข้อความล้วน ไม่ต้องการโมเดลใหญ่)
+- **`duplicatePrompt` (`app/actions.ts`) ตั้งใจไม่ก๊อป `angle` มาให้ entry ใหม่** — คลิปที่ทำซ้ำต้องได้ angle ใหม่เสมอ นี่คือหัวใจของฟีเจอร์ angle tracking มีคอมเมนต์กำกับไว้ตรงจุดที่ประกาศ `data: {...}` แล้ว ห้ามเพิ่ม `angle: source.angle` กลับเข้าไป
+- แผง `components/angle-panel.tsx` แสดงวิว/ออเดอร์/รายได้ของแต่ละ angle ในอดีตเป็น**ข้อเท็จจริงล้วน ไม่จัดอันดับ ไม่ชี้ว่า angle ไหนดีกว่า** — คลิปทดสอบต่อสินค้ามีแค่ 1-3 ตัว แยก "ได้ผลจริง" กับ "ดวง" ทางสถิติไม่ได้
 
 ## Dashboard รายได้ (แท็บ ④)
 
