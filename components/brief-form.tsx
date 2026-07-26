@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ClipboardPaste, ScanText, TriangleAlert, X } from "lucide-react";
+import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import type { ProductImageRecord } from "@/components/prompt-workspace";
@@ -101,6 +101,17 @@ export function BriefForm({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (hasRealRisk) setRiskOpen(true);
   }, [hasRealRisk]);
+
+  // ช่อง "ข้อมูลเพิ่มเติมจากฉัน" พับเป็น default — สำรวจจริง (2026-07-26) พบว่าว่างทั้ง 55/55
+  // entries (ผู้ใช้ปล่อยให้ AI คิดเอง) ไม่มีประวัติ placeholder "-" จึงเช็คแค่ค่าว่าง
+  // effect เปิดอย่างเดียว ไม่เคยปิดให้อัตโนมัติ (ปัจจุบันยังไม่ trigger เพราะไม่มี entry ที่มี note
+  // แต่ใส่ไว้เพื่อความสม่ำเสมอกับ risk module และเผื่ออนาคตที่ผู้ใช้เริ่มกรอก)
+  const [notesOpen, setNotesOpen] = useState(false);
+  const hasRealNotes = form.extraNotes.trim() !== "";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (hasRealNotes) setNotesOpen(true);
+  }, [hasRealNotes]);
 
   const extractPreviews = useMemo(
     () => extractImages.map((file) => URL.createObjectURL(file)),
@@ -334,15 +345,31 @@ export function BriefForm({
           )}
         </div>
 
-        <Field label="ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)">
-          <Textarea
-            name="extraNotes"
-            rows={3}
-            value={form.extraNotes}
-            onChange={(e) => onFieldChange("extraNotes", e.target.value)}
-            placeholder="เช่น อยากเน้นคนอยู่หอ / ไม่อยากโชว์การพับ"
-          />
-        </Field>
+        {/* พับไว้เพราะว่างทั้ง 55/55 entries — ตอนพับต้องมี hidden input ถือค่าแทน
+            เพราะฟอร์ม submit ผ่าน native FormData ซึ่งอ่านเฉพาะ input ที่ render อยู่:
+            ถ้าพิมพ์ note แล้วพับก่อนกดสร้าง ค่าจะหายจาก submission เงียบๆ */}
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => setNotesOpen((open) => !open)}
+            aria-expanded={notesOpen}
+            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+          >
+            <NotebookPen className="size-3.5" />
+            ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)
+          </button>
+          {notesOpen ? (
+            <Textarea
+              name="extraNotes"
+              rows={3}
+              value={form.extraNotes}
+              onChange={(e) => onFieldChange("extraNotes", e.target.value)}
+              placeholder="เช่น อยากเน้นคนอยู่หอ / ไม่อยากโชว์การพับ"
+            />
+          ) : (
+            <input type="hidden" name="extraNotes" value={form.extraNotes} />
+          )}
+        </div>
 
         <Button
           type="submit"
