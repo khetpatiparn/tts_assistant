@@ -28,6 +28,7 @@ model PromptEntry {
   productInfo String
   riskModule  String
   extraNotes  String
+  angle       String   @default("")
   images      String
   createdAt   DateTime @default(now())
   duplicatedFromId String?
