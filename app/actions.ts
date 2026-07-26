@@ -380,6 +380,7 @@ export async function generateWithAI(
     riskModule: entry.riskModule,
     extraNotes: entry.extraNotes,
     imageCaptions: photos.map((p) => p.caption),
+    angle: "", // TODO(task-3): change to entry.angle
   });
 
   const geminiImages = await Promise.all(

@@ -4,6 +4,7 @@ export type PromptFormData = {
   riskModule: string;
   extraNotes: string;
   imageCaptions: string[];
+  angle: string;
 };
 
 export function buildPromptText({
@@ -12,10 +13,29 @@ export function buildPromptText({
   riskModule,
   extraNotes,
   imageCaptions,
+  angle,
 }: PromptFormData): string {
   const imageLines = imageCaptions
     .map((caption, index) => `รูปที่ ${index + 1}: ${caption || "[ไม่มีคำอธิบาย]"}`)
     .join("\n");
+
+  // angle ว่าง = พฤติกรรมเดิมทุกตัวอักษร (entry เดิมทั้งหมดยังไม่มี angle)
+  // angle ไม่ว่าง = ล็อกแกนคลิปไว้ และต้องถอนคำสั่ง "เลือก use case เอง" ออก
+  // ไม่งั้นโจทย์จะมีสองประโยคที่ขัดกันเอง
+  const trimmedAngle = angle.trim();
+  const angleBlock =
+    trimmedAngle === ""
+      ? "\n"
+      : `
+Angle ที่ต้องใช้สำหรับคลิปนี้ (บังคับ ห้ามเปลี่ยนเอง):
+"""
+${trimmedAngle}
+"""
+`;
+  const useCaseRule =
+    trimmedAngle === ""
+      ? "- เลือก use case เดียวที่เหมาะที่สุด เสี่ยงเพี้ยนน้อย และขายของได้ใน 10 วินาที"
+      : "- ใช้ Angle ที่กำหนดไว้ด้านบนเป็นแกนของคลิป ห้ามเลือก use case อื่นเอง แต่ยังต้องเลือกวิธีนำเสนอที่เสี่ยงเพี้ยนน้อยและขายของได้ใน 10 วินาที";
 
   return `ใช้ Core Prompt ด้านบนสร้าง prompt สำหรับ Gemini Flow
 
@@ -46,10 +66,9 @@ ${riskModule}
 ข้อมูลเพิ่มเติมจากฉัน ถ้ามี:
 """
 ${extraNotes}
-"""
-
+"""${angleBlock}
 สิ่งที่ต้องทำ:
-- เลือก use case เดียวที่เหมาะที่สุด เสี่ยงเพี้ยนน้อย และขายของได้ใน 10 วินาที
+${useCaseRule}
 - เลือก action ที่ง่ายที่สุดแต่เห็นประโยชน์สินค้าเร็ว
 - อ่านรูปอ้างอิงแต่ละใบตาม caption ที่กำกับ แล้วถอดโครงสร้างที่เห็นจริง (รูปทรง สี ชิ้นส่วน สัดส่วน ตำแหน่ง logo ด้านหน้า/หลัง กลไก) ลง Product Accuracy และ Critical Product Structure ให้ครบ**ตามระดับความเสี่ยงของสินค้า** — สินค้าซับซ้อน/อสมมาตร (logo ด้านเดียว, พับ/กาง/มีกลไก) ให้บรรยายละเอียดพอจะกันเพี้ยน ส่วนสินค้าเรียบง่ายเขียนสั้นกระชับ ไม่ต้องยัดเยิน
 - caption ของรูปคือความจริงเรื่องด้าน/ชิ้นส่วน ใช้เพื่อไม่ให้ output บรรยายผิดด้าน (เช่นถ้า caption บอก logo อยู่ด้านหน้าเท่านั้น ห้ามให้ output ใส่ logo ด้านหลัง)

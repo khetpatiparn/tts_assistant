@@ -244,6 +244,7 @@ export function PromptWorkspace({
       riskModule: form.riskModule,
       extraNotes: form.extraNotes,
       imageCaptions,
+      angle: "", // TODO(task-3): connect to form.angle
     });
   }, [form, selectedEntry, pendingImages]);
 

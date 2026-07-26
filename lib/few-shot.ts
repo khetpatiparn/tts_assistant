@@ -36,6 +36,7 @@ export async function getFewShotExamples(
       riskModule: ex.riskModule,
       extraNotes: ex.extraNotes,
       imageCaptions: ex.images,
+      angle: "",
     }),
     output: ex.output,
   }));
