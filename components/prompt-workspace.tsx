@@ -46,6 +46,7 @@ export type PromptEntry = {
   riskModule: string;
   extraNotes: string;
   angle: string;
+  productSpec: string;
   duplicatedFromId: string | null;
   images: string;
   corePromptId: string | null;
@@ -253,6 +254,7 @@ export function PromptWorkspace({
       extraNotes: form.extraNotes,
       imageCaptions,
       angle: selectedEntry?.angle ?? "",
+      productSpec: selectedEntry?.productSpec ?? "",
     });
   }, [form, selectedEntry, pendingImages]);
 

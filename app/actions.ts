@@ -517,9 +517,6 @@ export async function generateWithAI(
       data: { productSpec },
     });
   }
-  // TODO(task-3): ส่งเข้า buildPromptText
-  void productSpec;
-
   const photos = entry.productImages; // เรียง sortOrder แล้วจาก include ด้านบน
   const brief = buildPromptText({
     productName: entry.productName,
@@ -528,6 +525,7 @@ export async function generateWithAI(
     extraNotes: entry.extraNotes,
     imageCaptions: photos.map((p) => p.caption),
     angle: entry.angle,
+    productSpec,
   });
 
   const geminiImages = await loadGeminiImages(photos);

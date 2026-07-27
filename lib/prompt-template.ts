@@ -5,6 +5,7 @@ export type PromptFormData = {
   extraNotes: string;
   imageCaptions: string[];
   angle: string;
+  productSpec: string;
 };
 
 export function buildPromptText({
@@ -14,6 +15,7 @@ export function buildPromptText({
   extraNotes,
   imageCaptions,
   angle,
+  productSpec,
 }: PromptFormData): string {
   const imageLines = imageCaptions
     .map((caption, index) => `รูปที่ ${index + 1}: ${caption || "[ไม่มีคำอธิบาย]"}`)
@@ -37,6 +39,19 @@ ${trimmedAngle}
       ? "- เลือก use case เดียวที่เหมาะที่สุด เสี่ยงเพี้ยนน้อย และขายของได้ใน 10 วินาที"
       : "- ใช้ Angle ที่กำหนดไว้ด้านบนเป็นแกนของคลิป ห้ามเลือก use case อื่นเอง แต่ยังต้องเลือกวิธีนำเสนอที่เสี่ยงเพี้ยนน้อยและขายของได้ใน 10 วินาที";
 
+  // สเปกที่ขั้นที่ 0 สกัดจากรูปมาให้ — ป้อนเป็นข้อความเพื่อให้ขั้นนี้ไม่ต้องดึงข้อเท็จจริง
+  // จากรูปเองระหว่างที่ต้องแต่งฉาก/กล้อง/บทพูดไปด้วย ซึ่งเป็นจุดที่รายละเอียดเคยหาย
+  const trimmedSpec = productSpec.trim();
+  const specBlock =
+    trimmedSpec === ""
+      ? ""
+      : `
+สเปกสินค้าที่สกัดจากรูป (ความจริงหลักเรื่องข้อเท็จจริงของสินค้า ถ้าขัดกับข้อมูลร้านให้ยึดอันนี้):
+"""
+${trimmedSpec}
+"""
+`;
+
   return `ใช้ Core Prompt ด้านบนสร้าง prompt สำหรับ Gemini Flow
 
 ให้วิเคราะห์ข้อมูลสินค้า รูปอ้างอิง, Product Accuracy, Product Risk, Category Module, Shot / Angle Template และ Performance Card ภายในก่อน
@@ -57,7 +72,7 @@ ${imageLines}
 """
 ${productInfo}
 """
-
+${specBlock}
 Product Risk Module ที่ต้องใช้:
 """
 ${riskModule}
@@ -70,7 +85,8 @@ ${extraNotes}
 สิ่งที่ต้องทำ:
 ${useCaseRule}
 - เลือก action ที่ง่ายที่สุดแต่เห็นประโยชน์สินค้าเร็ว
-- อ่านรูปอ้างอิงแต่ละใบตาม caption ที่กำกับ แล้วถอดโครงสร้างที่เห็นจริง (รูปทรง สี ชิ้นส่วน สัดส่วน ตำแหน่ง logo ด้านหน้า/หลัง กลไก) ลง Product Accuracy และ Critical Product Structure ให้ครบ**ตามระดับความเสี่ยงของสินค้า** — สินค้าซับซ้อน/อสมมาตร (logo ด้านเดียว, พับ/กาง/มีกลไก) ให้บรรยายละเอียดพอจะกันเพี้ยน ส่วนสินค้าเรียบง่ายเขียนสั้นกระชับ ไม่ต้องยัดเยิน
+- อ่านรูปอ้างอิงแต่ละใบตาม caption ที่กำกับ แล้วถอดโครงสร้างที่เห็นจริง (รูปทรง สี ชิ้นส่วน สัดส่วน ตำแหน่ง logo ด้านหน้า/หลัง กลไก) ลง Product Accuracy และ Critical Product Structure — **ต้องบรรยายพื้นผิว/วัสดุ และกลไกการใช้งานของส่วนที่ถูกใช้ในคลิปเสมอ** ไม่ว่าจะประเมินว่าสินค้าเสี่ยงเพี้ยนสูงหรือต่ำก็ตาม
+- ห้ามใช้คำที่กำกวมในการบรรยายสินค้า — ระบุทรงให้ชัด (กล่อง/โหล/ถัง ไม่ใช่คำรวมๆ) และระบุพื้นผิวให้ชัด (ทึบ หรือ มีรู/ตะแกรง ไม่ใช่คำว่า "โปร่ง") และใช้คำเรียกสินค้าแบบเดียวกันตลอดพรอมต์
 - caption ของรูปคือความจริงเรื่องด้าน/ชิ้นส่วน ใช้เพื่อไม่ให้ output บรรยายผิดด้าน (เช่นถ้า caption บอก logo อยู่ด้านหน้าเท่านั้น ห้ามให้ output ใส่ logo ด้านหลัง)
 - วิเคราะห์ Product Accuracy ที่ห้ามพลาดจากรูปและข้อมูลสินค้า
 - วิเคราะห์ Critical Product Structure ที่ต้องคงไว้

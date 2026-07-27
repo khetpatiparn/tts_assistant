@@ -37,6 +37,7 @@ export async function getFewShotExamples(
       extraNotes: ex.extraNotes,
       imageCaptions: ex.images,
       angle: "",
+      productSpec: "",
     }),
     output: ex.output,
   }));
