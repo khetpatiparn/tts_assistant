@@ -21,6 +21,7 @@ import { ClapperHeader } from "@/components/clapper-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
+import { ProductSpecPanel } from "@/components/product-spec-panel";
 import { ProductionPanel } from "@/components/production-panel";
 import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText } from "@/lib/prompt-template";
@@ -374,16 +375,25 @@ export function PromptWorkspace({
                 usedAngles={usedAngles}
                 hasSelectedEntry={selectedId !== null}
               />
-              <ScriptOutput
-                output={output}
-                copied={copied}
-                onCopy={handleCopy}
-                onGenerate={handleGenerate}
-                isGenerating={isGenerating}
-                canGenerate={(selectedEntry?.productImages.length ?? 0) > 0}
-                model={model}
-                onModelChange={setModel}
-              />
+              <div className="flex flex-1 flex-col gap-5">
+                {selectedId !== null && (
+                  <ProductSpecPanel
+                    entryId={selectedId}
+                    spec={selectedEntry?.productSpec ?? ""}
+                    model={model}
+                  />
+                )}
+                <ScriptOutput
+                  output={output}
+                  copied={copied}
+                  onCopy={handleCopy}
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  canGenerate={(selectedEntry?.productImages.length ?? 0) > 0}
+                  model={model}
+                  onModelChange={setModel}
+                />
+              </div>
             </div>
           </div>
         )}
