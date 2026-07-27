@@ -10,6 +10,7 @@ import {
   generateTenPartPrompt,
   generateCaptionAndHashtags,
   extractProductFields,
+  extractProductSpec,
   suggestAngleOptions,
   isGeminiModelId,
 } from "@/lib/gemini";
@@ -68,9 +69,13 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
   }
 
   // ก๊อปเฉพาะฟิลด์ที่ใช้ซ้ำได้ — ปล่อย videoUrl/วันเวลาโพสต์เป็น default เพราะเป็นข้อเท็จจริงรายคลิป
-  // ตั้งใจไม่ก๊อป `angle` (ปล่อยเป็น default "") — คลิปใหม่ต้องได้ angle ใหม่เสมอ นี่คือหัวใจของ
-  // ฟีเจอร์ angle tracking ถ้าเพิ่ม angle: source.angle กลับเข้ามาทีหลัง จะทำให้ collectUsedAngles
-  // (lib/angle.ts) นับ angle เดิมว่า "ใช้ไปแล้ว" ทันทีทั้งที่คลิปใหม่ยังไม่ได้ถ่ายจริง — ห้ามเพิ่มกลับ
+  //
+  // สองฟิลด์นี้มีกฎตรงข้ามกัน อย่าสลับ:
+  // - `angle` ตั้งใจไม่ก๊อป (ปล่อย default "") — คลิปใหม่ต้องได้ angle ใหม่เสมอ นี่คือหัวใจของ
+  //   ฟีเจอร์ angle tracking ถ้าเพิ่ม angle: source.angle กลับเข้ามา จะทำให้ collectUsedAngles
+  //   (lib/angle.ts) นับ angle เดิมว่า "ใช้ไปแล้ว" ทันทีทั้งที่คลิปใหม่ยังไม่ได้ถ่ายจริง
+  // - `productSpec` ตั้งใจก๊อป — ทำซ้ำคือสินค้าตัวเดิม รูปร่าง/วัสดุ/กลไกไม่เปลี่ยน จึงไม่ควร
+  //   จ่ายโควตาสกัดใหม่ ถ้าลบออกจะทำให้ทุกคลิปที่ทำซ้ำต้องเรียก Gemini เพิ่มโดยไม่ได้อะไรกลับมา
   const created = await prisma.promptEntry.create({
     data: {
       productName: source.productName,
@@ -82,6 +87,7 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
       chatgptOutput: source.chatgptOutput,
       caption: source.caption,
       hashtags: source.hashtags,
+      productSpec: source.productSpec,
       duplicatedFromId: source.id,
     },
   });
@@ -334,6 +340,55 @@ export async function saveAngle(entryId: string, angle: string) {
 }
 
 /**
+ * บันทึกสเปกสินค้าที่ผู้ใช้แก้เอง — ต้องเป็น action แยกไม่ผ่าน form submit เพราะ generateWithAI
+ * อ่านค่าจาก DB ไม่ใช่จากฟอร์ม (ถ้าเก็บใน form state โมเดลจะไม่เห็นสเปกเลย)
+ * แนวเดียวกับ saveAngle และ updateProductImageCaption
+ */
+export async function saveProductSpec(entryId: string, spec: string) {
+  await prisma.promptEntry.update({
+    where: { id: entryId },
+    data: { productSpec: spec.trim() },
+  });
+  revalidatePath("/");
+}
+
+/**
+ * สกัดสเปกใหม่ทับของเดิม (ปุ่ม "สกัดสเปกใหม่" — ใช้ตอนเปลี่ยนรูปสินค้า)
+ * เขียนทับเมื่อสำเร็จเท่านั้น: ถ้า API ล้ม สเปกเดิมที่ผู้ใช้อาจแก้มือไว้ต้องไม่หาย
+ */
+export async function refreshProductSpec(entryId: string, model: string): Promise<string> {
+  // โมเดลมาจาก client เชื่อไม่ได้ ต้อง validate ก่อนส่งให้ API เสมอ
+  if (!isGeminiModelId(model)) {
+    throw new Error("โมเดลไม่ถูกต้อง");
+  }
+
+  const entry = await prisma.promptEntry.findUnique({
+    where: { id: entryId },
+    include: { productImages: { orderBy: { sortOrder: "asc" } } },
+  });
+  if (!entry) {
+    throw new Error("ไม่พบรายการที่ต้องการสกัดสเปก");
+  }
+  if (entry.productImages.length === 0) {
+    throw new Error("กรุณาแนบรูปสินค้าจริงอย่างน้อย 1 รูปก่อนสกัดสเปก");
+  }
+
+  const spec = await extractProductSpec({
+    model,
+    productName: entry.productName,
+    productInfo: entry.productInfo,
+    images: await loadGeminiImages(entry.productImages),
+  });
+
+  await prisma.promptEntry.update({
+    where: { id: entryId },
+    data: { productSpec: spec },
+  });
+  revalidatePath("/");
+  return spec;
+}
+
+/**
  * ขอ angle ใหม่ 3 แบบจาก AI โดยให้เห็น angle ที่เคยใช้กับสินค้าเดียวกัน (สายเลือดการทำซ้ำ)
  * ไม่ revalidatePath — action นี้ไม่แตะข้อมูลใดๆ (แนวเดียวกับ extractProductInfo)
  */
@@ -405,6 +460,21 @@ export async function extractProductInfo(
   return parseExtractOutput(raw);
 }
 
+/** อ่านไฟล์รูปจากดิสก์เป็น base64 ให้พร้อมส่ง Gemini — ใช้ร่วมกันระหว่างสกัดสเปกกับเจน 10 ส่วน */
+async function loadGeminiImages(
+  images: { entryId: string; filename: string; mimeType: string; caption: string }[]
+) {
+  return Promise.all(
+    images.map(async (image) => ({
+      base64: (
+        await readFile(path.join(UPLOAD_ROOT, image.entryId, image.filename))
+      ).toString("base64"),
+      mimeType: image.mimeType,
+      caption: image.caption,
+    }))
+  );
+}
+
 export async function generateWithAI(
   entryId: string,
   model: string
@@ -430,6 +500,26 @@ export async function generateWithAI(
     throw new Error("ยังไม่ได้ตั้ง Core Prompt ที่ใช้งานอยู่");
   }
 
+  // ขั้นที่ 0: สกัดสเปกสินค้าถ้ายังไม่มี แล้วบันทึกไว้ใช้ซ้ำ
+  // ห้ามทับของเดิม — ผู้ใช้อาจแก้สเปกด้วยมือไว้ การเจนซ้ำต้องไม่ลบการแก้นั้นทิ้ง
+  // พังตรงนี้ให้ throw ได้เลย ยังไม่มีอะไรถูกบันทึก ผู้ใช้กดใหม่ได้โดยไม่เสียของ
+  // (ต่างจากขั้น caption ที่ห้าม throw เพราะ 10-part บันทึกไปแล้ว)
+  let productSpec = entry.productSpec;
+  if (productSpec.trim() === "") {
+    productSpec = await extractProductSpec({
+      model,
+      productName: entry.productName,
+      productInfo: entry.productInfo,
+      images: await loadGeminiImages(entry.productImages),
+    });
+    await prisma.promptEntry.update({
+      where: { id: entryId },
+      data: { productSpec },
+    });
+  }
+  // TODO(task-3): ส่งเข้า buildPromptText
+  void productSpec;
+
   const photos = entry.productImages; // เรียง sortOrder แล้วจาก include ด้านบน
   const brief = buildPromptText({
     productName: entry.productName,
@@ -440,15 +530,7 @@ export async function generateWithAI(
     angle: entry.angle,
   });
 
-  const geminiImages = await Promise.all(
-    photos.map(async (image) => ({
-      base64: (
-        await readFile(path.join(UPLOAD_ROOT, image.entryId, image.filename))
-      ).toString("base64"),
-      mimeType: image.mimeType,
-      caption: image.caption,
-    }))
-  );
+  const geminiImages = await loadGeminiImages(photos);
 
   const output = await generateTenPartPrompt({
     model,
