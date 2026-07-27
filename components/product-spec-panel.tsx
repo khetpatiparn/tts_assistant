@@ -22,10 +22,11 @@ export function ProductSpecPanel({
   const [isSaving, startSaving] = useTransition();
   const [isRefreshing, startRefreshing] = useTransition();
 
-  // entry เปลี่ยนตัว -> โหลดสเปกของตัวใหม่ (คอลัมน์นี้ไม่ได้ถูก key ตาม entry)
-  const [loadedFor, setLoadedFor] = useState(entryId);
-  if (loadedFor !== entryId) {
-    setLoadedFor(entryId);
+  // entry เปลี่ยนตัว หรือ server เขียนสเปกใหม่ทับของ entry เดิม (เช่น auto-extract
+  // ตอน generateWithAI ครั้งแรก) -> resync draft ให้ตรงกับค่าจริงจาก server เสมอ
+  const [synced, setSynced] = useState({ entryId, spec });
+  if (synced.entryId !== entryId || synced.spec !== spec) {
+    setSynced({ entryId, spec });
     setDraft(spec);
     setError(null);
   }
@@ -77,7 +78,7 @@ export function ProductSpecPanel({
         </Button>
       </div>
 
-      {draft.trim() === "" && !isRefreshing && (
+      {synced.spec.trim() === "" && !isRefreshing && (
         <p className="font-mono text-[0.7rem] text-muted-foreground">
           ยังไม่มีสเปก — จะถูกสกัดอัตโนมัติตอนกด &quot;สร้างด้วย AI&quot; ครั้งแรก
         </p>
