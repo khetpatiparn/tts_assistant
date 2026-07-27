@@ -1,0 +1,30 @@
+-- RedefineTables
+PRAGMA defer_foreign_keys=ON;
+PRAGMA foreign_keys=OFF;
+CREATE TABLE "new_PromptEntry" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "productName" TEXT NOT NULL,
+    "productInfo" TEXT NOT NULL,
+    "riskModule" TEXT NOT NULL,
+    "extraNotes" TEXT NOT NULL,
+    "angle" TEXT NOT NULL DEFAULT '',
+    "productSpec" TEXT NOT NULL DEFAULT '',
+    "images" TEXT NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "duplicatedFromId" TEXT,
+    "corePromptId" TEXT,
+    "chatgptOutput" TEXT NOT NULL DEFAULT '',
+    "videoUrl" TEXT NOT NULL DEFAULT '',
+    "postedAt" DATETIME,
+    "caption" TEXT NOT NULL DEFAULT '',
+    "hashtags" TEXT NOT NULL DEFAULT '',
+    "postedTimeOfDay" TEXT,
+    "postedTimeSource" TEXT,
+    "isScheduledPost" BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT "PromptEntry_corePromptId_fkey" FOREIGN KEY ("corePromptId") REFERENCES "CorePrompt" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+INSERT INTO "new_PromptEntry" ("angle", "caption", "chatgptOutput", "corePromptId", "createdAt", "duplicatedFromId", "extraNotes", "hashtags", "id", "images", "isScheduledPost", "postedAt", "postedTimeOfDay", "postedTimeSource", "productInfo", "productName", "riskModule", "videoUrl") SELECT "angle", "caption", "chatgptOutput", "corePromptId", "createdAt", "duplicatedFromId", "extraNotes", "hashtags", "id", "images", "isScheduledPost", "postedAt", "postedTimeOfDay", "postedTimeSource", "productInfo", "productName", "riskModule", "videoUrl" FROM "PromptEntry";
+DROP TABLE "PromptEntry";
+ALTER TABLE "new_PromptEntry" RENAME TO "PromptEntry";
+PRAGMA foreign_keys=ON;
+PRAGMA defer_foreign_keys=OFF;
