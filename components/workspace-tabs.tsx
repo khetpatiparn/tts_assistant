@@ -2,25 +2,21 @@
 
 import { cn } from "@/lib/utils";
 
-export type WorkspaceTab = "brief" | "production" | "core" | "dashboard";
+export type WorkspaceTab = "brief" | "production";
 
 const TABS: { id: WorkspaceTab; label: string }[] = [
   { id: "brief", label: "① Brief & Script" },
   { id: "production", label: "② ผลลัพธ์ & คลิป" },
-  { id: "core", label: "③ Core Prompt" },
-  { id: "dashboard", label: "④ รายได้" },
 ];
 
 export function WorkspaceTabs({
   active,
   onChange,
   productionDisabled,
-  dashboardAlert,
 }: {
   active: WorkspaceTab;
   onChange: (tab: WorkspaceTab) => void;
   productionDisabled: boolean;
-  dashboardAlert: boolean;
 }) {
   return (
     <nav className="flex flex-wrap gap-1 px-4 pb-3 sm:px-6" aria-label="มุมมองงาน">
@@ -33,7 +29,7 @@ export function WorkspaceTabs({
             type="button"
             disabled={isDisabled}
             aria-current={isActive ? "page" : undefined}
-            title={isDisabled ? "เลือกรายการจากประวัติก่อน" : undefined}
+            title={isDisabled ? "ยังไม่ได้บันทึกสินค้านี้" : undefined}
             onClick={() => onChange(tab.id)}
             className={cn(
               "rounded-md px-3 py-1.5 font-mono text-xs tracking-wide transition-colors",
@@ -45,9 +41,6 @@ export function WorkspaceTabs({
             )}
           >
             {tab.label}
-            {tab.id === "dashboard" && dashboardAlert && (
-              <span className="ml-1 inline-block size-1.5 rounded-full bg-record align-middle" />
-            )}
           </button>
         );
       })}

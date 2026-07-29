@@ -23,13 +23,10 @@ import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductSpecPanel } from "@/components/product-spec-panel";
 import { ProductionPanel } from "@/components/production-panel";
-import { CorePromptPanel } from "@/components/core-prompt-panel";
 import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
-import { DashboardPanel } from "@/components/dashboard-panel";
-import type { AffiliateOrderRecord, ReminderState } from "@/lib/dashboard";
+import type { AffiliateOrderRecord } from "@/lib/dashboard";
 import type { ClipMetricRecord } from "@/lib/recommender";
-import type { FollowerActivityRecord } from "@/lib/post-time";
 
 export type ProductImageRecord = {
   id: string;
@@ -92,26 +89,12 @@ function entryToForm(entry: PromptEntry): FormState {
 
 export function PromptWorkspace({
   prompts,
-  corePrompts,
   affiliateOrders,
   clipMetrics,
-  followerActivity,
-  reminder,
-  reminderActive,
-  lastOrdersImportedAt,
-  lastMetricsImportedAt,
-  now,
 }: {
   prompts: PromptEntry[];
-  corePrompts: CorePromptRecord[];
   affiliateOrders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
-  followerActivity: FollowerActivityRecord[];
-  reminder: ReminderState;
-  reminderActive: boolean;
-  lastOrdersImportedAt: Date | null;
-  lastMetricsImportedAt: Date | null;
-  now: Date;
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -301,21 +284,6 @@ export function PromptWorkspace({
     });
   }
 
-  const dashboardEntries = useMemo(
-    () =>
-      prompts.map((p) => ({
-        id: p.id,
-        duplicatedFromId: p.duplicatedFromId,
-        postedAt: p.postedAt,
-        productName: p.productName,
-        videoUrl: p.videoUrl,
-        postedTimeOfDay: p.postedTimeOfDay,
-        postedTimeSource: p.postedTimeSource,
-        isScheduledPost: p.isScheduledPost,
-      })),
-    [prompts]
-  );
-
   // angle ที่เคยใช้กับสินค้าเดียวกัน (จับกลุ่มด้วยสายเลือดการทำซ้ำ ไม่ใช่ชื่อสินค้า)
   const usedAngles = useMemo<UsedAngleWithOutcome[]>(() => {
     if (selectedId === null) return [];
@@ -349,7 +317,6 @@ export function PromptWorkspace({
           active={tab}
           onChange={setTab}
           productionDisabled={selectedEntry === null}
-          dashboardAlert={reminderActive}
         />
       </ClapperHeader>
 
@@ -428,37 +395,6 @@ export function PromptWorkspace({
           </div>
         )}
 
-        {tab === "core" && (
-          <div className="flex flex-1 flex-col gap-5 p-4 sm:p-6 lg:overflow-y-auto">
-            <CorePromptPanel
-              corePrompts={corePrompts.filter((c) => c.kind === "core")}
-              kind="core"
-              title="Core Prompt · สร้างวิดีโอ"
-            />
-            <CorePromptPanel
-              corePrompts={corePrompts.filter((c) => c.kind === "caption")}
-              kind="caption"
-              title="SEO Prompt · Caption & Hashtag"
-            />
-          </div>
-        )}
-
-        {tab === "dashboard" && (
-          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
-            <DashboardPanel
-              orders={affiliateOrders}
-              clipMetrics={clipMetrics}
-              followerActivity={followerActivity}
-              reminder={reminder}
-              reminderActive={reminderActive}
-              lastOrdersImportedAt={lastOrdersImportedAt}
-              lastMetricsImportedAt={lastMetricsImportedAt}
-              entries={dashboardEntries}
-              now={now}
-              onOpenEntry={openEntry}
-            />
-          </div>
-        )}
       </div>
     </div>
   );
