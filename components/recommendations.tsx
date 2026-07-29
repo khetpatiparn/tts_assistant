@@ -56,6 +56,7 @@ export function Recommendations({
   metrics,
   orders,
   now,
+  onOpenEntry,
 }: {
   entries: {
     id: string;
@@ -67,6 +68,7 @@ export function Recommendations({
   metrics: ClipMetricRecord[];
   orders: AffiliateOrderRecord[];
   now: Date;
+  onOpenEntry: (entryId: string) => void;
 }) {
   const stats = useMemo(
     () => buildClipStats({ entries, metrics, orders, now }),
@@ -96,7 +98,12 @@ export function Recommendations({
         signals.map((s) => {
           const style = KIND_STYLE[s.kind];
           return (
-            <div key={s.entryId + s.kind} className="flex flex-col gap-1 border-t border-border pt-3 first:border-t-0 first:pt-0">
+            <button
+              type="button"
+              key={s.entryId + s.kind}
+              onClick={() => onOpenEntry(s.entryId)}
+              className="flex flex-col gap-1 border-t border-border pt-3 text-left transition-colors first:border-t-0 first:pt-0 hover:bg-muted/40"
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`rounded border px-1.5 py-0.5 font-mono text-[0.65rem] ${style.className}`}>
                   {style.label}
@@ -113,7 +120,7 @@ export function Recommendations({
                   <p className="font-mono text-[0.7rem] text-marigold">{line}</p>
                 );
               })()}
-            </div>
+            </button>
           );
         })
       )}

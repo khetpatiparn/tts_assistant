@@ -189,6 +189,20 @@ export function PromptWorkspace({
     setGenError(null);
   }
 
+  /**
+   * กดการ์ดคำแนะนำในแท็บรายได้ แล้วเด้งมาที่ entry นั้นในแท็บ Brief
+   *
+   * แก้ friction ข้ามแท็บ: เดิมต้องจำชื่อสินค้าจากการ์ดแล้วมาไล่หาเองในแถบข้าง
+   * (เลือกทำแบบนี้แทนการเอารายได้ไปโชว์ในแถบข้าง เพราะเงินมี settlement lag 7+ วัน
+   * คลิปที่เพิ่งลงจะขึ้น ฿0 แล้วอ่านเหมือนว่าเจ๊ง — ดู spec หัวข้อ 6)
+   */
+  function openEntry(entryId: string) {
+    const entry = prompts.find((p) => p.id === entryId);
+    if (!entry) return;
+    selectPrompt(entry);
+    setTab("brief");
+  }
+
   function startNew() {
     setSelectedId(null);
     setForm(emptyForm);
@@ -435,6 +449,7 @@ export function PromptWorkspace({
               lastMetricsImportedAt={lastMetricsImportedAt}
               entries={dashboardEntries}
               now={now}
+              onOpenEntry={openEntry}
             />
           </div>
         )}

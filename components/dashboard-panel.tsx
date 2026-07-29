@@ -76,6 +76,7 @@ export function DashboardPanel({
   lastMetricsImportedAt,
   entries,
   now,
+  onOpenEntry,
 }: {
   orders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
@@ -86,6 +87,7 @@ export function DashboardPanel({
   lastMetricsImportedAt: Date | null;
   entries: (PostTimeEntry & ScoreboardEntry & { duplicatedFromId: string | null })[];
   now: Date;
+  onOpenEntry: (entryId: string) => void;
 }) {
   const summary = summarizeOrders(orders);
 
@@ -156,6 +158,7 @@ export function DashboardPanel({
         metrics={clipMetrics}
         orders={orders}
         now={now}
+        onOpenEntry={onOpenEntry}
       />
 
       {orders.length === 0 ? (
