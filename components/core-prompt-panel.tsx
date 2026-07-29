@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { CorePromptRecord } from "@/components/prompt-workspace";
+import type { CorePromptRecord } from "@/components/entry-workspace";
 
 export function CorePromptPanel({
   corePrompts,

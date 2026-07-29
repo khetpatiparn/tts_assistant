@@ -23,6 +23,14 @@ import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import type { EntryRow } from "@/lib/entry-rows";
 
+export type CorePromptRecord = {
+  id: string;
+  label: string;
+  content: string;
+  isActive: boolean;
+  kind: string;
+};
+
 export type ProductImageRecord = {
   id: string;
   entryId: string;

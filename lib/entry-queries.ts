@@ -62,6 +62,31 @@ export async function getEntryRows(): Promise<EntryRow[]> {
   }));
 }
 
+/**
+ * ข้อความที่ใช้ค้นหา — คิวรีแยกและเรียกเฉพาะตอนมีคำค้นจริงเท่านั้น
+ *
+ * productInfo หนักราว 2 KB/แถว (~3.6 MB ที่ 1,800 แถว) แต่อยู่ในหน่วยความจำ server
+ * เท่านั้น ไม่ได้ถูกส่งลง client — client ได้แค่ 30 แถวเบาของหน้านั้น
+ * ถ้าวันหนึ่งช้าเกินไป ทางแก้คือ SQLite FTS5 ไม่ใช่การเปลี่ยนดีไซน์
+ */
+export async function getSearchText(): Promise<
+  Map<string, { productName: string; productInfo: string; extraNotes: string }>
+> {
+  const rows = await prisma.promptEntry.findMany({
+    select: { id: true, productName: true, productInfo: true, extraNotes: true },
+  });
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        productName: r.productName,
+        productInfo: r.productInfo,
+        extraNotes: r.extraNotes,
+      },
+    ])
+  );
+}
+
 function daysSince(lastMs: number): number {
   return Math.floor((Date.now() - lastMs) / DAY_MS);
 }
