@@ -7,7 +7,7 @@ import { updateProduction } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { PromptEntry } from "@/components/prompt-workspace";
+import type { PromptEntry } from "@/components/entry-workspace";
 
 function isSafeHttpUrl(value: string) {
   try {

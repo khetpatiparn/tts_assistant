@@ -1,0 +1,308 @@
+"use client";
+
+import { useActionState, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+
+import {
+  createPrompt,
+  deletePrompt,
+  duplicatePrompt,
+  generateWithAI,
+  updateProductImageCaption,
+  uploadProductImages,
+} from "@/app/actions";
+import { GEMINI_MODELS } from "@/lib/gemini";
+import type { UsedAngleWithOutcome } from "@/components/angle-panel";
+import { ClapperHeader } from "@/components/clapper-header";
+import { HistoryRail } from "@/components/history-rail";
+import { BriefForm, type FormState } from "@/components/brief-form";
+import { ScriptOutput } from "@/components/script-output";
+import { ProductSpecPanel } from "@/components/product-spec-panel";
+import { ProductionPanel } from "@/components/production-panel";
+import { buildPromptText } from "@/lib/prompt-template";
+import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
+import type { EntryRow } from "@/lib/entry-rows";
+
+export type ProductImageRecord = {
+  id: string;
+  entryId: string;
+  filename: string;
+  mimeType: string;
+  caption: string;
+  sortOrder: number;
+};
+
+export type PromptEntry = {
+  id: string;
+  productName: string;
+  productInfo: string;
+  riskModule: string;
+  extraNotes: string;
+  angle: string;
+  productSpec: string;
+  duplicatedFromId: string | null;
+  images: string;
+  corePromptId: string | null;
+  chatgptOutput: string;
+  caption: string;
+  hashtags: string;
+  videoUrl: string;
+  postedAt: Date | null;
+  postedTimeOfDay: string | null;
+  postedTimeSource: string | null;
+  isScheduledPost: boolean;
+  createdAt: Date;
+  productImages: ProductImageRecord[];
+};
+
+const emptyForm: FormState = {
+  productName: "",
+  productInfo: "",
+  riskModule: "",
+  extraNotes: "",
+};
+
+function entryToForm(entry: PromptEntry): FormState {
+  return {
+    productName: entry.productName,
+    productInfo: entry.productInfo,
+    riskModule: entry.riskModule,
+    extraNotes: entry.extraNotes,
+  };
+}
+
+export function EntryWorkspace({
+  entry,
+  rows,
+  takeNumber,
+  usedAngles,
+  defaultScheduled,
+}: {
+  entry: PromptEntry | null;
+  rows: EntryRow[];
+  takeNumber: number;
+  usedAngles: UsedAngleWithOutcome[];
+  defaultScheduled: boolean;
+}) {
+  const router = useRouter();
+  const [tab, setTab] = useState<WorkspaceTab>("brief");
+  const [form, setForm] = useState<FormState>(entry ? entryToForm(entry) : emptyForm);
+  const [copied, setCopied] = useState(false);
+  const [, startDeleteTransition] = useTransition();
+  const [, startDuplicateTransition] = useTransition();
+  const [isGenerating, startGenerating] = useTransition();
+  const [genError, setGenError] = useState<string | null>(null);
+  // Defaults to the fast, high-quota model; the other one is slower but richer.
+  const [model, setModel] = useState<string>(GEMINI_MODELS[0].id);
+
+  // Photos pasted before the entry exists. They ride along in memory and are
+  // uploaded the moment createPrompt hands back an id to attach them to.
+  const [pendingImages, setPendingImages] = useState<{ file: File; caption: string }[]>([]);
+  const [isUploading, startUploading] = useTransition();
+  const [imageError, setImageError] = useState<string | null>(null);
+
+  function uploadImagesTo(entryId: string, items: { file: File; caption: string }[]) {
+    const formData = new FormData();
+    formData.set("entryId", entryId);
+    for (const { file, caption } of items) {
+      formData.append("files", file);
+      formData.append("captions", caption);
+    }
+    return uploadProductImages(formData);
+  }
+
+  const [, createAction, isCreating] = useActionState(
+    async (_prevState: { ok: boolean } | null, formData: FormData) => {
+      const id = await createPrompt(formData);
+      if (pendingImages.length > 0) {
+        await uploadImagesTo(id, pendingImages);
+        setPendingImages([]);
+      }
+      router.push(`/entry/${id}`);
+      return { ok: true };
+    },
+    null
+  );
+
+  function handleAddImages(files: File[]) {
+    if (files.length === 0) return;
+    setImageError(null);
+
+    // With an entry to hang them on, photos save immediately. Without one, they
+    // wait — either way the user just pastes and it works.
+    if (entry === null) {
+      setPendingImages((prev) => [...prev, ...files.map((file) => ({ file, caption: "" }))]);
+      return;
+    }
+
+    startUploading(async () => {
+      try {
+        await uploadImagesTo(entry.id, files.map((file) => ({ file, caption: "" })));
+      } catch (e) {
+        setImageError(e instanceof Error ? e.message : "แนบรูปไม่สำเร็จ");
+      }
+    });
+  }
+
+  function handleRemovePending(index: number) {
+    setPendingImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updatePendingCaption(index: number, caption: string) {
+    setPendingImages((prev) => prev.map((it, i) => (i === index ? { ...it, caption } : it)));
+  }
+
+  function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function handleDelete(id: string) {
+    if (!confirm("ลบรายการนี้?")) return;
+    startDeleteTransition(async () => {
+      await deletePrompt(id);
+      // ลบตัวที่เปิดอยู่แล้วต้องออกจากหน้านี้ ไม่งั้นจะค้างอยู่กับ entry ที่ไม่มีแล้ว
+      if (entry?.id === id) router.push("/");
+      else router.refresh();
+    });
+  }
+
+  function handleDuplicate(id: string) {
+    startDuplicateTransition(async () => {
+      const newId = await duplicatePrompt(id);
+      router.push(`/entry/${newId}`);
+    });
+  }
+
+  function handleExtracted(fields: { productName: string; productInfo: string }) {
+    // ค่าว่างไม่ทับของเดิม — กันเคส parser fallback คืน productName ว่างมาลบชื่อที่พิมพ์ไว้แล้ว
+    setForm((f) => ({
+      ...f,
+      productName: fields.productName || f.productName,
+      productInfo: fields.productInfo || f.productInfo,
+    }));
+  }
+
+  const output = useMemo(() => {
+    const imageCaptions =
+      entry !== null
+        ? entry.productImages.map((p) => p.caption)
+        : pendingImages.map((p) => p.caption);
+    return buildPromptText({
+      productName: form.productName,
+      productInfo: form.productInfo,
+      riskModule: form.riskModule,
+      extraNotes: form.extraNotes,
+      imageCaptions,
+      angle: entry?.angle ?? "",
+      productSpec: entry?.productSpec ?? "",
+    });
+  }, [form, entry, pendingImages]);
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(output);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  function handleGenerate() {
+    if (!entry) return;
+    setGenError(null);
+    startGenerating(async () => {
+      try {
+        const result = await generateWithAI(entry.id, model);
+        // 10-part prompt บันทึกแล้วแน่นอน แม้ caption จะพัง — ไปแท็บผลลัพธ์เสมอ
+        setTab("production");
+        if (result.captionError) {
+          setGenError(`สร้าง 10-part prompt สำเร็จ แต่ Caption ไม่สำเร็จ: ${result.captionError}`);
+        }
+      } catch (e) {
+        setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
+      }
+    });
+  }
+
+  return (
+    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
+      <ClapperHeader sceneName={form.productName} takeNumber={takeNumber}>
+        <WorkspaceTabs
+          active={tab}
+          onChange={setTab}
+          productionDisabled={entry === null}
+        />
+      </ClapperHeader>
+
+      {genError && (
+        <p className="mx-4 mt-3 rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record sm:mx-6">
+          {genError}
+        </p>
+      )}
+
+      <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
+        <HistoryRail
+          rows={rows}
+          selectedId={entry?.id ?? null}
+          onDuplicate={handleDuplicate}
+          onDelete={handleDelete}
+        />
+
+        {tab === "brief" && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+            {/* Inner row is content-height so the cards grow with their content
+                and the outer box scrolls, instead of the cards being clipped to
+                the viewport. */}
+            <div className="flex flex-col gap-5 xl:flex-row">
+              <BriefForm
+                form={form}
+                isCreating={isCreating}
+                onFieldChange={updateField}
+                action={createAction}
+                productImages={entry?.productImages ?? []}
+                pendingImages={pendingImages}
+                onAddImages={handleAddImages}
+                onRemovePending={handleRemovePending}
+                onUpdatePendingCaption={updatePendingCaption}
+                onSaveCaption={(id, caption) => updateProductImageCaption(id, caption)}
+                onExtracted={handleExtracted}
+                isUploading={isUploading}
+                imageError={imageError}
+                angleEntryId={entry?.id ?? null}
+                angleValue={entry?.angle ?? ""}
+                usedAngles={usedAngles}
+                hasSelectedEntry={entry !== null}
+              />
+              <div className="flex flex-1 flex-col gap-5">
+                {entry !== null && (
+                  <ProductSpecPanel
+                    entryId={entry.id}
+                    spec={entry.productSpec ?? ""}
+                    model={model}
+                  />
+                )}
+                <ScriptOutput
+                  output={output}
+                  copied={copied}
+                  onCopy={handleCopy}
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  canGenerate={(entry?.productImages.length ?? 0) > 0}
+                  model={model}
+                  onModelChange={setModel}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "production" && entry && (
+          <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+            <ProductionPanel
+              key={entry.id}
+              entry={entry}
+              defaultScheduled={defaultScheduled}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

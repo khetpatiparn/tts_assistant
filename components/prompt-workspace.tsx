@@ -27,38 +27,8 @@ import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
 import type { AffiliateOrderRecord } from "@/lib/dashboard";
 import type { ClipMetricRecord } from "@/lib/recommender";
-
-export type ProductImageRecord = {
-  id: string;
-  entryId: string;
-  filename: string;
-  mimeType: string;
-  caption: string;
-  sortOrder: number;
-};
-
-export type PromptEntry = {
-  id: string;
-  productName: string;
-  productInfo: string;
-  riskModule: string;
-  extraNotes: string;
-  angle: string;
-  productSpec: string;
-  duplicatedFromId: string | null;
-  images: string;
-  corePromptId: string | null;
-  chatgptOutput: string;
-  caption: string;
-  hashtags: string;
-  videoUrl: string;
-  postedAt: Date | null;
-  postedTimeOfDay: string | null;
-  postedTimeSource: string | null;
-  isScheduledPost: boolean;
-  createdAt: Date;
-  productImages: ProductImageRecord[];
-};
+import { entryStatus, type EntryRow } from "@/lib/entry-rows";
+import type { PromptEntry } from "@/components/entry-workspace";
 
 export type CorePromptRecord = {
   id: string;
@@ -98,10 +68,6 @@ export function PromptWorkspace({
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // เพิ่มค่าทุกครั้งที่ openEntry() ถูกเรียก เพื่อบังคับ HistoryRail ให้ remount
-  // (เคลียร์ query/onlyIncomplete/showInfoMatches ของมันเอง) กันเคส entry ที่กระโดดไปหา
-  // ถูกซ่อนอยู่หลัง filter/tier เก่าที่ผู้ใช้ตั้งไว้ตั้งแต่ก่อนกดการ์ดคำแนะนำ
-  const [railResetKey, setRailResetKey] = useState(0);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [copied, setCopied] = useState(false);
   const [, startDeleteTransition] = useTransition();
@@ -188,7 +154,6 @@ export function PromptWorkspace({
     if (!entry) return;
     selectPrompt(entry);
     setTab("brief");
-    setRailResetKey((k) => k + 1);
   }
 
   function startNew() {
@@ -310,6 +275,28 @@ export function PromptWorkspace({
   const takeNumber =
     selectedIndex >= 0 ? prompts.length - selectedIndex : prompts.length + 1;
 
+  // ชั่วคราวเท่านั้น: HistoryRail เปลี่ยน props เป็น EntryRow[] แล้ว (Task 3) แต่ไฟล์นี้
+  // ยังถือ prompts แบบเต็ม (chatgptOutput ฯลฯ) อยู่ — แปลงลงมาเฉพาะฟิลด์ที่ใช้จริง
+  // เพื่อให้คอมไพล์ผ่าน ทั้งไฟล์นี้ถูกลบทิ้งใน Task 4 แล้วแทนที่ด้วย /entry/[id] จริง
+  const rows: EntryRow[] = useMemo(
+    () =>
+      prompts.map((p) => ({
+        id: p.id,
+        productName: p.productName,
+        angle: p.angle,
+        videoUrl: p.videoUrl,
+        postedAt: p.postedAt,
+        createdAt: p.createdAt,
+        duplicatedFromId: p.duplicatedFromId,
+        status: entryStatus({ hasOutput: p.chatgptOutput.trim() !== "", videoUrl: p.videoUrl }),
+        thumbnailFilename: p.productImages[0]?.filename ?? null,
+        postedTimeOfDay: p.postedTimeOfDay,
+        postedTimeSource: p.postedTimeSource,
+        isScheduledPost: p.isScheduledPost,
+      })),
+    [prompts]
+  );
+
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
       <ClapperHeader sceneName={form.productName} takeNumber={takeNumber}>
@@ -328,11 +315,8 @@ export function PromptWorkspace({
 
       <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
         <HistoryRail
-          key={railResetKey}
-          prompts={prompts}
+          rows={rows}
           selectedId={selectedId}
-          onSelect={selectPrompt}
-          onNew={startNew}
           onDuplicate={handleDuplicate}
           onDelete={handleDelete}
         />

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { sortEntriesForRail } from "@/lib/entry-sort";
 import { entryStatus, type EntryRow } from "@/lib/entry-rows";
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+import { collectFamily, collectUsedAngles, summarizeEntryOutcome } from "@/lib/angle";
+import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -114,4 +116,69 @@ export async function getDashboardData() {
     lastOrdersImportedAt,
     lastMetricsImportedAt,
   };
+}
+
+export type EntryDetail = NonNullable<Awaited<ReturnType<typeof getEntryDetail>>>;
+
+/** entry ตัวเดียวแบบเต็ม (รวม chatgptOutput) — โหลดเฉพาะตัวที่เปิดอยู่เท่านั้น */
+export async function getEntryDetail(id: string) {
+  return prisma.promptEntry.findUnique({
+    where: { id },
+    include: { productImages: { orderBy: { sortOrder: "asc" } } },
+  });
+}
+
+/**
+ * angle ที่เคยใช้กับสินค้าเดียวกัน พร้อมผลลัพธ์ของแต่ละ angle
+ *
+ * คำนวณฝั่ง server ทั้งหมดเพื่อไม่ต้องส่ง affiliateOrders กับ clipMetrics ลง client —
+ * ผลลัพธ์คือ angle ไม่กี่ตัว ส่วนวัตถุดิบคือทั้งตาราง
+ *
+ * จับกลุ่ม "สินค้าเดียวกัน" ด้วยสายเลือด duplicatedFromId ไม่ใช่ชื่อสินค้า
+ * (dev.db มีสินค้าคนละชิ้นที่ชื่อซ้ำกัน จับด้วยชื่อจะเอา angle ของสินค้าอื่นมาปน)
+ */
+export async function getUsedAngles(entryId: string): Promise<UsedAngleWithOutcome[]> {
+  const [lineageRows, withOutput, orders, metrics] = await Promise.all([
+    prisma.promptEntry.findMany({
+      select: {
+        id: true,
+        duplicatedFromId: true,
+        angle: true,
+        videoUrl: true,
+        postedAt: true,
+      },
+    }),
+    prisma.promptEntry.findMany({
+      where: { NOT: { chatgptOutput: "" } },
+      select: { id: true },
+    }),
+    prisma.affiliateOrder.findMany(),
+    prisma.clipMetric.findMany(),
+  ]);
+
+  const hasOutputIds = new Set(withOutput.map((r) => r.id));
+  // collectUsedAngles อ่าน chatgptOutput เพื่อข้าม "ร่างเปล่า" เท่านั้น จึงเติมค่าตัวแทน
+  // ที่ว่าง/ไม่ว่างให้ตรงความจริงพอ ไม่ต้องโหลดข้อความจริง 8.7 KB ต่อแถว
+  const lineage = lineageRows.map((r) => ({
+    ...r,
+    chatgptOutput: hasOutputIds.has(r.id) ? "x" : "",
+  }));
+
+  const family = collectFamily(lineage, entryId);
+  return collectUsedAngles(family, entryId).map((u) => ({
+    ...u,
+    outcome: summarizeEntryOutcome({ entryId: u.entryId, orders, metrics }),
+  }));
+}
+
+/** default ของ toggle "ตั้งเวลาโพสต์" = แบบที่ผู้ใช้ทำบ่อยกว่า */
+export async function getDefaultScheduled(): Promise<boolean> {
+  const [posted, scheduled] = await Promise.all([
+    prisma.promptEntry.count({ where: { NOT: { videoUrl: "" } } }),
+    prisma.promptEntry.count({
+      where: { NOT: { videoUrl: "" }, isScheduledPost: true },
+    }),
+  ]);
+  if (posted === 0) return false;
+  return scheduled > posted / 2;
 }

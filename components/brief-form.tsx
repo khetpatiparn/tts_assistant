@@ -5,7 +5,7 @@ import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import { AnglePanel, type UsedAngleWithOutcome } from "@/components/angle-panel";
-import type { ProductImageRecord } from "@/components/prompt-workspace";
+import type { ProductImageRecord } from "@/components/entry-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

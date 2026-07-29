@@ -1,0 +1,47 @@
+import { notFound } from "next/navigation";
+
+import {
+  getDefaultScheduled,
+  getEntryDetail,
+  getEntryRows,
+  getUsedAngles,
+} from "@/lib/entry-queries";
+import { EntryWorkspace } from "@/components/entry-workspace";
+
+const RAIL_LIMIT = 15;
+
+export default async function EntryPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const [entry, rows, usedAngles, defaultScheduled] = await Promise.all([
+    getEntryDetail(id),
+    getEntryRows(),
+    getUsedAngles(id),
+    getDefaultScheduled(),
+  ]);
+
+  if (entry === null) notFound();
+
+  const index = rows.findIndex((r) => r.id === id);
+  const takeNumber = index >= 0 ? rows.length - index : rows.length + 1;
+
+  // 15 อันแรกตามลำดับของแถบข้าง (ยังไม่ลงคลิปบนสุด แล้วใหม่ไปเก่า) บวกตัวที่เปิดอยู่
+  // ถ้ามันไม่ติด 15 อันแรก — ไม่งั้นผู้ใช้จะไม่เห็นว่าตัวเองอยู่ตรงไหน
+  const recent = rows.slice(0, RAIL_LIMIT);
+  const railRows =
+    index >= 0 && index >= RAIL_LIMIT ? [...recent, rows[index]] : recent;
+
+  return (
+    <EntryWorkspace
+      entry={entry}
+      rows={railRows}
+      takeNumber={takeNumber}
+      usedAngles={usedAngles}
+      defaultScheduled={defaultScheduled}
+    />
+  );
+}
