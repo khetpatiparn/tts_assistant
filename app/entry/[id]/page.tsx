@@ -10,6 +10,8 @@ import { EntryWorkspace } from "@/components/entry-workspace";
 
 const RAIL_LIMIT = 15;
 
+export const dynamic = "force-dynamic";
+
 export default async function EntryPage({
   params,
 }: {

@@ -3,6 +3,8 @@ import { EntryWorkspace } from "@/components/entry-workspace";
 
 const RAIL_LIMIT = 15;
 
+export const dynamic = "force-dynamic";
+
 export default async function NewEntryPage() {
   const [rows, defaultScheduled] = await Promise.all([
     getEntryRows(),

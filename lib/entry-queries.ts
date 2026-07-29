@@ -163,33 +163,38 @@ export async function getEntryDetail(id: string) {
  * (dev.db มีสินค้าคนละชิ้นที่ชื่อซ้ำกัน จับด้วยชื่อจะเอา angle ของสินค้าอื่นมาปน)
  */
 export async function getUsedAngles(entryId: string): Promise<UsedAngleWithOutcome[]> {
-  const [lineageRows, withOutput, orders, metrics] = await Promise.all([
+  const lineageRows = await prisma.promptEntry.findMany({
+    select: {
+      id: true,
+      duplicatedFromId: true,
+      angle: true,
+      videoUrl: true,
+      postedAt: true,
+    },
+  });
+
+  // collectFamily เดินตามสายเลือดด้วย id/duplicatedFromId เท่านั้น — หา family ก่อน
+  // ด้วยแถวเบา แล้วค่อยไปโหลด chatgptOutput จริงเฉพาะสมาชิกกลุ่มนี้ (ไม่กี่แถว) แทนที่จะ
+  // ยัด placeholder เข้าไป (collectUsedAngles อ่านเนื้อหาจริงเพื่อสกัด angle hints ด้วย
+  // ไม่ใช่แค่เช็กว่างหรือไม่ว่าง — ยัด placeholder แล้วมันจะสกัด hints ผิดออกมา)
+  const familyIds = collectFamily(lineageRows, entryId).map((r) => r.id);
+
+  const [family, orders, metrics] = await Promise.all([
     prisma.promptEntry.findMany({
+      where: { id: { in: familyIds } },
       select: {
         id: true,
         duplicatedFromId: true,
         angle: true,
         videoUrl: true,
         postedAt: true,
+        chatgptOutput: true,
       },
     }),
-    prisma.promptEntry.findMany({
-      where: { NOT: { chatgptOutput: "" } },
-      select: { id: true },
-    }),
-    prisma.affiliateOrder.findMany(),
-    prisma.clipMetric.findMany(),
+    prisma.affiliateOrder.findMany({ where: { matchedEntryId: { in: familyIds } } }),
+    prisma.clipMetric.findMany({ where: { matchedEntryId: { in: familyIds } } }),
   ]);
 
-  const hasOutputIds = new Set(withOutput.map((r) => r.id));
-  // collectUsedAngles อ่าน chatgptOutput เพื่อข้าม "ร่างเปล่า" เท่านั้น จึงเติมค่าตัวแทน
-  // ที่ว่าง/ไม่ว่างให้ตรงความจริงพอ ไม่ต้องโหลดข้อความจริง 8.7 KB ต่อแถว
-  const lineage = lineageRows.map((r) => ({
-    ...r,
-    chatgptOutput: hasOutputIds.has(r.id) ? "x" : "",
-  }));
-
-  const family = collectFamily(lineage, entryId);
   return collectUsedAngles(family, entryId).map((u) => ({
     ...u,
     outcome: summarizeEntryOutcome({ entryId: u.entryId, orders, metrics }),

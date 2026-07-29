@@ -2,6 +2,8 @@ import { getDashboardData, getEntryRows } from "@/lib/entry-queries";
 import { AppHeader } from "@/components/app-header";
 import { DashboardRoute } from "@/components/dashboard-route";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const [data, rows] = await Promise.all([getDashboardData(), getEntryRows()]);
 
