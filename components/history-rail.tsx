@@ -23,6 +23,7 @@ function monthLabel(postedAt: Date | null) {
   return new Date(postedAt).toLocaleDateString("th-TH", {
     month: "short",
     year: "numeric",
+    timeZone: "UTC",
   });
 }
 

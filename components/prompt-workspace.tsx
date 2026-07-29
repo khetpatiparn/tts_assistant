@@ -115,6 +115,10 @@ export function PromptWorkspace({
 }) {
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // เพิ่มค่าทุกครั้งที่ openEntry() ถูกเรียก เพื่อบังคับ HistoryRail ให้ remount
+  // (เคลียร์ query/onlyIncomplete/showInfoMatches ของมันเอง) กันเคส entry ที่กระโดดไปหา
+  // ถูกซ่อนอยู่หลัง filter/tier เก่าที่ผู้ใช้ตั้งไว้ตั้งแต่ก่อนกดการ์ดคำแนะนำ
+  const [railResetKey, setRailResetKey] = useState(0);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [copied, setCopied] = useState(false);
   const [, startDeleteTransition] = useTransition();
@@ -201,6 +205,7 @@ export function PromptWorkspace({
     if (!entry) return;
     selectPrompt(entry);
     setTab("brief");
+    setRailResetKey((k) => k + 1);
   }
 
   function startNew() {
@@ -356,6 +361,7 @@ export function PromptWorkspace({
 
       <div className="flex flex-1 flex-col lg:flex-row lg:overflow-hidden">
         <HistoryRail
+          key={railResetKey}
           prompts={prompts}
           selectedId={selectedId}
           onSelect={selectPrompt}
