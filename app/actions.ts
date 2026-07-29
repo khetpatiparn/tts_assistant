@@ -125,6 +125,7 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
 export async function deletePrompt(id: string) {
   await prisma.promptEntry.delete({ where: { id } });
   revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 export async function updateProduction(formData: FormData) {
@@ -194,7 +195,9 @@ export async function updateProduction(formData: FormData) {
     },
   });
 
+  revalidatePath(`/entry/${id}`);
   revalidatePath("/");
+  revalidatePath("/dashboard");
 }
 
 const PROMPT_KINDS = ["core", "caption"] as const;
@@ -228,7 +231,7 @@ export async function createCorePrompt(formData: FormData) {
     }),
   ]);
 
-  revalidatePath("/");
+  revalidatePath("/core-prompt");
 }
 
 export async function setActiveCorePrompt(id: string) {
@@ -248,7 +251,7 @@ export async function setActiveCorePrompt(id: string) {
     }),
   ]);
 
-  revalidatePath("/");
+  revalidatePath("/core-prompt");
 }
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
@@ -315,15 +318,16 @@ export async function uploadProductImages(formData: FormData) {
     });
   }
 
+  revalidatePath(`/entry/${entryId}`);
   revalidatePath("/");
 }
 
 export async function updateProductImageCaption(id: string, caption: string) {
-  await prisma.productImage.update({
+  const image = await prisma.productImage.update({
     where: { id },
     data: { caption: caption.trim() },
   });
-  revalidatePath("/");
+  revalidatePath(`/entry/${image.entryId}`);
 }
 
 /**
@@ -336,6 +340,7 @@ export async function saveAngle(entryId: string, angle: string) {
     where: { id: entryId },
     data: { angle: angle.trim() },
   });
+  revalidatePath(`/entry/${entryId}`);
   revalidatePath("/");
 }
 
@@ -349,7 +354,7 @@ export async function saveProductSpec(entryId: string, spec: string) {
     where: { id: entryId },
     data: { productSpec: spec.trim() },
   });
-  revalidatePath("/");
+  revalidatePath(`/entry/${entryId}`);
 }
 
 /**
@@ -384,7 +389,7 @@ export async function refreshProductSpec(entryId: string, model: string): Promis
     where: { id: entryId },
     data: { productSpec: spec },
   });
-  revalidatePath("/");
+  revalidatePath(`/entry/${entryId}`);
   return spec;
 }
 
@@ -569,6 +574,7 @@ export async function generateWithAI(
     }
   }
 
+  revalidatePath(`/entry/${entryId}`);
   revalidatePath("/");
   return { captionError };
 }
@@ -646,7 +652,7 @@ export async function importAffiliateOrders(
       });
   }
 
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return {
     total: orders.length,
     matched,
@@ -747,7 +753,7 @@ export async function importClipMetrics(
   }
 
   const matched = metrics.filter((m) => videoToEntry.has(m.videoId)).length;
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return { total: metrics.length, matched, unmatched: metrics.length - matched };
 }
 
@@ -785,7 +791,7 @@ export async function importFollowerActivity(
     });
   }
 
-  revalidatePath("/");
+  revalidatePath("/dashboard");
   return {
     total: rows.length,
     days: new Set(rows.map((r) => r.activityOn.getTime())).size,
@@ -805,6 +811,7 @@ export async function deleteProductImage(id: string) {
     // nothing to remove
   }
 
+  revalidatePath(`/entry/${image.entryId}`);
   revalidatePath("/");
 }
 
@@ -886,4 +893,5 @@ export async function createEntryFromOrder(contentId: string, productName: strin
   });
 
   revalidatePath("/");
+  revalidatePath("/dashboard");
 }
