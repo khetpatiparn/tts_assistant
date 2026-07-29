@@ -32,6 +32,21 @@ function shortDate(postedAt: Date | null) {
   return new Date(postedAt).toLocaleDateString("th-TH", {
     day: "numeric",
     month: "short",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * "12 ก.ค." ของวันที่สร้าง — ใช้กับ entry ที่ยังไม่ได้ลงคลิป (postedAt เป็น null)
+ *
+ * ต้องแยกจาก shortDate เพราะ createdAt เป็น timestamp จริง (อ่านด้วย local getter)
+ * ส่วน postedAt เก็บเป็น UTC midnight — ใช้ตัวจัดรูปแบบร่วมกันจะเพี้ยนไป 1 วันสำหรับ
+ * entry ที่สร้างก่อน 7 โมงเช้าเวลาไทย (กับดักเดียวกับ toDateInputValue ใน production-panel.tsx)
+ */
+function shortCreatedDate(createdAt: Date) {
+  return new Date(createdAt).toLocaleDateString("th-TH", {
+    day: "numeric",
+    month: "short",
   });
 }
 
@@ -120,17 +135,35 @@ export function HistoryRail({
               <button
                 type="button"
                 onClick={() => onSelect(entry)}
-                className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-2.5 text-left"
+                className="flex min-w-0 flex-1 items-start gap-2 py-2 pl-2.5 text-left"
               >
-                <span className="shrink-0 font-mono text-[0.65rem] text-marigold/80">
-                  T{String(takeNumber).padStart(2, "0")}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{entry.productName}</span>
-                {date && (
-                  <span className="shrink-0 font-mono text-[0.6rem] text-paper/30">
-                    {date}
-                  </span>
+                {entry.productImages[0] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/uploads/${entry.productImages[0].entryId}/${entry.productImages[0].filename}`}
+                    alt=""
+                    loading="lazy"
+                    className="size-9 shrink-0 rounded border border-paper/10 object-cover"
+                  />
+                ) : (
+                  <span className="size-9 shrink-0 rounded border border-dashed border-paper/10" />
                 )}
+
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="line-clamp-2 leading-tight">{entry.productName}</span>
+                  <span className="flex items-center gap-1.5 font-mono text-[0.6rem]">
+                    <span className="text-marigold/80">
+                      T{String(takeNumber).padStart(2, "0")}
+                    </span>
+                    {date ? (
+                      <span className="text-paper/30">{date}</span>
+                    ) : (
+                      <span className="text-paper/20">
+                        สร้าง {shortCreatedDate(entry.createdAt)}
+                      </span>
+                    )}
+                  </span>
+                </span>
               </button>
 
               <Menu.Root>
