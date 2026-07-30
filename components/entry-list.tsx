@@ -88,7 +88,8 @@ export function EntryList({
   matchCount: number;
   total: number;
 }) {
-  const isFiltering = query.trim() !== "" || status !== "all";
+  const isFiltering =
+    query.trim() !== "" || status !== "all" || from !== null || to !== null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -157,7 +158,9 @@ export function EntryList({
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
           {total === 0
             ? "ยังไม่มีรายการ"
-            : "ไม่พบรายการ — ลองใช้คำที่สั้นลงหรือน้อยคำลง"}
+            : query.trim() !== ""
+              ? "ไม่พบรายการ — ลองใช้คำที่สั้นลงหรือน้อยคำลง"
+              : "ไม่พบรายการ — ลองปรับช่วงวันที่หรือตัวกรองสถานะ"}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
