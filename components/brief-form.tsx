@@ -294,6 +294,7 @@ export function BriefForm({
             <Button
               type="button"
               size="sm"
+              variant="outline"
               onClick={handleExtract}
               disabled={isExtracting || extractImages.length === 0}
             >

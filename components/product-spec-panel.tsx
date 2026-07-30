@@ -67,7 +67,7 @@ export function ProductSpecPanel({
           สเปกสินค้า (สกัดจากรูป)
         </button>
 
-        <Button type="button" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+        <Button type="button" size="sm" variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
           {isRefreshing ? "กำลังสกัด..." : "สกัดสเปกใหม่"}
         </Button>
       </div>

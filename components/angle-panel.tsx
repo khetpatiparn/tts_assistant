@@ -100,7 +100,7 @@ export function AnglePanel({
         </div>
       )}
 
-      <Button type="button" size="sm" onClick={handleSuggest} disabled={isSuggesting}>
+      <Button type="button" size="sm" variant="outline" onClick={handleSuggest} disabled={isSuggesting}>
         {isSuggesting ? "กำลังคิด..." : "เสนอ angle ใหม่"}
       </Button>
 

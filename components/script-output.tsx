@@ -63,7 +63,7 @@ export function ScriptOutput({
             {isGenerating ? "กำลังสร้าง..." : "สร้างด้วย AI"}
           </Button>
 
-          <Button type="button" size="sm" onClick={onCopy}>
+          <Button type="button" size="sm" variant="outline" onClick={onCopy}>
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             {copied ? "คัดลอกแล้ว" : "คัดลอก"}
           </Button>

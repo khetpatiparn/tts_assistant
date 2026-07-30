@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { updateProduction } from "@/app/actions";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -144,7 +145,7 @@ export function ProductionPanel({
             <label className="text-sm font-medium text-foreground/90">
               Caption &amp; Hashtags
             </label>
-            <Button type="button" size="sm" onClick={copyForPost} disabled={!caption && !hashtags}>
+            <Button type="button" size="sm" variant="outline" onClick={copyForPost} disabled={!caption && !hashtags}>
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               {copied ? "คัดลอกแล้ว" : "คัดลอกทั้งหมด"}
             </Button>
@@ -217,23 +218,31 @@ export function ProductionPanel({
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground/90">วิธีลงคลิป</label>
             <input type="hidden" name="isScheduledPost" value={String(isScheduledPost)} />
-            <div className="flex gap-1.5">
-              <Button
+            <div className="inline-flex w-fit gap-0.5 rounded-md border border-border bg-card p-0.5">
+              <button
                 type="button"
-                size="sm"
-                variant={isScheduledPost ? "outline" : "default"}
                 onClick={() => setIsScheduledPost(false)}
+                className={cn(
+                  "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                  !isScheduledPost
+                    ? "bg-teal text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
               >
                 โพสต์สด
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                size="sm"
-                variant={isScheduledPost ? "default" : "outline"}
                 onClick={() => setIsScheduledPost(true)}
+                className={cn(
+                  "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+                  isScheduledPost
+                    ? "bg-teal text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
               >
                 ตั้งเวลา
-              </Button>
+              </button>
             </div>
             {isScheduledPost ? (
               <>
