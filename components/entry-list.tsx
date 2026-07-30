@@ -193,7 +193,7 @@ export function EntryList({
 
                 <div className="flex shrink-0 items-center gap-4 border-l border-border pl-4">
                   <div className="flex min-w-14 flex-col items-end gap-1">
-                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground uppercase">
                       สถานะ
                     </span>
                     <Badge variant={STATUS_BADGE_VARIANT[row.status]}>
@@ -202,7 +202,7 @@ export function EntryList({
                   </div>
 
                   <div className="flex min-w-14 flex-col items-end gap-0.5">
-                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground uppercase">
                       {postedLabel(row.postedAt) ? "วันที่" : "สร้างเมื่อ"}
                     </span>
                     <span className="font-mono text-xs font-semibold">
@@ -212,7 +212,7 @@ export function EntryList({
 
                   {row.sales !== null && row.sales.orderCount > 0 && (
                     <div className="flex min-w-16 flex-col items-end gap-0.5">
-                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground uppercase">
                         ยอดขาย
                       </span>
                       <span className="font-mono text-xs font-semibold text-teal">
@@ -228,7 +228,7 @@ export function EntryList({
 
                   {row.sales !== null && row.sales.views !== null && (
                     <div className="flex min-w-12 flex-col items-end gap-0.5">
-                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground uppercase">
                         วิว
                       </span>
                       <span className="font-mono text-xs font-semibold">

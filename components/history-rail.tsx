@@ -53,10 +53,7 @@ export function HistoryRail({
     <aside className="flex w-full shrink-0 flex-col gap-3 overflow-hidden bg-ink px-3 py-4 text-paper lg:h-full lg:w-60">
       <Link
         href="/entry/new"
-        className={cn(
-          buttonVariants(),
-          "w-full bg-teal text-primary-foreground shadow-none hover:bg-teal/90"
-        )}
+        className={cn(buttonVariants(), "w-full shadow-none")}
       >
         <Plus className="size-4" />
         สินค้าใหม่
@@ -76,7 +73,7 @@ export function HistoryRail({
                 key={row.id}
                 className={cn(
                   "group flex items-center rounded-md border-l-2 border-transparent text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
-                  isActive && "border-teal bg-ink-2 text-paper"
+                  isActive && "border-[#22c1b3] bg-ink-2 text-paper"
                 )}
               >
                 <Link

@@ -15,7 +15,7 @@ import {
 
 const KIND_STYLE: Record<ClipSignalKind, { label: string; className: string }> = {
   emerging: { label: "กำลังมา", className: "border-teal/50 bg-teal/10 text-teal" },
-  "hidden-gem": { label: "ของดีคนไม่เห็น", className: "border-amber/50 bg-amber/10 text-amber" },
+  "hidden-gem": { label: "ของดีคนไม่เห็น", className: "border-amber/50 bg-amber/10 text-secondary-foreground" },
   "reach-no-convert": { label: "ดูเยอะไม่ซื้อ", className: "border-smoke/50 bg-smoke/10 text-smoke" },
   fading: { label: "หยุดแล้ว", className: "border-border bg-muted text-muted-foreground" },
 };

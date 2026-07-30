@@ -28,7 +28,7 @@ export function AppHeader({
     <header className="relative bg-ink text-paper">
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5">
-          <Compass className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
+          <Compass className="size-6 shrink-0 text-[#22c1b3]" strokeWidth={1.75} />
           <div>
             <h1 className="text-xl leading-none font-extrabold tracking-wide text-paper sm:text-2xl">
               Angle <span className="text-sm font-normal text-paper/50">by LAGR</span>

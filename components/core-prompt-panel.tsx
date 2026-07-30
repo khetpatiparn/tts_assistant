@@ -45,7 +45,7 @@ export function CorePromptPanel({
       <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:p-6 xl:w-96">
         <div className="flex items-center gap-2 border-b border-border pb-3">
           <span className="h-4 w-1 rounded-full bg-amber" />
-          <h2 className="font-mono text-xs tracking-widest text-amber uppercase">
+          <h2 className="font-mono text-xs tracking-widest text-secondary-foreground uppercase">
             {title}
           </h2>
         </div>
@@ -65,7 +65,7 @@ export function CorePromptPanel({
                   {core.label}
                 </span>
                 {core.isActive && (
-                  <span className="ml-auto flex items-center gap-1 font-mono text-[0.65rem] text-amber">
+                  <span className="ml-auto flex items-center gap-1 font-mono text-[0.65rem] text-secondary-foreground">
                     <Check className="size-3" />
                     ใช้อยู่
                   </span>

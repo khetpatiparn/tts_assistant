@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 const BADGE_VARIANT_CLASS = {
   success: "bg-success text-success-foreground",
   warning: "bg-secondary text-secondary-foreground",
-  neutral: "bg-muted text-muted-foreground",
+  neutral: "bg-muted text-foreground",
   danger: "bg-destructive/10 text-destructive",
 } as const;
 

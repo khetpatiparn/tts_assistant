@@ -213,7 +213,7 @@ export function BriefForm({
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
         <span className="h-4 w-1 rounded-full bg-amber" />
-        <h2 className="font-mono text-xs tracking-widest text-amber uppercase">
+        <h2 className="font-mono text-xs tracking-widest text-secondary-foreground uppercase">
           Brief · ข้อมูลสินค้า
         </h2>
       </div>

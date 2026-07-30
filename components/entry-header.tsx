@@ -22,7 +22,7 @@ export function EntryHeader({
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 pt-2 pb-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <Compass className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
+          <Compass className="size-6 shrink-0 text-[#22c1b3]" strokeWidth={1.75} />
           <div>
             <h1 className="text-xl leading-none font-extrabold tracking-wide text-paper sm:text-2xl">
               Angle <span className="text-sm font-normal text-paper/50">by LAGR</span>
@@ -34,7 +34,7 @@ export function EntryHeader({
         </div>
 
         <div className="-rotate-2 rounded-md border border-paper/15 bg-ink-2 px-4 py-2 shadow-[3px_3px_0_0_rgba(0,0,0,0.35)]">
-          <p className="max-w-[14rem] truncate font-mono text-sm text-teal">
+          <p className="max-w-[14rem] truncate font-mono text-sm text-paper">
             {productName || "ยังไม่ตั้งชื่อสินค้า"}
           </p>
         </div>
