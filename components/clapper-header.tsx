@@ -1,4 +1,5 @@
-import { Clapperboard } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Clapperboard } from "lucide-react";
 
 export function ClapperHeader({
   sceneName,
@@ -11,7 +12,17 @@ export function ClapperHeader({
 }) {
   return (
     <header className="relative bg-ink text-paper">
-      <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+      <div className="px-4 pt-3 sm:px-6">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-1.5 font-mono text-xs text-paper/50 transition-colors hover:text-paper"
+        >
+          <ArrowLeft className="size-3.5" />
+          กลับไปรายการ
+        </Link>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-4 px-4 pt-2 pb-4 sm:px-6">
         <div className="flex items-center gap-2.5">
           <Clapperboard className="size-6 shrink-0 text-marigold" strokeWidth={1.75} />
           <div>
