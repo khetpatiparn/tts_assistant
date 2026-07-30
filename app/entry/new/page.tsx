@@ -15,7 +15,6 @@ export default async function NewEntryPage() {
     <EntryWorkspace
       entry={null}
       rows={rows.slice(0, RAIL_LIMIT)}
-      takeNumber={rows.length + 1}
       usedAngles={[]}
       defaultScheduled={defaultScheduled}
     />

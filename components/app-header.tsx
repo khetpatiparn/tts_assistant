@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clapperboard } from "lucide-react";
+import { Compass } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -14,7 +14,7 @@ const NAV: { key: NavKey; href: string; label: string }[] = [
 /**
  * หัวเว็บของหน้าที่ไม่ผูกกับ entry ตัวใดตัวหนึ่ง
  *
- * แยกจาก ClapperHeader เพราะตัวนั้นบังคับให้มีชื่อสินค้ากับเลข take ซึ่งหน้ารายการ
+ * แยกจาก EntryHeader เพราะตัวนั้นบังคับให้มีชื่อสินค้า ซึ่งหน้ารายการ
  * หน้ารายได้ และหน้า Core Prompt ไม่มี
  */
 export function AppHeader({
@@ -28,10 +28,10 @@ export function AppHeader({
     <header className="relative bg-ink text-paper">
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5">
-          <Clapperboard className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
+          <Compass className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
           <div>
-            <h1 className="font-display text-xl leading-none tracking-wide text-paper sm:text-2xl">
-              Pooling Prompt
+            <h1 className="text-xl leading-none font-extrabold tracking-wide text-paper sm:text-2xl">
+              Angle <span className="text-sm font-normal text-paper/50">by LAGR</span>
             </h1>
             <p className="mt-1 text-xs text-paper/60">
               ประกอบ Core Prompt สำหรับวิดีโอ TikTok Shop
@@ -51,7 +51,7 @@ export function AppHeader({
               "rounded-md px-3 py-1.5 font-mono text-xs tracking-wide transition-colors",
               "focus-visible:ring-2 focus-visible:ring-teal focus-visible:outline-none",
               active === item.key
-                ? "bg-teal text-ink"
+                ? "bg-teal text-primary-foreground"
                 : "text-paper/60 hover:bg-ink-2 hover:text-paper"
             )}
           >
@@ -60,7 +60,7 @@ export function AppHeader({
         ))}
       </nav>
 
-      <div className="clapper-stripes h-2 w-full" />
+      <div className="brand-divider h-1 w-full" />
     </header>
   );
 }

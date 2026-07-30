@@ -13,7 +13,7 @@ import {
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
-import { ClapperHeader } from "@/components/clapper-header";
+import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
@@ -82,13 +82,11 @@ function entryToForm(entry: PromptEntry): FormState {
 export function EntryWorkspace({
   entry,
   rows,
-  takeNumber,
   usedAngles,
   defaultScheduled,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
-  takeNumber: number;
   usedAngles: UsedAngleWithOutcome[];
   defaultScheduled: boolean;
 }) {
@@ -231,13 +229,13 @@ export function EntryWorkspace({
 
   return (
     <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
-      <ClapperHeader sceneName={form.productName} takeNumber={takeNumber}>
+      <EntryHeader productName={form.productName}>
         <WorkspaceTabs
           active={tab}
           onChange={setTab}
           productionDisabled={entry === null}
         />
-      </ClapperHeader>
+      </EntryHeader>
 
       {genError && (
         <p className="mx-4 mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger sm:mx-6">
