@@ -129,7 +129,7 @@ export function EntryList({
             className={cn(
               "rounded-md px-2.5 py-1.5 font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
               status === f.value
-                ? "bg-teal text-ink"
+                ? "bg-teal text-primary-foreground"
                 : "text-muted-foreground hover:bg-card hover:text-foreground"
             )}
           >

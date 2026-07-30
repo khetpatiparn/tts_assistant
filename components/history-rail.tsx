@@ -55,7 +55,7 @@ export function HistoryRail({
         href="/entry/new"
         className={cn(
           buttonVariants(),
-          "w-full bg-marigold text-ink shadow-none hover:bg-marigold/90"
+          "w-full bg-teal text-primary-foreground shadow-none hover:bg-teal/90"
         )}
       >
         <Plus className="size-4" />
