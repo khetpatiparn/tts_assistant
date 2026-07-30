@@ -144,13 +144,7 @@ export function ProductionPanel({
             <label className="text-sm font-medium text-foreground/90">
               Caption &amp; Hashtags
             </label>
-            <Button
-              type="button"
-              size="sm"
-              onClick={copyForPost}
-              disabled={!caption && !hashtags}
-              className="bg-marigold text-ink hover:bg-marigold/90"
-            >
+            <Button type="button" size="sm" onClick={copyForPost} disabled={!caption && !hashtags}>
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
               {copied ? "คัดลอกแล้ว" : "คัดลอกทั้งหมด"}
             </Button>
@@ -265,12 +259,7 @@ export function ProductionPanel({
         </div>
 
         <div className="flex items-center gap-3">
-          <Button
-            type="submit"
-            disabled={isSaving}
-            size="lg"
-            className="self-start bg-rust text-primary-foreground hover:bg-rust/90"
-          >
+          <Button type="submit" disabled={isSaving} size="lg" className="self-start">
             {isSaving ? "กำลังบันทึก..." : "บันทึกผลลัพธ์"}
           </Button>
           {state?.ok && !isSaving && (

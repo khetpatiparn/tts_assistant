@@ -58,18 +58,12 @@ export function ScriptOutput({
             disabled={!canGenerate || isGenerating}
             onClick={onGenerate}
             title={canGenerate ? undefined : "แนบรูปสินค้าจริงก่อน"}
-            className="bg-rust text-primary-foreground hover:bg-rust/90"
           >
             <Sparkles className="size-3.5" />
             {isGenerating ? "กำลังสร้าง..." : "สร้างด้วย AI"}
           </Button>
 
-          <Button
-            type="button"
-            size="sm"
-            onClick={onCopy}
-            className="bg-marigold text-ink hover:bg-marigold/90"
-          >
+          <Button type="button" size="sm" onClick={onCopy}>
             {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             {copied ? "คัดลอกแล้ว" : "คัดลอก"}
           </Button>

@@ -92,11 +92,7 @@ export function CorePromptPanel({
             placeholder="วางเนื้อหา core prompt ที่นี่"
             required
           />
-          <Button
-            type="submit"
-            disabled={isAdding}
-            className="self-start bg-rust text-primary-foreground hover:bg-rust/90"
-          >
+          <Button type="submit" disabled={isAdding} className="self-start">
             {isAdding ? "กำลังเพิ่ม..." : "เพิ่มและใช้เวอร์ชันนี้"}
           </Button>
         </form>
@@ -116,7 +112,6 @@ export function CorePromptPanel({
               size="sm"
               disabled={isActivating}
               onClick={() => activate(viewing.id)}
-              className="bg-marigold text-ink hover:bg-marigold/90"
             >
               {isActivating ? "กำลังเปลี่ยน..." : "ใช้เวอร์ชันนี้"}
             </Button>

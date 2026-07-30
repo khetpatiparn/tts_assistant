@@ -100,13 +100,7 @@ export function AnglePanel({
         </div>
       )}
 
-      <Button
-        type="button"
-        size="sm"
-        onClick={handleSuggest}
-        disabled={isSuggesting}
-        className="self-start bg-marigold text-ink hover:bg-marigold/90"
-      >
+      <Button type="button" size="sm" onClick={handleSuggest} disabled={isSuggesting}>
         {isSuggesting ? "กำลังคิด..." : "เสนอ angle ใหม่"}
       </Button>
 

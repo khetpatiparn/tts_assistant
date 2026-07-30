@@ -68,12 +68,7 @@ export function ReminderBanner({
       <span className="text-foreground/90">{msgs.join(" · ")}</span>
       <div className="ml-auto flex items-center gap-1.5">
         {onGoImport && (
-          <Button
-            type="button"
-            size="sm"
-            onClick={onGoImport}
-            className="bg-marigold text-ink hover:bg-marigold/90"
-          >
+          <Button type="button" size="sm" onClick={onGoImport}>
             ไปที่ Dashboard
           </Button>
         )}

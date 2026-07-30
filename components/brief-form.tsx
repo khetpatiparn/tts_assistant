@@ -255,17 +255,19 @@ export function BriefForm({
                         alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
                         className="size-24 rounded-md border border-dashed border-teal object-cover"
                       />
-                      <button
+                      <Button
                         type="button"
+                        variant="destructive"
+                        size="icon-xs"
                         aria-label="ลบแคป"
                         onClick={(e) => {
                           e.stopPropagation();
                           setExtractImages((prev) => prev.filter((_, i) => i !== index));
                         }}
-                        className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
+                        className="absolute -top-1.5 -right-1.5 rounded-full"
                       >
                         <X className="size-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
@@ -294,7 +296,6 @@ export function BriefForm({
               size="sm"
               onClick={handleExtract}
               disabled={isExtracting || extractImages.length === 0}
-              className="self-start bg-marigold text-ink hover:bg-marigold/90"
             >
               {isExtracting ? "กำลังสกัด..." : "สกัดข้อมูล"}
             </Button>
@@ -381,12 +382,7 @@ export function BriefForm({
         </div>
 
         <div className="flex flex-col gap-1">
-          <Button
-            type="submit"
-            disabled={isCreating}
-            size="lg"
-            className="mt-1 self-start bg-rust text-primary-foreground hover:bg-rust/90"
-          >
+          <Button type="submit" disabled={isCreating} size="lg" className="mt-1 self-start">
             {isCreating
               ? "กำลังสร้าง..."
               : hasSelectedEntry
@@ -444,17 +440,19 @@ export function BriefForm({
                       alt="รูปสินค้า"
                       className="size-24 rounded-md border border-border object-cover"
                     />
-                    <button
+                    <Button
                       type="button"
+                      variant="destructive"
+                      size="icon-xs"
                       aria-label="ลบรูป"
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteProductImage(image.id);
                       }}
-                      className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
+                      className="absolute -top-1.5 -right-1.5 rounded-full"
                     >
                       <X className="size-3" />
-                    </button>
+                    </Button>
                   </div>
                   <Input
                     defaultValue={image.caption}
@@ -475,17 +473,19 @@ export function BriefForm({
                       alt="รูปสินค้า (ยังไม่บันทึก)"
                       className="size-24 rounded-md border border-dashed border-teal object-cover"
                     />
-                    <button
+                    <Button
                       type="button"
+                      variant="destructive"
+                      size="icon-xs"
                       aria-label="ลบรูป"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemovePending(index);
                       }}
-                      className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
+                      className="absolute -top-1.5 -right-1.5 rounded-full"
                     >
                       <X className="size-3" />
-                    </button>
+                    </Button>
                   </div>
                   <Input
                     value={item.caption}

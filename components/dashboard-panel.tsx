@@ -262,12 +262,7 @@ export function DashboardPanel({
                 className="h-auto max-w-xs py-1.5"
                 required
               />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isImporting}
-                className="bg-rust text-primary-foreground hover:bg-rust/90"
-              >
+              <Button type="submit" size="sm" disabled={isImporting}>
                 <Upload className="size-3.5" />
                 {isImporting ? "กำลังนำเข้า..." : "นำเข้าไฟล์รายได้"}
               </Button>
