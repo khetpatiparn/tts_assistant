@@ -24,7 +24,7 @@ export function ClapperHeader({
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 pt-2 pb-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <Clapperboard className="size-6 shrink-0 text-marigold" strokeWidth={1.75} />
+          <Clapperboard className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
           <div>
             <h1 className="font-display text-xl leading-none tracking-wide text-paper sm:text-2xl">
               Pooling Prompt
@@ -39,7 +39,7 @@ export function ClapperHeader({
           <div className="flex items-center gap-4 font-mono text-[0.7rem] tracking-widest text-paper/50 uppercase">
             <span>Take {String(takeNumber).padStart(2, "0")}</span>
           </div>
-          <p className="mt-0.5 max-w-[14rem] truncate font-mono text-sm text-marigold">
+          <p className="mt-0.5 max-w-[14rem] truncate font-mono text-sm text-teal">
             {sceneName || "ยังไม่ตั้งชื่อสินค้า"}
           </p>
         </div>

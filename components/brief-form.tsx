@@ -212,8 +212,8 @@ export function BriefForm({
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-rust" />
-        <h2 className="font-mono text-xs tracking-widest text-rust uppercase">
+        <span className="h-4 w-1 rounded-full bg-amber" />
+        <h2 className="font-mono text-xs tracking-widest text-amber uppercase">
           Brief · ข้อมูลสินค้า
         </h2>
       </div>
@@ -227,14 +227,14 @@ export function BriefForm({
           type="button"
           onClick={() => setExtractOpen((open) => !open)}
           aria-expanded={extractOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
         >
           <ScanText className="size-3.5" />
           สกัดจากแคปหน้าสินค้า
         </button>
 
         {extractOpen && (
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-marigold/40 p-3">
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-teal/40 p-3">
             <div
               role="button"
               tabIndex={0}
@@ -253,7 +253,7 @@ export function BriefForm({
                       <img
                         src={extractPreviews[index]}
                         alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
-                        className="size-24 rounded-md border border-dashed border-marigold object-cover"
+                        className="size-24 rounded-md border border-dashed border-teal object-cover"
                       />
                       <button
                         type="button"
@@ -262,7 +262,7 @@ export function BriefForm({
                           e.stopPropagation();
                           setExtractImages((prev) => prev.filter((_, i) => i !== index));
                         }}
-                        className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                        className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
                       >
                         <X className="size-3" />
                       </button>
@@ -300,7 +300,7 @@ export function BriefForm({
             </Button>
 
             {extractError && (
-              <p className="font-mono text-[0.7rem] text-record">{extractError}</p>
+              <p className="font-mono text-[0.7rem] text-danger">{extractError}</p>
             )}
           </div>
         )}
@@ -336,7 +336,7 @@ export function BriefForm({
             type="button"
             onClick={() => setRiskOpen((open) => !open)}
             aria-expanded={riskOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
           >
             <TriangleAlert className="size-3.5" />
             Product Risk Module (ถ้ามี)
@@ -362,7 +362,7 @@ export function BriefForm({
             type="button"
             onClick={() => setNotesOpen((open) => !open)}
             aria-expanded={notesOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
           >
             <NotebookPen className="size-3.5" />
             ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)
@@ -430,7 +430,7 @@ export function BriefForm({
             acceptFiles(imageFilesFrom(e.dataTransfer.files));
           }}
           className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-dashed p-3 transition-colors ${
-            isDraggingOver ? "border-marigold bg-marigold/5" : "border-border"
+            isDraggingOver ? "border-teal bg-teal/5" : "border-border"
           }`}
         >
           {(pendingImages.length > 0 || productImages.length > 0) && (
@@ -451,7 +451,7 @@ export function BriefForm({
                         e.stopPropagation();
                         deleteProductImage(image.id);
                       }}
-                      className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
                     >
                       <X className="size-3" />
                     </button>
@@ -473,7 +473,7 @@ export function BriefForm({
                     <img
                       src={pendingPreviews[index]}
                       alt="รูปสินค้า (ยังไม่บันทึก)"
-                      className="size-24 rounded-md border border-dashed border-marigold object-cover"
+                      className="size-24 rounded-md border border-dashed border-teal object-cover"
                     />
                     <button
                       type="button"
@@ -482,7 +482,7 @@ export function BriefForm({
                         e.stopPropagation();
                         onRemovePending(index);
                       }}
-                      className="absolute -top-1.5 -right-1.5 rounded-full bg-record p-0.5 text-paper"
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-danger p-0.5 text-paper"
                     >
                       <X className="size-3" />
                     </button>
@@ -520,7 +520,7 @@ export function BriefForm({
         </div>
 
         {shownError && (
-          <p className="font-mono text-[0.7rem] text-record">{shownError}</p>
+          <p className="font-mono text-[0.7rem] text-danger">{shownError}</p>
         )}
       </div>
 

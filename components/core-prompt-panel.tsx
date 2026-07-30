@@ -44,8 +44,8 @@ export function CorePromptPanel({
     <div className="flex flex-1 flex-col gap-5 xl:flex-row">
       <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:p-6 xl:w-96">
         <div className="flex items-center gap-2 border-b border-border pb-3">
-          <span className="h-4 w-1 rounded-full bg-rust" />
-          <h2 className="font-mono text-xs tracking-widest text-rust uppercase">
+          <span className="h-4 w-1 rounded-full bg-amber" />
+          <h2 className="font-mono text-xs tracking-widest text-amber uppercase">
             {title}
           </h2>
         </div>
@@ -65,7 +65,7 @@ export function CorePromptPanel({
                   {core.label}
                 </span>
                 {core.isActive && (
-                  <span className="ml-auto flex items-center gap-1 font-mono text-[0.65rem] text-rust">
+                  <span className="ml-auto flex items-center gap-1 font-mono text-[0.65rem] text-amber">
                     <Check className="size-3" />
                     ใช้อยู่
                   </span>
@@ -105,8 +105,8 @@ export function CorePromptPanel({
       <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <span className="h-4 w-1 rounded-full bg-marigold" />
-            <h2 className="font-mono text-xs tracking-widest text-marigold uppercase">
+            <span className="h-4 w-1 rounded-full bg-teal" />
+            <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
               {viewing ? viewing.label : "ยังไม่ได้เลือก"}
             </h2>
           </div>

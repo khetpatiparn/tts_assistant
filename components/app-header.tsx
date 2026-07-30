@@ -28,7 +28,7 @@ export function AppHeader({
     <header className="relative bg-ink text-paper">
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2.5">
-          <Clapperboard className="size-6 shrink-0 text-marigold" strokeWidth={1.75} />
+          <Clapperboard className="size-6 shrink-0 text-teal" strokeWidth={1.75} />
           <div>
             <h1 className="font-display text-xl leading-none tracking-wide text-paper sm:text-2xl">
               Pooling Prompt
@@ -49,9 +49,9 @@ export function AppHeader({
             aria-current={active === item.key ? "page" : undefined}
             className={cn(
               "rounded-md px-3 py-1.5 font-mono text-xs tracking-wide transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-marigold focus-visible:outline-none",
+              "focus-visible:ring-2 focus-visible:ring-teal focus-visible:outline-none",
               active === item.key
-                ? "bg-marigold text-ink"
+                ? "bg-teal text-ink"
                 : "text-paper/60 hover:bg-ink-2 hover:text-paper"
             )}
           >

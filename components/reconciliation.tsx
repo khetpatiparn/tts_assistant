@@ -29,9 +29,9 @@ export function Reconciliation({ orders }: { orders: AffiliateOrderRecord[] }) {
   if (unmatched.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-marigold/40 bg-marigold/5 p-4">
+    <div className="flex flex-col gap-3 rounded-xl border border-teal/40 bg-teal/5 p-4">
       <span className="flex items-center gap-1.5 font-medium text-foreground/90">
-        <TriangleAlert className="size-4 text-marigold" />
+        <TriangleAlert className="size-4 text-teal" />
         ขายได้แต่ยังไม่มีในแอป — ควรเพิ่ม entry
       </span>
       {unmatched.map((u) => (

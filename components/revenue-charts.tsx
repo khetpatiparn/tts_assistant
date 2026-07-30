@@ -79,7 +79,7 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
             onClick={() => setRange(r.key)}
             className={`rounded-md border px-2 py-0.5 font-mono text-xs ${
               range === r.key
-                ? "border-marigold bg-marigold/10 text-marigold"
+                ? "border-teal bg-teal/10 text-teal"
                 : "border-border text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -122,12 +122,12 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
               <Area
                 type="monotone"
                 dataKey="gmv"
-                stroke="var(--color-rust)"
+                stroke="var(--color-amber)"
                 strokeWidth={2}
-                fill="var(--color-marigold)"
+                fill="var(--color-teal)"
                 fillOpacity={0.15}
-                dot={{ r: 2.5, fill: "var(--color-rust)", strokeWidth: 0 }}
-                activeDot={{ r: 4, fill: "var(--color-rust)" }}
+                dot={{ r: 2.5, fill: "var(--color-amber)", strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "var(--color-amber)" }}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -149,7 +149,7 @@ function Sparkline({ points }: { points: number[] }) {
     .join(" ");
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-6 w-24" aria-hidden="true">
-      <polyline points={line} className="fill-none stroke-marigold" strokeWidth={1.5} strokeLinejoin="round" />
+      <polyline points={line} className="fill-none stroke-teal" strokeWidth={1.5} strokeLinejoin="round" />
     </svg>
   );
 }
@@ -161,7 +161,7 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
 
   const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
   const arrowClass =
-    direction === "up" ? "text-marigold" : direction === "down" ? "text-record" : "text-smoke";
+    direction === "up" ? "text-teal" : direction === "down" ? "text-danger" : "text-smoke";
   const pctLabel =
     direction === "flat" ? "ทรงตัว" : `${changePct > 0 ? "+" : ""}${changePct.toFixed(0)}%`;
 
@@ -179,7 +179,7 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="ml-auto font-mono text-xs text-marigold hover:underline"
+          className="ml-auto font-mono text-xs text-teal hover:underline"
         >
           {open ? "ซ่อนกราฟ" : "ดูกราฟ"}
         </button>

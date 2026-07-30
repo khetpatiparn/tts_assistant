@@ -79,7 +79,7 @@ export function AnglePanel({
 
   return (
     <div className="flex flex-col gap-3 border-t border-border pt-5">
-      <span className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-marigold uppercase">
+      <span className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-teal uppercase">
         <Compass className="size-3.5" />
         Angle ของคลิปนี้
       </span>
@@ -120,7 +120,7 @@ export function AnglePanel({
                 setDraft(s.text);
                 commit(s.text);
               }}
-              className="flex flex-col gap-0.5 rounded-lg border border-border p-2.5 text-left hover:border-marigold"
+              className="flex flex-col gap-0.5 rounded-lg border border-border p-2.5 text-left hover:border-teal"
             >
               <span className="text-sm text-foreground/90">{s.text}</span>
               {s.why !== "" && (
@@ -144,7 +144,7 @@ export function AnglePanel({
         {isSaving ? "กำลังบันทึก..." : "บันทึกเมื่อคลิกออกจากช่อง"}
       </span>
 
-      {error && <p className="font-mono text-[0.7rem] text-record">{error}</p>}
+      {error && <p className="font-mono text-[0.7rem] text-danger">{error}</p>}
     </div>
   );
 }

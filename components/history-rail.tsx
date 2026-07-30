@@ -76,7 +76,7 @@ export function HistoryRail({
                 key={row.id}
                 className={cn(
                   "group flex items-center rounded-md border-l-2 border-transparent text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
-                  isActive && "border-marigold bg-ink-2 text-paper"
+                  isActive && "border-teal bg-ink-2 text-paper"
                 )}
               >
                 <Link
@@ -128,7 +128,7 @@ export function HistoryRail({
                         </Menu.Item>
                         <Menu.Item
                           onClick={() => onDelete(row.id)}
-                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-record outline-none data-[highlighted]:bg-ink"
+                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-danger outline-none data-[highlighted]:bg-ink"
                         >
                           <Trash2 className="size-3.5" />
                           ลบ

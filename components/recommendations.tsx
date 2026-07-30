@@ -14,8 +14,8 @@ import {
 } from "@/lib/recommender";
 
 const KIND_STYLE: Record<ClipSignalKind, { label: string; className: string }> = {
-  emerging: { label: "กำลังมา", className: "border-marigold/50 bg-marigold/10 text-marigold" },
-  "hidden-gem": { label: "ของดีคนไม่เห็น", className: "border-rust/50 bg-rust/10 text-rust" },
+  emerging: { label: "กำลังมา", className: "border-teal/50 bg-teal/10 text-teal" },
+  "hidden-gem": { label: "ของดีคนไม่เห็น", className: "border-amber/50 bg-amber/10 text-amber" },
   "reach-no-convert": { label: "ดูเยอะไม่ซื้อ", className: "border-smoke/50 bg-smoke/10 text-smoke" },
   fading: { label: "หยุดแล้ว", className: "border-border bg-muted text-muted-foreground" },
 };
@@ -86,7 +86,7 @@ export function Recommendations({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <span className="flex items-center gap-1.5 font-medium text-foreground/90">
-        <Lightbulb className="size-4 text-marigold" />
+        <Lightbulb className="size-4 text-teal" />
         ควรทำอะไรต่อ
       </span>
 
@@ -117,7 +117,7 @@ export function Recommendations({
               {(() => {
                 const line = repeatLine(entries, s.entryId);
                 return line === null ? null : (
-                  <p className="font-mono text-[0.7rem] text-marigold">{line}</p>
+                  <p className="font-mono text-[0.7rem] text-teal">{line}</p>
                 );
               })()}
             </button>

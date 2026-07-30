@@ -19,8 +19,8 @@ const STATUS_LABEL: Record<EntryStatus, string> = {
 };
 
 const STATUS_STYLE: Record<EntryStatus, string> = {
-  "no-prompt": "border-record/40 text-record",
-  "awaiting-clip": "border-marigold/40 text-marigold",
+  "no-prompt": "border-danger/40 text-danger",
+  "awaiting-clip": "border-teal/40 text-teal",
   posted: "border-border text-muted-foreground",
 };
 
@@ -128,7 +128,7 @@ export function EntryList({
             className={cn(
               "rounded-md px-2.5 py-1.5 font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
               status === f.value
-                ? "bg-marigold text-ink"
+                ? "bg-teal text-ink"
                 : "text-muted-foreground hover:bg-card hover:text-foreground"
             )}
           >
@@ -157,7 +157,7 @@ export function EntryList({
               <li key={row.id}>
                 <Link
                   href={`/entry/${row.id}`}
-                  className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-marigold/50"
+                  className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-teal/50"
                 >
                   {row.thumbnailFilename ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -193,7 +193,7 @@ export function EntryList({
                       {posted ?? `สร้าง ${createdLabel(row.createdAt)}`}
                     </span>
                     {row.sales !== null && row.sales.orderCount > 0 && (
-                      <span className="flex items-center gap-1 font-mono text-[0.65rem] text-marigold">
+                      <span className="flex items-center gap-1 font-mono text-[0.65rem] text-teal">
                         {baht(row.sales.settledRevenue)} · {row.sales.orderCount} ออเดอร์
                         {row.sales.pendingGmv > 0 && (
                           <span className="rounded-full border border-smoke/40 px-1.5 py-0.5 text-[0.55rem] text-smoke">

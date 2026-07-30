@@ -49,7 +49,7 @@ function ImportStatusLine({
   if (lastAt === null || days === null) return null;
   if (days > IMPORT_STALE_DAYS) {
     return (
-      <p className="font-mono text-[0.7rem] text-record">
+      <p className="font-mono text-[0.7rem] text-danger">
         {label}: เกินกำหนดมา {days - IMPORT_STALE_DAYS} วัน — ไป export ไฟล์ใหม่จาก TikTok
         Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastAt)})
       </p>
@@ -143,8 +143,8 @@ export function DashboardPanel({
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-marigold" />
-        <h2 className="font-mono text-xs tracking-widest text-marigold uppercase">
+        <span className="h-4 w-1 rounded-full bg-teal" />
+        <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
           Dashboard · รายได้ Affiliate
         </h2>
       </div>
@@ -169,8 +169,8 @@ export function DashboardPanel({
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             {/* เงินจริง — พระเอก */}
-            <div className="flex flex-col gap-1 rounded-xl border border-marigold/40 bg-marigold/5 p-5">
-              <span className="font-mono text-[0.65rem] tracking-widest text-marigold uppercase">
+            <div className="flex flex-col gap-1 rounded-xl border border-teal/40 bg-teal/5 p-5">
+              <span className="font-mono text-[0.65rem] tracking-widest text-teal uppercase">
                 เงินที่ได้จริงแล้ว
               </span>
               <span className="font-display text-4xl text-foreground">
@@ -229,7 +229,7 @@ export function DashboardPanel({
           type="button"
           onClick={() => setImportsOpen((open) => !open)}
           aria-expanded={importsOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
         >
           {importsOpen ? (
             <ChevronDown className="size-3.5" />
@@ -277,7 +277,7 @@ export function DashboardPanel({
             </form>
 
             {state.error && (
-              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {state.error}
               </p>
             )}
@@ -311,7 +311,7 @@ export function DashboardPanel({
             </form>
 
             {metricState.error && (
-              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {metricState.error}
               </p>
             )}
@@ -341,7 +341,7 @@ export function DashboardPanel({
             </form>
 
             {followerState.error && (
-              <p className="rounded-md border border-record/40 bg-record/10 px-3 py-2 text-sm text-record">
+              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
                 {followerState.error}
               </p>
             )}

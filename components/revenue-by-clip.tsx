@@ -27,7 +27,7 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className="font-mono text-xs text-marigold hover:underline"
+            className="font-mono text-xs text-teal hover:underline"
           >
             {showAll ? "ย่อ" : `ดูทั้งหมด (${clips.length})`}
           </button>
@@ -43,7 +43,7 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
                 <span className="truncate text-foreground/90">
                   {c.productName || c.contentId}
                   {c.matchedEntryId === null && (
-                    <span className="ml-1 text-marigold">(ยังไม่มีในแอป)</span>
+                    <span className="ml-1 text-teal">(ยังไม่มีในแอป)</span>
                   )}
                 </span>
                 <span className="shrink-0 font-mono text-muted-foreground">
@@ -52,7 +52,7 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
               </div>
               <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="bg-marigold"
+                  className="bg-teal"
                   style={{ width: `${(c.paidGmv / max) * 100}%` }}
                   title="จ่ายแล้ว"
                 />
@@ -62,7 +62,7 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
                   title="รอ/ยังไม่จ่าย"
                 />
                 <div
-                  className="bg-record/30"
+                  className="bg-danger/30"
                   style={{ width: `${(c.ineligibleGmv / max) * 100}%` }}
                   title="ไม่มีสิทธิ์"
                 />
@@ -74,13 +74,13 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
 
       <div className="flex gap-4 font-mono text-[0.65rem] text-muted-foreground">
         <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full bg-marigold" /> จ่ายแล้ว
+          <span className="inline-block size-2 rounded-full bg-teal" /> จ่ายแล้ว
         </span>
         <span className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-full bg-smoke/50" /> รอ/ยังไม่จ่าย
         </span>
         <span className="flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full bg-record/30" /> ไม่มีสิทธิ์
+          <span className="inline-block size-2 rounded-full bg-danger/30" /> ไม่มีสิทธิ์
         </span>
       </div>
     </div>

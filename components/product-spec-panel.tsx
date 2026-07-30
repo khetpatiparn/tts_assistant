@@ -61,7 +61,7 @@ export function ProductSpecPanel({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-marigold uppercase hover:text-marigold/80"
+          className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
         >
           <PackageSearch className="size-3.5" />
           สเปกสินค้า (สกัดจากรูป)
@@ -100,7 +100,7 @@ export function ProductSpecPanel({
         </>
       )}
 
-      {error && <p className="font-mono text-[0.7rem] text-record">{error}</p>}
+      {error && <p className="font-mono text-[0.7rem] text-danger">{error}</p>}
     </section>
   );
 }

@@ -39,7 +39,7 @@ export function WeeklyScoreboard({
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <span className="flex items-center gap-1.5 font-medium text-foreground/90">
-        <CalendarRange className="size-4 text-marigold" />
+        <CalendarRange className="size-4 text-teal" />
         4 สัปดาห์ล่าสุด
       </span>
 
@@ -62,7 +62,7 @@ export function WeeklyScoreboard({
                 <td className="py-2 text-foreground/80">
                   {dayMonth(w.weekStart)}–{dayMonth(w.weekEnd)}
                   {w.isCurrent && (
-                    <span className="ml-1.5 font-mono text-[0.65rem] text-marigold">
+                    <span className="ml-1.5 font-mono text-[0.65rem] text-teal">
                       (นี้)
                     </span>
                   )}

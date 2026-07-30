@@ -105,8 +105,8 @@ export function ProductionPanel({
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-marigold" />
-        <h2 className="font-mono text-xs tracking-widest text-marigold uppercase">
+        <span className="h-4 w-1 rounded-full bg-teal" />
+        <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
           Production · ผลลัพธ์ &amp; คลิป
         </h2>
       </div>

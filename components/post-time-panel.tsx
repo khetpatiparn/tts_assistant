@@ -88,7 +88,7 @@ export function PostTimePanel({
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 font-medium text-foreground/90">
-          <Clock className="size-4 text-marigold" />
+          <Clock className="size-4 text-teal" />
           เวลาโพสต์ vs ยอดวิว
         </span>
         <label className="ml-auto flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
@@ -121,12 +121,12 @@ export function PostTimePanel({
                     : [num.toLocaleString(), "ผู้ติดตามออนไลน์"];
                 }}
               />
-              <Bar yAxisId="left" dataKey="medianViews" fill="var(--color-marigold)" />
+              <Bar yAxisId="left" dataKey="medianViews" fill="var(--color-teal)" />
               <Line
                 yAxisId="right"
                 type="monotone"
                 dataKey="followersActive"
-                stroke="var(--color-rust)"
+                stroke="var(--color-amber)"
                 dot={false}
               />
             </ComposedChart>

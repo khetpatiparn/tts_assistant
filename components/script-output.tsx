@@ -31,8 +31,8 @@ export function ScriptOutput({
     <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
         <div className="flex items-center gap-2">
-          <span className="h-4 w-1 rounded-full bg-marigold" />
-          <h2 className="font-mono text-xs tracking-widest text-marigold uppercase">
+          <span className="h-4 w-1 rounded-full bg-teal" />
+          <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
             Script · 10-Part Prompt
           </h2>
         </div>

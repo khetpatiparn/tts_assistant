@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
-import { Chonburi, IBM_Plex_Sans_Thai, JetBrains_Mono } from "next/font/google";
+import { JetBrains_Mono, Noto_Sans_Thai, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
-const bodyFont = IBM_Plex_Sans_Thai({
-  subsets: ["thai", "latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-sans",
+// ฟอนต์ Latin/ตัวเลข และฟอนต์ไทยเป็นคนละตระกูลกันโดยตั้งใจ (Plus Jakarta Sans ไม่มี
+// Thai glyph) — รวมเป็น --font-sans เดียวใน globals.css ด้วยการเรียงลำดับ fallback
+// เบราว์เซอร์จะเลือกฟอนต์ตามตัวอักษรที่พบเอง (Thai -> Noto, Latin/ตัวเลข -> Jakarta)
+const latinFont = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-latin",
 });
 
-const displayFont = Chonburi({
-  subsets: ["thai", "latin"],
-  weight: "400",
-  variable: "--font-display",
+const thaiFont = Noto_Sans_Thai({
+  subsets: ["thai"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-thai",
 });
 
 const monoFont = JetBrains_Mono({
@@ -22,8 +25,8 @@ const monoFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pooling Prompt",
-  description: "ประกอบ Core Prompt สำหรับสร้างวิดีโอ TikTok Shop ด้วย Gemini Flow",
+  title: "Angle",
+  description: "by LAGR — ประกอบ Core Prompt สำหรับสร้างวิดีโอ TikTok Shop ด้วย Gemini Flow",
 };
 
 export default function RootLayout({
@@ -37,8 +40,8 @@ export default function RootLayout({
       className={cn(
         "h-full",
         "antialiased",
-        bodyFont.variable,
-        displayFont.variable,
+        latinFont.variable,
+        thaiFont.variable,
         monoFont.variable,
         "font-sans"
       )}

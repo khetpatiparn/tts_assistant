@@ -33,9 +33,9 @@ export function WorkspaceTabs({
             onClick={() => onChange(tab.id)}
             className={cn(
               "rounded-md px-3 py-1.5 font-mono text-xs tracking-wide transition-colors",
-              "focus-visible:ring-2 focus-visible:ring-marigold focus-visible:outline-none",
+              "focus-visible:ring-2 focus-visible:ring-teal focus-visible:outline-none",
               isActive
-                ? "bg-marigold text-ink"
+                ? "bg-teal text-ink"
                 : "text-paper/60 hover:bg-ink-2 hover:text-paper",
               isDisabled && "cursor-not-allowed opacity-40 hover:bg-transparent"
             )}
