@@ -5,6 +5,7 @@ import {
   parseStatusParam,
   searchAndFilter,
 } from "@/lib/entry-rows";
+import { filterByPostedDateRange, parseDateParam } from "@/lib/entry-date-filter";
 import { AppHeader } from "@/components/app-header";
 import { EntryList } from "@/components/entry-list";
 
@@ -17,12 +18,15 @@ export default async function EntryListPage({
   const query = (Array.isArray(sp.q) ? sp.q[0] : sp.q) ?? "";
   const status = parseStatusParam(sp.status);
   const page = parsePageParam(sp.page);
+  const from = parseDateParam(sp.from);
+  const to = parseDateParam(sp.to);
 
   const rows = await getEntryRows();
+  const dateFiltered = filterByPostedDateRange(rows, from, to);
 
   // อ่านข้อความเฉพาะตอนที่ต้องค้นจริง — ไม่มีคำค้นก็ไม่ต้องแตะ productInfo เลย
   const searchText = query.trim() === "" ? null : await getSearchText();
-  const searchable = rows.map((r) => ({
+  const searchable = dateFiltered.map((r) => ({
     ...r,
     productName: r.productName,
     productInfo: searchText?.get(r.id)?.productInfo ?? "",
@@ -53,6 +57,8 @@ export default async function EntryListPage({
           }))}
           query={query}
           status={status}
+          from={from}
+          to={to}
           page={safePage}
           totalPages={totalPages}
           matchCount={filtered.length}

@@ -48,11 +48,15 @@ function createdLabel(createdAt: Date) {
 function buildHref(params: {
   query: string;
   status: EntryStatus | "all";
+  from: string | null;
+  to: string | null;
   page: number;
 }) {
   const sp = new URLSearchParams();
   if (params.query.trim() !== "") sp.set("q", params.query);
   if (params.status !== "all") sp.set("status", params.status);
+  if (params.from !== null) sp.set("from", params.from);
+  if (params.to !== null) sp.set("to", params.to);
   if (params.page > 1) sp.set("page", String(params.page));
   const qs = sp.toString();
   return qs === "" ? "/" : `/?${qs}`;
@@ -62,6 +66,8 @@ export function EntryList({
   rows,
   query,
   status,
+  from,
+  to,
   page,
   totalPages,
   matchCount,
@@ -70,6 +76,8 @@ export function EntryList({
   rows: EntryRow[];
   query: string;
   status: EntryStatus | "all";
+  from: string | null;
+  to: string | null;
   page: number;
   totalPages: number;
   matchCount: number;
@@ -80,7 +88,7 @@ export function EntryList({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <form method="get" action="/" className="flex items-center gap-2">
+        <form method="get" action="/" className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -92,6 +100,21 @@ export function EntryList({
             />
           </div>
           {status !== "all" && <input type="hidden" name="status" value={status} />}
+          <Input
+            type="date"
+            name="from"
+            defaultValue={from ?? ""}
+            aria-label="ตั้งแต่วันที่"
+            className="w-36"
+          />
+          <span className="text-xs text-muted-foreground">ถึง</span>
+          <Input
+            type="date"
+            name="to"
+            defaultValue={to ?? ""}
+            aria-label="ถึงวันที่"
+            className="w-36"
+          />
           <Button type="submit" variant="secondary">
             ค้นหา
           </Button>
@@ -107,7 +130,7 @@ export function EntryList({
         {FILTERS.map((f) => (
           <Link
             key={f.value}
-            href={buildHref({ query, status: f.value, page: 1 })}
+            href={buildHref({ query, status: f.value, from, to, page: 1 })}
             aria-current={status === f.value ? "page" : undefined}
             className={cn(
               "rounded-md px-2.5 py-1.5 font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
@@ -186,7 +209,7 @@ export function EntryList({
         <nav className="flex items-center justify-center gap-2" aria-label="แบ่งหน้า">
           {page > 1 && (
             <Link
-              href={buildHref({ query, status, page: page - 1 })}
+              href={buildHref({ query, status, from, to, page: page - 1 })}
               className="rounded-md border border-border px-3 py-1.5 font-mono text-xs transition-colors hover:bg-card"
             >
               ก่อนหน้า
@@ -197,7 +220,7 @@ export function EntryList({
           </span>
           {page < totalPages && (
             <Link
-              href={buildHref({ query, status, page: page + 1 })}
+              href={buildHref({ query, status, from, to, page: page + 1 })}
               className="rounded-md border border-border px-3 py-1.5 font-mono text-xs transition-colors hover:bg-card"
             >
               ถัดไป
