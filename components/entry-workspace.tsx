@@ -163,7 +163,7 @@ export function EntryWorkspace({
   }
 
   function handleDelete(id: string) {
-    if (!confirm("ลบรายการนี้?")) return;
+    if (!confirm("ลบรายการนี้ถาวร — กู้คืนไม่ได้")) return;
     startDeleteTransition(async () => {
       await deletePrompt(id);
       // ลบตัวที่เปิดอยู่แล้วต้องออกจากหน้านี้ ไม่งั้นจะค้างอยู่กับ entry ที่ไม่มีแล้ว
