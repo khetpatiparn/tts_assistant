@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DateRangeFields } from "@/components/date-range-fields";
 import { cn } from "@/lib/utils";
 import type { EntryRow, EntryStatus } from "@/lib/entry-rows";
 import type { EntrySalesSummary } from "@/lib/entry-sales";
@@ -106,21 +107,7 @@ export function EntryList({
             />
           </div>
           {status !== "all" && <input type="hidden" name="status" value={status} />}
-          <Input
-            type="date"
-            name="from"
-            defaultValue={from ?? ""}
-            aria-label="ตั้งแต่วันที่"
-            className="w-36"
-          />
-          <span className="text-xs text-muted-foreground">ถึง</span>
-          <Input
-            type="date"
-            name="to"
-            defaultValue={to ?? ""}
-            aria-label="ถึงวันที่"
-            className="w-36"
-          />
+          <DateRangeFields initialFrom={from ?? ""} initialTo={to ?? ""} />
           <Button type="submit" variant="secondary">
             ค้นหา
           </Button>

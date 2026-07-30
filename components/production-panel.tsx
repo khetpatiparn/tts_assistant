@@ -7,6 +7,7 @@ import { updateProduction } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePickerField } from "@/components/date-picker-field";
 import type { PromptEntry } from "@/components/entry-workspace";
 
 function isSafeHttpUrl(value: string) {
@@ -206,11 +207,13 @@ export function ProductionPanel({
 
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground/90">วันที่ลงคลิป</label>
-            <Input
+            <DatePickerField
               name="postedAt"
-              type="date"
               value={postedAt}
-              onChange={(e) => setPostedAt(e.target.value)}
+              onChange={setPostedAt}
+              placeholder="เลือกวันที่ลงคลิป"
+              ariaLabel="วันที่ลงคลิป"
+              className="w-full sm:w-auto"
             />
             <p className="font-mono text-[0.7rem] text-muted-foreground">
               {postedAt ? " " : "ยังไม่ได้ลงคลิป"}
