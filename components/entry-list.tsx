@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { DateRangeFields } from "@/components/date-range-fields";
 import { cn } from "@/lib/utils";
 import type { EntryRow, EntryStatus } from "@/lib/entry-rows";
@@ -18,10 +19,10 @@ const STATUS_LABEL: Record<EntryStatus, string> = {
   posted: "ลงแล้ว",
 };
 
-const STATUS_STYLE: Record<EntryStatus, string> = {
-  "no-prompt": "border-danger/40 text-danger",
-  "awaiting-clip": "border-teal/40 text-teal",
-  posted: "border-border text-muted-foreground",
+const STATUS_BADGE_VARIANT: Record<EntryStatus, "success" | "warning" | "neutral"> = {
+  "no-prompt": "neutral",
+  "awaiting-clip": "warning",
+  posted: "success",
 };
 
 const FILTERS: { value: EntryStatus | "all"; label: string }[] = [
@@ -142,76 +143,103 @@ export function EntryList({
       </p>
 
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          {total === 0
-            ? "ยังไม่มีรายการ"
-            : query.trim() !== ""
-              ? "ไม่พบรายการ — ลองใช้คำที่สั้นลงหรือน้อยคำลง"
-              : "ไม่พบรายการ — ลองปรับช่วงวันที่หรือตัวกรองสถานะ"}
-        </p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            {total === 0
+              ? "ยังไม่มีรายการ"
+              : query.trim() !== ""
+                ? "ไม่พบรายการ — ลองใช้คำที่สั้นลงหรือน้อยคำลง"
+                : "ไม่พบรายการ — ลองปรับช่วงวันที่หรือตัวกรองสถานะ"}
+          </p>
+          {total === 0 ? (
+            <Button render={<Link href="/entry/new" />} nativeButton={false} size="sm">
+              <Plus className="size-4" />
+              เพิ่มสินค้าแรก
+            </Button>
+          ) : (
+            <Button render={<Link href="/" />} nativeButton={false} variant="ghost" size="sm">
+              ล้างตัวกรองทั้งหมด
+            </Button>
+          )}
+        </div>
       ) : (
         <ul className="flex flex-col gap-2">
-          {rows.map((row) => {
-            const posted = postedLabel(row.postedAt);
-            return (
-              <li key={row.id}>
-                <Link
-                  href={`/entry/${row.id}`}
-                  className="flex items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors hover:border-teal/50"
-                >
-                  {row.thumbnailFilename ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
-                      alt=""
-                      loading="lazy"
-                      className="size-14 shrink-0 rounded border border-border object-cover"
-                    />
-                  ) : (
-                    <span className="size-14 shrink-0 rounded border border-dashed border-border" />
+          {rows.map((row) => (
+            <li key={row.id}>
+              <Link
+                href={`/entry/${row.id}`}
+                className="flex items-center gap-3.5 rounded-lg border border-border bg-card p-3.5 transition-colors hover:border-teal/50"
+              >
+                {row.thumbnailFilename ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
+                    alt=""
+                    loading="lazy"
+                    className="size-11 shrink-0 rounded-lg border border-border object-cover"
+                  />
+                ) : (
+                  <span className="size-11 shrink-0 rounded-lg border border-dashed border-border" />
+                )}
+
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <p className="text-sm leading-snug font-bold">{row.productName}</p>
+                  {row.angle !== "" && (
+                    <p className="line-clamp-1 text-xs text-muted-foreground">
+                      angle: {row.angle}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-4 border-l border-border pl-4">
+                  <div className="flex min-w-14 flex-col items-end gap-1">
+                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                      สถานะ
+                    </span>
+                    <Badge variant={STATUS_BADGE_VARIANT[row.status]}>
+                      {STATUS_LABEL[row.status]}
+                    </Badge>
+                  </div>
+
+                  <div className="flex min-w-14 flex-col items-end gap-0.5">
+                    <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                      {postedLabel(row.postedAt) ? "วันที่" : "สร้างเมื่อ"}
+                    </span>
+                    <span className="font-mono text-xs font-semibold">
+                      {postedLabel(row.postedAt) ?? createdLabel(row.createdAt)}
+                    </span>
+                  </div>
+
+                  {row.sales !== null && row.sales.orderCount > 0 && (
+                    <div className="flex min-w-16 flex-col items-end gap-0.5">
+                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                        ยอดขาย
+                      </span>
+                      <span className="font-mono text-xs font-semibold text-teal">
+                        {baht(row.sales.settledRevenue)}
+                      </span>
+                      {row.sales.pendingGmv > 0 && (
+                        <Badge variant="warning" className="mt-0.5">
+                          รอรอบจ่าย
+                        </Badge>
+                      )}
+                    </div>
                   )}
 
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className="text-sm leading-snug font-medium">{row.productName}</p>
-                    {row.angle !== "" && (
-                      <p className="line-clamp-1 text-xs text-muted-foreground">
-                        angle: {row.angle}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span
-                      className={cn(
-                        "rounded-full border px-2 py-0.5 font-mono text-[0.6rem] tracking-wide",
-                        STATUS_STYLE[row.status]
-                      )}
-                    >
-                      {STATUS_LABEL[row.status]}
-                    </span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {posted ?? `สร้าง ${createdLabel(row.createdAt)}`}
-                    </span>
-                    {row.sales !== null && row.sales.orderCount > 0 && (
-                      <span className="flex items-center gap-1 font-mono text-[0.65rem] text-teal">
-                        {baht(row.sales.settledRevenue)} · {row.sales.orderCount} ออเดอร์
-                        {row.sales.pendingGmv > 0 && (
-                          <span className="rounded-full border border-smoke/40 px-1.5 py-0.5 text-[0.55rem] text-smoke">
-                            รอรอบจ่าย
-                          </span>
-                        )}
+                  {row.sales !== null && row.sales.views !== null && (
+                    <div className="flex min-w-12 flex-col items-end gap-0.5">
+                      <span className="font-mono text-[0.55rem] tracking-wide text-muted-foreground/70 uppercase">
+                        วิว
                       </span>
-                    )}
-                    {row.sales !== null && row.sales.views !== null && (
-                      <span className="font-mono text-[0.65rem] text-muted-foreground">
-                        {row.sales.views.toLocaleString("th-TH")} วิว
+                      <span className="font-mono text-xs font-semibold">
+                        {row.sales.views.toLocaleString("th-TH")}
                       </span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
+                    </div>
+                  )}
+                </div>
+              </Link>
+            </li>
+          ))}
         </ul>
       )}
 
