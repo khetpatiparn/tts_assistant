@@ -4,6 +4,7 @@ import { entryStatus, type EntryRow } from "@/lib/entry-rows";
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
 import { collectFamily, collectUsedAngles, summarizeEntryOutcome } from "@/lib/angle";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
+import { summarizeEntrySales, type EntrySalesSummary } from "@/lib/entry-sales";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -199,6 +200,23 @@ export async function getUsedAngles(entryId: string): Promise<UsedAngleWithOutco
     ...u,
     outcome: summarizeEntryOutcome({ entryId: u.entryId, orders, metrics }),
   }));
+}
+
+/**
+ * ยอดขาย/ยอดวิวต่อ entry ทั้งหมด — โหลด AffiliateOrder/ClipMetric แบบเบา (แค่ฟิลด์ที่
+ * summarizeEntrySales ใช้จริง) ครั้งเดียวต่อ request ไม่ query ซ้ำต่อแถวที่แสดงใน
+ * หน้ารายการ ตารางทั้งสองยังมีขนาดหลักร้อยแถว (เทียบเท่าที่ /dashboard โหลดอยู่แล้ว)
+ */
+export async function getEntrySales(): Promise<Map<string, EntrySalesSummary>> {
+  const [orders, metrics] = await Promise.all([
+    prisma.affiliateOrder.findMany({
+      select: { matchedEntryId: true, gmv: true, finalRevenue: true },
+    }),
+    prisma.clipMetric.findMany({
+      select: { matchedEntryId: true, views: true, capturedOn: true },
+    }),
+  ]);
+  return summarizeEntrySales(orders, metrics);
 }
 
 /** default ของ toggle "ตั้งเวลาโพสต์" = แบบที่ผู้ใช้ทำบ่อยกว่า */

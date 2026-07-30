@@ -1,4 +1,4 @@
-import { getEntryRows, getSearchText } from "@/lib/entry-queries";
+import { getEntryRows, getEntrySales, getSearchText } from "@/lib/entry-queries";
 import {
   paginate,
   parsePageParam,
@@ -21,7 +21,7 @@ export default async function EntryListPage({
   const from = parseDateParam(sp.from);
   const to = parseDateParam(sp.to);
 
-  const rows = await getEntryRows();
+  const [rows, salesByEntry] = await Promise.all([getEntryRows(), getEntrySales()]);
   const dateFiltered = filterByPostedDateRange(rows, from, to);
 
   // อ่านข้อความเฉพาะตอนที่ต้องค้นจริง — ไม่มีคำค้นก็ไม่ต้องแตะ productInfo เลย
@@ -54,6 +54,7 @@ export default async function EntryListPage({
             postedTimeOfDay: r.postedTimeOfDay,
             postedTimeSource: r.postedTimeSource,
             isScheduledPost: r.isScheduledPost,
+            sales: salesByEntry.get(r.id) ?? null,
           }))}
           query={query}
           status={status}

@@ -4,7 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EntryRow, EntryStatus } from "@/lib/entry-rows";
+import type { EntrySalesSummary } from "@/lib/entry-sales";
 import { Plus, Search } from "lucide-react";
+
+function baht(n: number): string {
+  return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
+}
 
 const STATUS_LABEL: Record<EntryStatus, string> = {
   "no-prompt": "ยังไม่มี prompt",
@@ -73,7 +78,7 @@ export function EntryList({
   matchCount,
   total,
 }: {
-  rows: EntryRow[];
+  rows: (EntryRow & { sales: EntrySalesSummary | null })[];
   query: string;
   status: EntryStatus | "all";
   from: string | null;
@@ -194,9 +199,24 @@ export function EntryList({
                     >
                       {STATUS_LABEL[row.status]}
                     </span>
-                    <span className="font-mono text-[0.6rem] text-muted-foreground">
+                    <span className="font-mono text-xs text-muted-foreground">
                       {posted ?? `สร้าง ${createdLabel(row.createdAt)}`}
                     </span>
+                    {row.sales !== null && row.sales.orderCount > 0 && (
+                      <span className="flex items-center gap-1 font-mono text-[0.65rem] text-marigold">
+                        {baht(row.sales.settledRevenue)} · {row.sales.orderCount} ออเดอร์
+                        {row.sales.pendingGmv > 0 && (
+                          <span className="rounded-full border border-smoke/40 px-1.5 py-0.5 text-[0.55rem] text-smoke">
+                            รอรอบจ่าย
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {row.sales !== null && row.sales.views !== null && (
+                      <span className="font-mono text-[0.65rem] text-muted-foreground">
+                        {row.sales.views.toLocaleString("th-TH")} วิว
+                      </span>
+                    )}
                   </div>
                 </Link>
               </li>
