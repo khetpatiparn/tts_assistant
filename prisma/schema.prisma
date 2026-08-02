@@ -116,3 +116,18 @@ model FollowerActivity {
 
   @@unique([activityOn, hour])
 }
+
+/// สถิติระดับ "ทั้งช่อง" รายวัน จาก Overview.csv — ต่างจาก ClipMetric ที่เป็นรายคลิป
+/// ไฟล์นี้ไม่มีเพดานจำนวนแถวแบบ Content.csv จึงเป็นแหล่งวิวชุดเดียวที่ครบทุกคลิป
+model ChannelMetric {
+  id           String   @id @default(cuid())
+  /// วันของสถิติ (เวลาไทย) เก็บเป็น UTC midnight เหมือน postedAt — อ่านด้วย getUTC* เท่านั้น
+  statsOn      DateTime @unique
+  videoViews   Int
+  profileViews Int
+  likes        Int
+  /// ติดลบได้ (คอมเมนต์ถูกลบ) ห้ามใส่ constraint หรือ Math.abs
+  comments     Int
+  shares       Int
+  importedAt   DateTime @default(now())
+}
