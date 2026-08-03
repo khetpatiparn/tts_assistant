@@ -703,30 +703,34 @@ export async function importAffiliateOrders(
 }
 
 export type ClipMetricImportSummary = {
+  /** จำนวนไฟล์ที่นำเข้าสำเร็จ */
+  files: number;
   total: number;
   matched: number;
   unmatched: number;
+  /** ลายเซ็นของไฟล์ที่ hash ตรงกับที่เคยอัปแล้ว — เตือนอย่างเดียว ไม่บล็อก */
+  duplicates: string[];
+  /** ลายเซ็นของไฟล์ที่อ่านไม่ผ่าน — ไฟล์ที่เหลือยังทำงานต่อ */
+  failed: string[];
 };
 
-export async function importClipMetrics(
-  formData: FormData
-): Promise<ClipMetricImportSummary> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("กรุณาเลือกไฟล์ Content (.csv)");
-  }
-
-  const text = await file.text();
-  const importedAt = new Date();
+/**
+ * นำเข้า Content.csv 1 ไฟล์ — เนื้อในเดิมของ importClipMetrics ที่แยกออกมาเพื่อวนเรียกหลายไฟล์
+ *
+ * คืน null เมื่อไฟล์อ่านไม่ผ่าน เพื่อให้ผู้เรียกข้ามเฉพาะไฟล์นั้นแล้วทำไฟล์ที่เหลือต่อได้
+ * (export จาก TikTok พลาดทีละไฟล์ได้ ไม่ควรทำให้ทั้งชุดล้ม)
+ */
+async function importOneContentFile(
+  buffer: Buffer,
+  importedAt: Date
+): Promise<{ total: number; matched: number; summary: string } | null> {
   let metrics;
   try {
-    metrics = parseContentCsv(text, importedAt);
+    metrics = parseContentCsv(buffer.toString("utf8"), importedAt);
   } catch {
-    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Content (.csv) จาก TikTok Studio");
+    return null;
   }
-  if (metrics.length === 0) {
-    throw new Error("ไม่พบข้อมูลคลิปในไฟล์");
-  }
+  if (metrics.length === 0) return null;
 
   const entries = await prisma.promptEntry.findMany({
     select: { id: true, videoUrl: true },
@@ -793,9 +797,70 @@ export async function importClipMetrics(
     });
   }
 
+  // ลายเซ็นให้ผู้ใช้แยกออกว่าไฟล์ไหนคือช่วงไหน โดยไม่ต้องเปลี่ยนชื่อไฟล์
+  // ใช้ "คลิปเก่าสุดที่โพสต์" เพราะวัดจากไฟล์จริงแล้วแยกช่วง 7/28/60 วันออกจากกันได้
+  // (1 ก.ค. / 19 มิ.ย. / 28 พ.ค.) — แต่ **ไม่เดาชื่อช่วงให้** เพราะแยก 60 กับ 365 ไม่ออก
+  const postedTimes = metrics
+    .map((m) => parseMonthDayLabel(m.postedDate, importedAt))
+    .filter((d): d is Date => d !== null)
+    .map((d) => d.getTime());
+  const oldest = postedTimes.length > 0 ? ` · เก่าสุด ${shortUtc(new Date(Math.min(...postedTimes)))}` : "";
+
   const matched = metrics.filter((m) => videoToEntry.has(m.videoId)).length;
+  return {
+    total: metrics.length,
+    matched,
+    summary: `${metrics.length} คลิป${oldest}`,
+  };
+}
+
+export async function importClipMetrics(
+  formData: FormData
+): Promise<ClipMetricImportSummary> {
+  const picked = formData.getAll("files").filter(
+    (f): f is File => f instanceof File && f.size > 0
+  );
+  if (picked.length === 0) {
+    throw new Error("กรุณาเลือกไฟล์ Content (.csv) อย่างน้อย 1 ไฟล์");
+  }
+
+  const importedAt = new Date();
+  let files = 0;
+  let total = 0;
+  let matched = 0;
+  const duplicates: string[] = [];
+  const failed: string[] = [];
+
+  for (const f of picked) {
+    const buffer = Buffer.from(await f.arrayBuffer());
+    const result = await importOneContentFile(buffer, importedAt);
+    if (!result) {
+      failed.push(f.name);
+      continue;
+    }
+
+    const fileHash = hashFile(buffer);
+    const seen = await prisma.importLog.findFirst({ where: { fileHash } });
+    if (seen) duplicates.push(result.summary);
+
+    await writeImportLog({
+      kind: "clips",
+      fileHash,
+      rowCount: result.total,
+      summary: result.summary,
+    });
+
+    files++;
+    total += result.total;
+    matched += result.matched;
+  }
+
+  if (files === 0) {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Content (.csv) จาก TikTok Studio");
+  }
+
   revalidatePath("/dashboard");
-  return { total: metrics.length, matched, unmatched: metrics.length - matched };
+  return { files, total, matched, unmatched: total - matched, duplicates, failed };
 }
 
 export type FollowerActivityImportSummary = {
