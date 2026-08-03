@@ -710,8 +710,12 @@ export type ClipMetricImportSummary = {
   unmatched: number;
   /** ลายเซ็นของไฟล์ที่ hash ตรงกับที่เคยอัปแล้ว — เตือนอย่างเดียว ไม่บล็อก */
   duplicates: string[];
-  /** ลายเซ็นของไฟล์ที่อ่านไม่ผ่าน — ไฟล์ที่เหลือยังทำงานต่อ */
-  failed: string[];
+  /**
+   * จำนวนไฟล์ที่อ่านไม่ผ่าน — ไฟล์ที่เหลือยังทำงานต่อ
+   * เป็นจำนวนไม่ใช่ชื่อไฟล์ เพราะ TikTok ตั้งชื่อ Content.csv เหมือนกันทุกไฟล์
+   * (นี่คือเหตุผลทั้งหมดที่ฟีเจอร์หลายไฟล์นี้ต้องมี) ใส่ชื่อไฟล์ซ้ำกันไปก็แยกไม่ออกว่าไฟล์ไหน
+   */
+  failed: number;
 };
 
 /**
@@ -829,18 +833,18 @@ export async function importClipMetrics(
   let total = 0;
   let matched = 0;
   const duplicates: string[] = [];
-  const failed: string[] = [];
+  let failed = 0;
 
   for (const f of picked) {
     const buffer = Buffer.from(await f.arrayBuffer());
     const result = await importOneContentFile(buffer, importedAt);
     if (!result) {
-      failed.push(f.name);
+      failed++;
       continue;
     }
 
     const fileHash = hashFile(buffer);
-    const seen = await prisma.importLog.findFirst({ where: { fileHash } });
+    const seen = await prisma.importLog.findFirst({ where: { fileHash, kind: "clips" } });
     if (seen) duplicates.push(result.summary);
 
     await writeImportLog({

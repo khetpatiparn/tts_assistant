@@ -301,10 +301,10 @@ export function DashboardPanel({
                     · ไฟล์ที่เคยอัปแล้ว {metricState.summary.duplicates.length} ไฟล์
                   </span>
                 )}
-                {metricState.summary.failed.length > 0 && (
+                {metricState.summary.failed > 0 && (
                   <span className="text-danger">
                     {" "}
-                    · อ่านไม่ได้ {metricState.summary.failed.join(", ")}
+                    · อ่านไม่ได้ {metricState.summary.failed} ไฟล์
                   </span>
                 )}
               </div>

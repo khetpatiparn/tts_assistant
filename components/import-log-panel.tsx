@@ -59,7 +59,11 @@ export function ImportLogPanel({
         อัปล่าสุด
       </p>
       {sorted.map((r) => {
-        const many = r.files.length > 1;
+        // "N จาก M ไฟล์" มีความหมายเฉพาะ kind "clips" เท่านั้น (ต้องอัป 3 ช่วงวันต่อรอบ)
+        // ชนิดอื่น (เช่น orders) ที่มีหลายไฟล์ในวันเดียวกันเป็นเรื่องปกติ/ที่แนะนำ
+        // (อัปซ้ำช่วงกว้างขึ้นเรื่อยๆ ตาม CLAUDE.md) ไม่มี "จำนวนที่ควรจะเป็น" ให้เทียบ
+        const hasMultipleFiles = r.files.length > 1;
+        const isMultiExpectedKind = r.kind === "clips" && hasMultipleFiles;
         const stale = staleDaysOf(r.kind, reminder);
         const overdue = stale !== null && stale > IMPORT_STALE_DAYS;
         return (
@@ -69,9 +73,11 @@ export function ImportLogPanel({
                 {KIND_LABEL[r.kind] ?? r.kind}
               </span>{" "}
               <span className="text-foreground">
-                {many
+                {isMultiExpectedKind
                   ? `${dayOnly(r.files[0].uploadedAt)} · ${r.files.length} จาก ${EXPECTED_CLIP_FILES} ไฟล์`
-                  : `${stamp(r.files[0].uploadedAt)} · ${r.files[0].summary}`}
+                  : hasMultipleFiles
+                    ? `${dayOnly(r.files[0].uploadedAt)} · อัป ${r.files.length} ครั้ง`
+                    : `${stamp(r.files[0].uploadedAt)} · ${r.files[0].summary}`}
               </span>
               {overdue && (
                 <span className="text-danger">
@@ -80,7 +86,7 @@ export function ImportLogPanel({
                 </span>
               )}
             </p>
-            {many &&
+            {hasMultipleFiles &&
               r.files.map((f) => (
                 <p
                   key={f.uploadedAt.getTime()}
