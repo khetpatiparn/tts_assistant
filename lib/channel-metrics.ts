@@ -57,6 +57,49 @@ function hasOverviewHeader(headerRow: unknown[]): boolean {
   return headerRow.some((cell) => String(cell ?? "").trim() === "Video Views");
 }
 
+/** แถวที่อ่านค่าได้แล้วแต่ยังไม่ได้ตัดสินปี — `guess` ใช้ได้แค่เดือน/วัน ห้ามเชื่อปีของมัน */
+type DraftRow = Omit<ChannelMetricInput, "statsOn"> & { guess: Date };
+
+/**
+ * ตัดสินปีของทุกแถวพร้อมกันจากลำดับของทั้งไฟล์ แทนการเดาทีละแถว
+ *
+ * `parseMonthDayLabel` เดาปีจากวันที่ import ทีละแถวแยกกัน ซึ่งถูกเฉพาะแถวที่ใกล้ปัจจุบัน
+ * พอไฟล์ยาวครบปี (TikTok มีตัวเลือก "last 365 days") แถวเก่าสุดจะวนกลับมาชนเดือนเดียว
+ * กับวันที่ import แล้วถูกเดาเป็นปีปัจจุบัน — **พบจริง**: ไฟล์ 365 วันที่ import วันที่
+ * 3 ส.ค. 2026 ทำให้แถว "August 2/3/4" ซึ่งเป็นข้อมูลปี 2025 กลายเป็นปี 2026 ทั้งสามแถว
+ * (ยัดวันอนาคตเข้าฐานข้อมูล แล้ว `buildChannelReach` ไปยึดมันเป็น "ข้อมูลล่าสุด"
+ * ทำให้หน้าต่าง 30 วันเลื่อนผิด)
+ *
+ * วิธีแก้: ไฟล์เรียงจากเก่าไปใหม่เสมอ จึงนับจุดที่เดือน/วันย้อนกลับ (ธ.ค. -> ม.ค.) เป็น
+ * การข้ามปี 1 ครั้ง แล้วยึด**แถวสุดท้าย** เป็นหลักในการไล่ปีย้อนกลับ เพราะแถวสุดท้ายคือ
+ * แถวที่ใหม่ที่สุดและอยู่ใกล้วันที่ import ที่สุด ซึ่งเป็นกรณีเดียวที่การเดาทีละแถวเชื่อถือได้
+ *
+ * ข้อจำกัดที่ยอมรับ: ถ้าไฟล์ยาวเกิน 1 ปีจะมีเดือน/วันซ้ำกันจริงๆ และ `statsOn` เป็น unique
+ * แถวที่ซ้ำจะทับกันเอง — ตอนนี้ TikTok ให้สูงสุด 365 วันจึงยังไม่เกิด
+ */
+function resolveYears(drafts: DraftRow[]): ChannelMetricInput[] {
+  if (drafts.length === 0) return [];
+
+  // ออฟเซ็ตปีเทียบกับแถวแรก: +1 ทุกครั้งที่วันที่ย้อนกลับ = ข้ามปีใหม่
+  const yearOffsets: number[] = [0];
+  for (let i = 1; i < drafts.length; i++) {
+    const prev = drafts[i - 1].guess;
+    const cur = drafts[i].guess;
+    const wrapped =
+      cur.getUTCMonth() < prev.getUTCMonth() ||
+      (cur.getUTCMonth() === prev.getUTCMonth() && cur.getUTCDate() < prev.getUTCDate());
+    yearOffsets.push(yearOffsets[i - 1] + (wrapped ? 1 : 0));
+  }
+
+  const last = drafts.length - 1;
+  const baseYear = drafts[last].guess.getUTCFullYear() - yearOffsets[last];
+
+  return drafts.map(({ guess, ...rest }, i) => ({
+    ...rest,
+    statsOn: new Date(Date.UTC(baseYear + yearOffsets[i], guess.getUTCMonth(), guess.getUTCDate())),
+  }));
+}
+
 export function parseOverviewCsv(text: string, importedAt: Date): OverviewParseResult {
   // ไฟล์จาก TikTok Studio มี BOM นำหน้า ถ้าไม่ตัด ชื่อคอลัมน์แรกจะเพี้ยนและ parse ผิด
   const allRows = parseCsvRows(text.replace(/^﻿/, ""));
@@ -66,13 +109,14 @@ export function parseOverviewCsv(text: string, importedAt: Date): OverviewParseR
     throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Overview (.csv) จาก TikTok Studio");
   }
 
-  const rows: ChannelMetricInput[] = [];
+  // เก็บเป็นร่างก่อน เพราะการตัดสินปีต้องเห็นลำดับของทั้งไฟล์ (ดู resolveYears)
+  const drafts: DraftRow[] = [];
   let skipped = 0;
 
   for (let i = 1; i < allRows.length; i++) {
     const r = allRows[i];
-    const statsOn = parseMonthDayLabel(String(r[COL.date] ?? ""), importedAt);
-    if (!statsOn) {
+    const guess = parseMonthDayLabel(String(r[COL.date] ?? ""), importedAt);
+    if (!guess) {
       skipped++;
       continue;
     }
@@ -85,8 +129,8 @@ export function parseOverviewCsv(text: string, importedAt: Date): OverviewParseR
       continue;
     }
 
-    rows.push({
-      statsOn,
+    drafts.push({
+      guess,
       videoViews,
       profileViews: num(r[COL.profileViews]) ?? 0,
       likes: num(r[COL.likes]) ?? 0,
@@ -95,5 +139,5 @@ export function parseOverviewCsv(text: string, importedAt: Date): OverviewParseR
     });
   }
 
-  return { rows, skipped };
+  return { rows: resolveYears(drafts), skipped };
 }
