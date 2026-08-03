@@ -44,10 +44,27 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
+/**
+ * Viewers.csv / FollowerHistory.csv / FollowerActivity.csv บังเอิญผ่านเงื่อนไข
+ * "คอลัมน์ 0 เป็นวันที่ + คอลัมน์ 1 เป็นตัวเลข" เหมือนกันหมด (อยู่โฟลเดอร์เดียวกัน
+ * เลือกผิดไฟล์ได้ง่าย) ถ้าไม่เช็กหัวตาราง parser จะรับไฟล์ผิดแบบเงียบๆ แล้ว upsert
+ * ค่าขยะทับข้อมูลเดิมถาวร — Overview.csv ม้วน 28 วันเท่านั้น กู้คืนไม่ได้ถ้าพัง
+ *
+ * เช็กว่า "Video Views" ปรากฏที่ไหนก็ได้ในหัวตาราง (ไม่ผูกกับตำแหน่งคอลัมน์เป๊ะๆ)
+ * เพื่อทนต่อกรณี TikTok สลับลำดับคอลัมน์ในอนาคต
+ */
+function hasOverviewHeader(headerRow: unknown[]): boolean {
+  return headerRow.some((cell) => String(cell ?? "").trim() === "Video Views");
+}
+
 export function parseOverviewCsv(text: string, importedAt: Date): OverviewParseResult {
   // ไฟล์จาก TikTok Studio มี BOM นำหน้า ถ้าไม่ตัด ชื่อคอลัมน์แรกจะเพี้ยนและ parse ผิด
   const allRows = parseCsvRows(text.replace(/^﻿/, ""));
   if (allRows.length < 2) return { rows: [], skipped: 0 };
+
+  if (!hasOverviewHeader(allRows[0])) {
+    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Overview (.csv) จาก TikTok Studio");
+  }
 
   const rows: ChannelMetricInput[] = [];
   let skipped = 0;
