@@ -54,7 +54,7 @@ export function buildChannelReach(args: {
   // วิวรายสัปดาห์ + จำวันที่มีข้อมูลวิวไว้ เพื่อใช้กรองออเดอร์ทีหลัง
   //
   // statsOn เก็บเป็น UTC midnight → ใช้ weekStartOfPostedAt (UTC getter)
-  // ส่วน orderDate เป็น timestamp จริง → ใช้ weekStartOfLocal (local getter) ด้านล่าง
+  // ส่วน orderDate เป็น timestamp จริง → ใช้ dayKeyLocal (local getter) ด้านล่าง
   // *** ห้ามสลับสองตัวนี้ *** สลับแล้วสัปดาห์จะเหลื่อมกันโดยไม่มีอะไรฟ้อง
   const viewsByWeek = new Map<number, number>();
   const dayToWeek = new Map<string, number>();
