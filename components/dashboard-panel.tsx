@@ -9,11 +9,12 @@ import { importFollowerActivity } from "@/app/actions";
 import type { FollowerActivityImportSummary } from "@/app/actions";
 import { importChannelMetrics, type ChannelMetricImportSummary } from "@/app/actions";
 import { ChannelReachPanel } from "@/components/channel-reach-panel";
+import { ImportLogPanel } from "@/components/import-log-panel";
+import type { ImportLogRecord } from "@/lib/import-log";
 import type { ChannelMetricRecord } from "@/lib/channel-reach";
 import type { ClipMetricRecord } from "@/lib/recommender";
 import type { FollowerActivityRecord } from "@/lib/post-time";
 import {
-  IMPORT_STALE_DAYS,
   summarizeOrders,
   type AffiliateOrderRecord,
   type ReminderState,
@@ -33,40 +34,6 @@ function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function thaiShortDate(d: Date): string {
-  return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
-}
-
-/** บรรทัดสถานะของไฟล์นำเข้าหนึ่งไฟล์ — ไฟล์รายได้กับไฟล์วิวใช้ข้อความชุดเดียวกัน */
-function ImportStatusLine({
-  label,
-  lastAt,
-  days,
-}: {
-  label: string;
-  lastAt: Date | null;
-  days: number | null;
-}) {
-  if (lastAt === null || days === null) return null;
-  if (days > IMPORT_STALE_DAYS) {
-    return (
-      <p className="font-mono text-[0.7rem] text-danger">
-        {label}: เกินกำหนดมา {days - IMPORT_STALE_DAYS} วัน — ไป export ไฟล์ใหม่จาก TikTok
-        Studio ได้แล้ว (นำเข้าล่าสุด {thaiShortDate(lastAt)})
-      </p>
-    );
-  }
-  return (
-    <p className="font-mono text-[0.7rem] text-muted-foreground">
-      {label}: นำเข้าล่าสุด {thaiShortDate(lastAt)}{" "}
-      {days === 0 ? "(วันนี้)" : `(${days} วันก่อน)`} · รอบถัดไป ~
-      {thaiShortDate(new Date(lastAt.getTime() + IMPORT_STALE_DAYS * DAY_MS))}
-    </p>
-  );
-}
-
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
 export function DashboardPanel({
@@ -74,10 +41,9 @@ export function DashboardPanel({
   clipMetrics,
   followerActivity,
   channelMetrics,
+  importLogs,
   reminder,
   reminderActive,
-  lastOrdersImportedAt,
-  lastMetricsImportedAt,
   entries,
   now,
   onOpenEntry,
@@ -86,6 +52,7 @@ export function DashboardPanel({
   clipMetrics: ClipMetricRecord[];
   followerActivity: FollowerActivityRecord[];
   channelMetrics: ChannelMetricRecord[];
+  importLogs: ImportLogRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   lastOrdersImportedAt: Date | null;
@@ -261,18 +228,8 @@ export function DashboardPanel({
           นำเข้าข้อมูล
         </button>
 
-        {/* บรรทัดสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น · แยกรายไฟล์เพราะ
-            อัปไฟล์เดียวไม่ได้แปลว่าข้อมูลอีกไฟล์สดตามไปด้วย */}
-        <ImportStatusLine
-          label="รายได้"
-          lastAt={lastOrdersImportedAt}
-          days={reminder.daysSinceOrdersImport}
-        />
-        <ImportStatusLine
-          label="วิวคลิป"
-          lastAt={lastMetricsImportedAt}
-          days={reminder.daysSinceMetricsImport}
-        />
+        {/* แผงสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
+        <ImportLogPanel logs={importLogs} reminder={reminder} />
 
         {importsOpen && (
           <>
@@ -308,8 +265,9 @@ export function DashboardPanel({
             <form action={metricAction} className="flex flex-wrap items-center gap-2">
               <Input
                 type="file"
-                name="file"
+                name="files"
                 accept=".csv,text/csv"
+                multiple
                 className="h-auto max-w-xs py-1.5"
                 required
               />
@@ -323,7 +281,7 @@ export function DashboardPanel({
                 {isImportingMetrics ? "กำลังนำเข้า..." : "นำเข้าข้อมูลวิว"}
               </Button>
               <span className="font-mono text-[0.7rem] text-muted-foreground">
-                โหลดจาก TikTok Studio → Analytics → Content → Download (.csv)
+                โหลดจาก TikTok Studio → Analytics → Content → Download (.csv) · เลือกได้หลายไฟล์พร้อมกัน (ช่วง 7 + 28 + 60 วัน)
               </span>
             </form>
 
@@ -335,8 +293,20 @@ export function DashboardPanel({
 
             {metricState.summary && (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-                นำเข้า {metricState.summary.total} คลิป · จับคู่ได้ {metricState.summary.matched} ·
-                ไม่มีในแอป {metricState.summary.unmatched}
+                นำเข้า {metricState.summary.files} ไฟล์ · {metricState.summary.total} คลิป ·
+                จับคู่ได้ {metricState.summary.matched} · ไม่มีในแอป {metricState.summary.unmatched}
+                {metricState.summary.duplicates.length > 0 && (
+                  <span className="text-danger">
+                    {" "}
+                    · ไฟล์ที่เคยอัปแล้ว {metricState.summary.duplicates.length} ไฟล์
+                  </span>
+                )}
+                {metricState.summary.failed.length > 0 && (
+                  <span className="text-danger">
+                    {" "}
+                    · อ่านไม่ได้ {metricState.summary.failed.join(", ")}
+                  </span>
+                )}
               </div>
             )}
 
