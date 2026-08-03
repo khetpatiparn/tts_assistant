@@ -24,9 +24,7 @@ import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
 import { parseContentCsv } from "@/lib/clip-metrics";
-import { parseFollowerActivityCsv } from "@/lib/follower-activity";
 import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
-import { uploadedAtFromVideoId, thaiDateKey } from "@/lib/video-id-time";
 import { parseMonthDayLabel } from "@/lib/csv";
 import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
@@ -141,12 +139,6 @@ export async function updateProduction(formData: FormData) {
   const hashtags = String(formData.get("hashtags") ?? "").trim();
   const videoUrl = String(formData.get("videoUrl") ?? "").trim();
   const rawPostedAt = String(formData.get("postedAt") ?? "").trim();
-  const rawPostedTime = String(formData.get("postedTimeOfDay") ?? "").trim();
-  // <input type="time"> ส่ง "HH:MM" — ค่าว่างแปลว่ายังไม่ระบุ
-  if (rawPostedTime !== "" && !/^\d{2}:\d{2}$/.test(rawPostedTime)) {
-    throw new Error("เวลาที่ลงคลิปไม่ถูกต้อง");
-  }
-  const isScheduledPost = String(formData.get("isScheduledPost") ?? "") === "true";
 
   if (videoUrl !== "") {
     let isValidUrl = false;
@@ -187,13 +179,6 @@ export async function updateProduction(formData: FormData) {
       hashtags,
       videoUrl,
       postedAt: parsedPostedAt,
-      postedTimeOfDay: rawPostedTime === "" ? null : rawPostedTime,
-      postedTimeSource: isScheduledPost
-        ? rawPostedTime === ""
-          ? null
-          : "manual"
-        : "derived",
-      isScheduledPost,
     },
   });
 
@@ -746,12 +731,7 @@ async function importOneContentFile(
 
   // upsert ด้วย (videoId, capturedOn) — โยนไฟล์เดิมซ้ำได้ ไม่เกิด snapshot ซ้ำ
   //
-  // สำคัญ: matchedEntryId ถูก set ที่นี่เท่านั้น (ไม่มีที่อื่นแตะ ClipMetric.matchedEntryId เลย)
-  // และ cross-check เรื่อง isScheduledPost ด้านล่างก็รันในรอบเดียวกันนี้พอดี — เพราะเหตุนี้
-  // คลิปที่ตั้งเวลาไว้จะไม่มีทาง "โผล่เป็น live" ได้เลย: ถ้ายังไม่เคย import ไฟล์นี้ คลิปจะยังไม่มี
-  // views จับคู่ (analyzePostTimes ข้ามไปเป็น skippedNoViews) และพอ import ครั้งแรกที่มันได้ views
-  // มัน ก็จะได้ isScheduledPost มาพร้อมกันในรอบเดียวกันเสมอ — **ถ้าวันหน้ามีจุดอื่นมา set
-  // ClipMetric.matchedEntryId แยกจากตรงนี้ (เช่น re-link ตอนแก้ videoUrl) การรับประกันนี้จะพังทันที**
+  // matchedEntryId ถูก set ที่นี่ที่เดียว ไม่มีที่อื่นแตะ ClipMetric.matchedEntryId เลย
   for (const m of metrics) {
     const matchedEntryId = videoToEntry.get(m.videoId) ?? null;
     await prisma.clipMetric.upsert({
@@ -766,36 +746,6 @@ async function importOneContentFile(
         shares: m.shares,
         matchedEntryId,
         importedAt: new Date(),
-      },
-    });
-  }
-
-  // เวลาจาก video id คือ "เวลาอัปโหลด" ถ้าวันเผยแพร่จริงในไฟล์ไม่ตรงกัน แปลว่าคลิปนั้นตั้งเวลาไว้
-  // → เวลาที่ถอดได้เชื่อไม่ได้ ต้องทำเครื่องหมายไว้เพื่อให้ analyzePostTimes ตัดออก
-  // ทำแบบนี้เพราะระบบต้องไม่พึ่งว่าผู้ใช้ติ๊ก toggle ถูก — ข้อมูลจริงจับได้ทีหลังเสมอ
-  for (const m of metrics) {
-    const entryId = videoToEntry.get(m.videoId);
-    if (!entryId) continue;
-    const uploadedAt = uploadedAtFromVideoId(m.videoId);
-    if (!uploadedAt) continue;
-    const publishedOn = parseMonthDayLabel(m.postedDate, importedAt);
-    if (!publishedOn) continue;
-
-    const scheduled = thaiDateKey(uploadedAt) !== publishedOn.toISOString().slice(0, 10);
-    if (!scheduled) continue;
-
-    const entry = await prisma.promptEntry.findUnique({
-      where: { id: entryId },
-      select: { isScheduledPost: true, postedTimeSource: true },
-    });
-    if (!entry || entry.isScheduledPost) continue;
-
-    await prisma.promptEntry.update({
-      where: { id: entryId },
-      data: {
-        isScheduledPost: true,
-        // เวลาที่เคยติดป้ายว่า derived ใช้ไม่ได้แล้ว — ล้างทิ้ง ไม่เก็บของปลอมไว้
-        postedTimeSource: entry.postedTimeSource === "manual" ? "manual" : null,
       },
     });
   }
@@ -866,55 +816,6 @@ export async function importClipMetrics(
   return { files, total, matched, unmatched: total - matched, duplicates, failed };
 }
 
-export type FollowerActivityImportSummary = {
-  total: number;
-  days: number;
-};
-
-export async function importFollowerActivity(
-  formData: FormData
-): Promise<FollowerActivityImportSummary> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("กรุณาเลือกไฟล์ FollowerActivity (.csv)");
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const text = buffer.toString("utf8");
-  const importedAt = new Date();
-  let rows;
-  try {
-    rows = parseFollowerActivityCsv(text, importedAt);
-  } catch {
-    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ FollowerActivity (.csv) จาก TikTok Studio");
-  }
-  if (rows.length === 0) {
-    throw new Error("ไม่พบข้อมูลผู้ติดตามในไฟล์");
-  }
-
-  // upsert ด้วย (activityOn, hour) — โยนไฟล์เดิมซ้ำได้ ไม่เกิดแถวซ้ำ
-  for (const r of rows) {
-    await prisma.followerActivity.upsert({
-      where: { activityOn_hour: { activityOn: r.activityOn, hour: r.hour } },
-      create: r,
-      update: { active: r.active, importedAt: new Date() },
-    });
-  }
-
-  const days = new Set(rows.map((r) => r.activityOn.getTime())).size;
-  await writeImportLog({
-    kind: "followers",
-    fileHash: hashFile(buffer),
-    rowCount: rows.length,
-    summary: `${rows.length} แถว · ${days} วัน`,
-  });
-
-  revalidatePath("/dashboard");
-  return {
-    total: rows.length,
-    days: new Set(rows.map((r) => r.activityOn.getTime())).size,
-  };
-}
 
 export async function deleteProductImage(id: string) {
   const image = await prisma.productImage.findUnique({ where: { id } });

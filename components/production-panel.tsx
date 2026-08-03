@@ -4,7 +4,6 @@ import { useActionState, useState } from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { updateProduction } from "@/app/actions";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,23 +36,11 @@ function toLocalDateInputValue(value: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function ProductionPanel({
-  entry,
-  defaultScheduled,
-}: {
-  entry: PromptEntry;
-  defaultScheduled: boolean;
-}) {
+export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
   const [postedAt, setPostedAt] = useState(toDateInputValue(entry.postedAt));
-  const [postedTimeOfDay, setPostedTimeOfDay] = useState(entry.postedTimeOfDay ?? "");
-  const [isScheduledPost, setIsScheduledPost] = useState(
-    entry.postedTimeSource === null && !entry.isScheduledPost
-      ? defaultScheduled
-      : entry.isScheduledPost
-  );
   const [caption, setCaption] = useState(entry.caption);
   const [hashtags, setHashtags] = useState(entry.hashtags);
   const [copied, setCopied] = useState(false);
@@ -215,56 +202,6 @@ export function ProductionPanel({
             </p>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium text-foreground/90">วิธีลงคลิป</label>
-            <input type="hidden" name="isScheduledPost" value={String(isScheduledPost)} />
-            <div className="inline-flex w-fit gap-0.5 rounded-md border border-border bg-card p-0.5">
-              <button
-                type="button"
-                onClick={() => setIsScheduledPost(false)}
-                className={cn(
-                  "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                  !isScheduledPost
-                    ? "bg-teal text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                โพสต์สด
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsScheduledPost(true)}
-                className={cn(
-                  "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
-                  isScheduledPost
-                    ? "bg-teal text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                ตั้งเวลา
-              </button>
-            </div>
-            {isScheduledPost ? (
-              <>
-                <Input
-                  name="postedTimeOfDay"
-                  type="time"
-                  value={postedTimeOfDay}
-                  onChange={(e) => setPostedTimeOfDay(e.target.value)}
-                />
-                <p className="font-mono text-[0.7rem] text-muted-foreground">
-                  เวลาที่เผยแพร่จริง — ไม่กรอกก็ได้ แต่คลิปนี้จะไม่ถูกนำไปวิเคราะห์
-                </p>
-              </>
-            ) : (
-              <>
-                <input type="hidden" name="postedTimeOfDay" value="" />
-                <p className="font-mono text-[0.7rem] text-muted-foreground">
-                  ระบบอ่านเวลาจากลิงก์คลิปให้เอง ไม่ต้องกรอก
-                </p>
-              </>
-            )}
-          </div>
         </div>
 
         <div className="flex items-center gap-3">
