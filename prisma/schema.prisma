@@ -131,3 +131,23 @@ model ChannelMetric {
   shares       Int
   importedAt   DateTime @default(now())
 }
+
+/// บันทึก 1 แถวต่อ 1 ไฟล์ที่อัปสำเร็จ — ตอบว่า "รอบนี้อัปอะไรไปแล้วบ้าง" ให้รอด refresh
+///
+/// ต่างจาก importedAt ในตารางข้อมูลตรงที่ importedAt บอกได้แค่ "ล่าสุดเมื่อไร" ไม่บอกว่ากี่ไฟล์
+/// ซึ่งเป็นปัญหากับ Content.csv ที่ต้องอัป 3 ไฟล์ต่อรอบและทั้งสามเขียนลง capturedOn เดียวกัน
+model ImportLog {
+  id         String   @id @default(cuid())
+  /// "orders" | "clips" | "followers" | "channel"
+  kind       String
+  /// timestamp จริง (ไม่ใช่ UTC midnight) — ตัดวันด้วย local getter เสมอ
+  uploadedAt DateTime @default(now())
+  /// sha256 ของไฟล์ดิบ ใช้ตรวจว่าอัปไฟล์เดิมซ้ำ
+  fileHash   String
+  rowCount   Int
+  /// ลายเซ็นให้ผู้ใช้ดูออกว่าไฟล์ไหนคือไฟล์ไหน เช่น "15 คลิป · เก่าสุด 1 ก.ค."
+  summary    String
+
+  @@index([kind, uploadedAt])
+  @@index([fileHash])
+}
