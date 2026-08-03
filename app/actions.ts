@@ -29,6 +29,8 @@ import { parseOverviewCsv } from "@/lib/channel-metrics";
 import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
 import { uploadedAtFromVideoId, thaiDateKey } from "@/lib/video-id-time";
 import { parseMonthDayLabel } from "@/lib/csv";
+import { createHash } from "crypto";
+import type { ImportKind } from "@/lib/import-log";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -580,6 +582,34 @@ export async function generateWithAI(
   return { captionError };
 }
 
+/** sha256 ของไฟล์ดิบ — ใช้ตรวจว่าผู้ใช้เลือกไฟล์เดิมซ้ำ */
+function hashFile(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+/**
+ * บันทึกว่าอัปไฟล์อะไรไปเมื่อไร — เรียก**หลัง** import สำเร็จเท่านั้น
+ * ไฟล์ที่ parse ไม่ผ่านต้องไม่ถูกบันทึกว่าอัปแล้ว ไม่งั้นแผงสถานะจะโกหก
+ */
+async function writeImportLog(args: {
+  kind: ImportKind;
+  fileHash: string;
+  rowCount: number;
+  summary: string;
+}) {
+  await prisma.importLog.create({ data: args });
+}
+
+/** "2 ส.ค." — สำหรับ Date ที่เป็น timestamp จริง (orderDate, uploadedAt) */
+function shortLocal(d: Date): string {
+  return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+
+/** "2 ส.ค." — สำหรับ Date ที่เก็บเป็น UTC midnight (statsOn, postedAt) */
+function shortUtc(d: Date): string {
+  return d.toLocaleDateString("th-TH", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 export type AffiliateImportSummary = {
   total: number;
   matched: number;
@@ -652,6 +682,16 @@ export async function importAffiliateOrders(
         orders: 1,
       });
   }
+
+  const orderTimes = orders.map((o) => o.orderDate.getTime());
+  await writeImportLog({
+    kind: "orders",
+    fileHash: hashFile(buffer),
+    rowCount: orders.length,
+    summary:
+      `${orders.length} ออเดอร์ · ` +
+      `${shortLocal(new Date(Math.min(...orderTimes)))}–${shortLocal(new Date(Math.max(...orderTimes)))}`,
+  });
 
   revalidatePath("/dashboard");
   return {
@@ -771,7 +811,8 @@ export async function importFollowerActivity(
     throw new Error("กรุณาเลือกไฟล์ FollowerActivity (.csv)");
   }
 
-  const text = await file.text();
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const text = buffer.toString("utf8");
   const importedAt = new Date();
   let rows;
   try {
@@ -791,6 +832,14 @@ export async function importFollowerActivity(
       update: { active: r.active, importedAt: new Date() },
     });
   }
+
+  const days = new Set(rows.map((r) => r.activityOn.getTime())).size;
+  await writeImportLog({
+    kind: "followers",
+    fileHash: hashFile(buffer),
+    rowCount: rows.length,
+    summary: `${rows.length} แถว · ${days} วัน`,
+  });
 
   revalidatePath("/dashboard");
   return {
@@ -820,7 +869,8 @@ export async function importChannelMetrics(
     throw new Error("กรุณาเลือกไฟล์ Overview (.csv)");
   }
 
-  const text = await file.text();
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const text = buffer.toString("utf8");
   const importedAt = new Date();
   let parsed;
   try {
@@ -842,6 +892,15 @@ export async function importChannelMetrics(
   }
 
   const times = parsed.rows.map((r) => r.statsOn.getTime());
+  await writeImportLog({
+    kind: "channel",
+    fileHash: hashFile(buffer),
+    rowCount: parsed.rows.length,
+    summary:
+      `${parsed.rows.length} วัน · ` +
+      `${shortUtc(new Date(Math.min(...times)))}–${shortUtc(new Date(Math.max(...times)))}`,
+  });
+
   revalidatePath("/dashboard");
   return {
     total: parsed.rows.length,
