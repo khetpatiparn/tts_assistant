@@ -94,12 +94,13 @@ function daysSince(lastMs: number): number {
 
 /** ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — ย้ายมาจาก app/page.tsx เดิมทั้งดุ้น */
 export async function getDashboardData() {
-  const [orders, clipMetrics, followerActivity] = await Promise.all([
+  const [orders, clipMetrics, followerActivity, channelMetrics] = await Promise.all([
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
     prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
     prisma.followerActivity.findMany({
       orderBy: [{ activityOn: "asc" }, { hour: "asc" }],
     }),
+    prisma.channelMetric.findMany({ orderBy: { statsOn: "asc" } }),
   ]);
 
   let daysSinceOrdersImport: number | null = null;
@@ -137,6 +138,7 @@ export async function getDashboardData() {
     orders,
     clipMetrics,
     followerActivity,
+    channelMetrics,
     reminder,
     reminderActive,
     lastOrdersImportedAt,
