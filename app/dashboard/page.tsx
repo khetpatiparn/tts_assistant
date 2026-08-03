@@ -15,6 +15,7 @@ export default async function DashboardPage() {
           orders={data.orders}
           clipMetrics={data.clipMetrics}
           followerActivity={data.followerActivity}
+          channelMetrics={data.channelMetrics}
           reminder={data.reminder}
           reminderActive={data.reminderActive}
           lastOrdersImportedAt={data.lastOrdersImportedAt}
