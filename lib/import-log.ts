@@ -4,7 +4,7 @@
  * ไฟล์นี้ถูก import โดย client component ด้วย **ห้ามใส่ import จาก node:* เด็ดขาด**
  * (การ hash ไฟล์อยู่ใน app/actions.ts ซึ่งเป็นฝั่ง server ล้วน)
  */
-export type ImportKind = "orders" | "clips" | "followers" | "channel";
+export type ImportKind = "orders" | "clips" | "followers";
 
 /** จำนวนไฟล์ Content.csv ที่ควรอัปต่อรอบ (ช่วง 7 + 28 + 60 วัน) */
 export const EXPECTED_CLIP_FILES = 3;

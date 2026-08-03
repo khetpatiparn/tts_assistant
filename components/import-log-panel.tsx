@@ -12,12 +12,11 @@ import {
 const KIND_LABEL: Record<string, string> = {
   orders: "รายได้",
   clips: "วิวคลิป",
-  channel: "วิวทั้งช่อง",
   followers: "ผู้ติดตาม",
 };
 
 /** เรียงตามความสำคัญของไฟล์ ไม่ใช่ตามตัวอักษร — รายได้สำคัญสุด */
-const KIND_ORDER = ["orders", "clips", "channel", "followers"];
+const KIND_ORDER = ["orders", "clips", "followers"];
 
 /** "3 ส.ค. 13:45" — uploadedAt เป็น timestamp จริง อ่านด้วย local */
 function stamp(d: Date): string {

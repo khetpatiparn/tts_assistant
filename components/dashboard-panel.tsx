@@ -7,11 +7,8 @@ import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
 import { importFollowerActivity } from "@/app/actions";
 import type { FollowerActivityImportSummary } from "@/app/actions";
-import { importChannelMetrics, type ChannelMetricImportSummary } from "@/app/actions";
-import { ChannelReachPanel } from "@/components/channel-reach-panel";
 import { ImportLogPanel } from "@/components/import-log-panel";
 import type { ImportLogRecord } from "@/lib/import-log";
-import type { ChannelMetricRecord } from "@/lib/channel-reach";
 import type { ClipMetricRecord } from "@/lib/recommender";
 import type { FollowerActivityRecord } from "@/lib/post-time";
 import {
@@ -40,7 +37,6 @@ export function DashboardPanel({
   orders,
   clipMetrics,
   followerActivity,
-  channelMetrics,
   importLogs,
   reminder,
   reminderActive,
@@ -51,7 +47,6 @@ export function DashboardPanel({
   orders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
   followerActivity: FollowerActivityRecord[];
-  channelMetrics: ChannelMetricRecord[];
   importLogs: ImportLogRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
@@ -104,21 +99,6 @@ export function DashboardPanel({
     async (_prev, formData) => {
       try {
         const summary = await importFollowerActivity(formData);
-        return { summary, error: null };
-      } catch (e) {
-        return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
-      }
-    },
-    { summary: null, error: null }
-  );
-
-  const [channelState, channelAction, isImportingChannel] = useActionState<
-    { summary: ChannelMetricImportSummary | null; error: string | null },
-    FormData
-  >(
-    async (_prev, formData) => {
-      try {
-        const summary = await importChannelMetrics(formData);
         return { summary, error: null };
       } catch (e) {
         return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
@@ -199,8 +179,6 @@ export function DashboardPanel({
           </p>
         </div>
       )}
-
-      <ChannelReachPanel metrics={channelMetrics} orders={orders} />
 
       {orders.length > 0 && <RevenueByClipList orders={orders} />}
       {orders.length > 0 && <RevenueTrend orders={orders} />}
@@ -336,36 +314,6 @@ export function DashboardPanel({
             {followerState.summary && (
               <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
                 นำเข้า {followerState.summary.total} แถว · {followerState.summary.days} วัน
-              </div>
-            )}
-
-            <form action={channelAction} className="flex flex-wrap items-center gap-2">
-              <Input
-                type="file"
-                name="file"
-                accept=".csv,text/csv"
-                className="h-auto max-w-xs py-1.5"
-                required
-              />
-              <Button type="submit" size="sm" variant="outline" disabled={isImportingChannel}>
-                <Upload className="size-3.5" />
-                {isImportingChannel ? "กำลังนำเข้า..." : "นำเข้าวิวทั้งช่อง"}
-              </Button>
-              <span className="font-mono text-[0.7rem] text-muted-foreground">
-                โหลดจาก TikTok Studio → Analytics → Overview → Download (Overview.csv) · ให้ย้อนหลัง 28 วัน อัปทุก ≤28 วันจะได้ประวัติต่อเนื่อง
-              </span>
-            </form>
-
-            {channelState.error && (
-              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-                {channelState.error}
-              </p>
-            )}
-
-            {channelState.summary && (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-                นำเข้า {channelState.summary.total} วัน
-                {channelState.summary.skipped > 0 && ` · ข้าม ${channelState.summary.skipped} แถว`}
               </div>
             )}
           </>

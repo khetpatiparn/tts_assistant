@@ -25,7 +25,6 @@ import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
 import { parseContentCsv } from "@/lib/clip-metrics";
 import { parseFollowerActivityCsv } from "@/lib/follower-activity";
-import { parseOverviewCsv } from "@/lib/channel-metrics";
 import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok-oembed";
 import { uploadedAtFromVideoId, thaiDateKey } from "@/lib/video-id-time";
 import { parseMonthDayLabel } from "@/lib/csv";
@@ -914,68 +913,6 @@ export async function importFollowerActivity(
   return {
     total: rows.length,
     days: new Set(rows.map((r) => r.activityOn.getTime())).size,
-  };
-}
-
-export type ChannelMetricImportSummary = {
-  total: number;
-  skipped: number;
-  firstDate: Date | null;
-  lastDate: Date | null;
-};
-
-/**
- * นำเข้า Overview.csv — วิวรวมทั้งช่องรายวัน
- *
- * ต่างจาก Content.csv ตรงที่ไฟล์นี้ไม่มีเพดาน 15 แถว จึงเป็นแหล่งวิวชุดเดียวที่ครบ
- * ทุกคลิป ใช้เป็นตัวหารของ conversion ระดับช่องที่ไม่มี selection bias
- */
-export async function importChannelMetrics(
-  formData: FormData
-): Promise<ChannelMetricImportSummary> {
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    throw new Error("กรุณาเลือกไฟล์ Overview (.csv)");
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const text = buffer.toString("utf8");
-  const importedAt = new Date();
-  let parsed;
-  try {
-    parsed = parseOverviewCsv(text, importedAt);
-  } catch {
-    throw new Error("อ่านไฟล์ไม่สำเร็จ — ต้องเป็นไฟล์ Overview (.csv) จาก TikTok Studio");
-  }
-  if (parsed.rows.length === 0) {
-    throw new Error("ไม่พบข้อมูลวิวรายวันในไฟล์ — ตรวจว่าเลือก Overview.csv ไม่ใช่ไฟล์อื่น");
-  }
-
-  // upsert ด้วย statsOn — โยนไฟล์เดิมซ้ำได้ ไม่เกิดแถวซ้ำ (ช่วง 28 วันของแต่ละไฟล์ทับกันอยู่แล้ว)
-  for (const r of parsed.rows) {
-    await prisma.channelMetric.upsert({
-      where: { statsOn: r.statsOn },
-      create: r,
-      update: { ...r, importedAt: new Date() },
-    });
-  }
-
-  const times = parsed.rows.map((r) => r.statsOn.getTime());
-  await writeImportLog({
-    kind: "channel",
-    fileHash: hashFile(buffer),
-    rowCount: parsed.rows.length,
-    summary:
-      `${parsed.rows.length} วัน · ` +
-      `${shortUtc(new Date(Math.min(...times)))}–${shortUtc(new Date(Math.max(...times)))}`,
-  });
-
-  revalidatePath("/dashboard");
-  return {
-    total: parsed.rows.length,
-    skipped: parsed.skipped,
-    firstDate: new Date(Math.min(...times)),
-    lastDate: new Date(Math.max(...times)),
   };
 }
 
