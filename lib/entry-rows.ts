@@ -31,9 +31,6 @@ export type EntryRow = {
   // สามตัวล่างนี้หน้ารายการกับแถบข้างไม่ได้ใช้ แต่ /dashboard ต้องใช้: DashboardPanel
   // รับ entries เป็น PostTimeEntry & ScoreboardEntry ซึ่งบังคับให้มีครบ เป็น scalar
   // เล็กๆ ทั้งสามตัวจึงรวมมาในแถวเบาได้โดยไม่กระทบเป้าหมายเรื่องขนาด
-  postedTimeOfDay: string | null;
-  postedTimeSource: string | null;
-  isScheduledPost: boolean;
 };
 
 export const PER_PAGE = 30;

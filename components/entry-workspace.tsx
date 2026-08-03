@@ -56,9 +56,6 @@ export type PromptEntry = {
   hashtags: string;
   videoUrl: string;
   postedAt: Date | null;
-  postedTimeOfDay: string | null;
-  postedTimeSource: string | null;
-  isScheduledPost: boolean;
   createdAt: Date;
   productImages: ProductImageRecord[];
 };
@@ -83,12 +80,10 @@ export function EntryWorkspace({
   entry,
   rows,
   usedAngles,
-  defaultScheduled,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
   usedAngles: UsedAngleWithOutcome[];
-  defaultScheduled: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -304,7 +299,6 @@ export function EntryWorkspace({
             <ProductionPanel
               key={entry.id}
               entry={entry}
-              defaultScheduled={defaultScheduled}
             />
           </div>
         )}

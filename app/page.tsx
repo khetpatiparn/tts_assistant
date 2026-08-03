@@ -51,9 +51,6 @@ export default async function EntryListPage({
             duplicatedFromId: r.duplicatedFromId,
             status: r.status,
             thumbnailFilename: r.thumbnailFilename,
-            postedTimeOfDay: r.postedTimeOfDay,
-            postedTimeSource: r.postedTimeSource,
-            isScheduledPost: r.isScheduledPost,
             sales: salesByEntry.get(r.id) ?? null,
           }))}
           query={query}

@@ -1,11 +1,6 @@
 import { notFound } from "next/navigation";
 
-import {
-  getDefaultScheduled,
-  getEntryDetail,
-  getEntryRows,
-  getUsedAngles,
-} from "@/lib/entry-queries";
+import { getEntryDetail, getEntryRows, getUsedAngles } from "@/lib/entry-queries";
 import { EntryWorkspace } from "@/components/entry-workspace";
 
 const RAIL_LIMIT = 15;
@@ -19,11 +14,10 @@ export default async function EntryPage({
 }) {
   const { id } = await params;
 
-  const [entry, rows, usedAngles, defaultScheduled] = await Promise.all([
+  const [entry, rows, usedAngles] = await Promise.all([
     getEntryDetail(id),
     getEntryRows(),
     getUsedAngles(id),
-    getDefaultScheduled(),
   ]);
 
   if (entry === null) notFound();
@@ -41,7 +35,6 @@ export default async function EntryPage({
       entry={entry}
       rows={railRows}
       usedAngles={usedAngles}
-      defaultScheduled={defaultScheduled}
     />
   );
 }

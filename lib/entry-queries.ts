@@ -20,9 +20,6 @@ const ROW_SELECT = {
   postedAt: true,
   createdAt: true,
   duplicatedFromId: true,
-  postedTimeOfDay: true,
-  postedTimeSource: true,
-  isScheduledPost: true,
   productImages: {
     select: { filename: true },
     orderBy: { sortOrder: "asc" },
@@ -57,9 +54,6 @@ export async function getEntryRows(): Promise<EntryRow[]> {
     duplicatedFromId: r.duplicatedFromId,
     status: entryStatus({ hasOutput: hasOutputIds.has(r.id), videoUrl: r.videoUrl }),
     thumbnailFilename: r.productImages[0]?.filename ?? null,
-    postedTimeOfDay: r.postedTimeOfDay,
-    postedTimeSource: r.postedTimeSource,
-    isScheduledPost: r.isScheduledPost,
   }));
 }
 
@@ -94,12 +88,9 @@ function daysSince(lastMs: number): number {
 
 /** ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — ย้ายมาจาก app/page.tsx เดิมทั้งดุ้น */
 export async function getDashboardData() {
-  const [orders, clipMetrics, followerActivity, importLogs] = await Promise.all([
+  const [orders, clipMetrics, importLogs] = await Promise.all([
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
     prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
-    prisma.followerActivity.findMany({
-      orderBy: [{ activityOn: "asc" }, { hour: "asc" }],
-    }),
     prisma.importLog.findMany({ orderBy: { uploadedAt: "asc" } }),
   ]);
 
@@ -137,7 +128,6 @@ export async function getDashboardData() {
   return {
     orders,
     clipMetrics,
-    followerActivity,
     importLogs,
     reminder,
     reminderActive,
@@ -219,16 +209,4 @@ export async function getEntrySales(): Promise<Map<string, EntrySalesSummary>> {
     }),
   ]);
   return summarizeEntrySales(orders, metrics);
-}
-
-/** default ของ toggle "ตั้งเวลาโพสต์" = แบบที่ผู้ใช้ทำบ่อยกว่า */
-export async function getDefaultScheduled(): Promise<boolean> {
-  const [posted, scheduled] = await Promise.all([
-    prisma.promptEntry.count({ where: { NOT: { videoUrl: "" } } }),
-    prisma.promptEntry.count({
-      where: { NOT: { videoUrl: "" }, isScheduledPost: true },
-    }),
-  ]);
-  if (posted === 0) return false;
-  return scheduled > posted / 2;
 }

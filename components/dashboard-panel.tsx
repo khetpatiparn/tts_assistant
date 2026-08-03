@@ -5,18 +5,14 @@ import { ChevronDown, ChevronRight, Upload } from "lucide-react";
 
 import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
-import { importFollowerActivity } from "@/app/actions";
-import type { FollowerActivityImportSummary } from "@/app/actions";
 import { ImportLogPanel } from "@/components/import-log-panel";
 import type { ImportLogRecord } from "@/lib/import-log";
 import type { ClipMetricRecord } from "@/lib/recommender";
-import type { FollowerActivityRecord } from "@/lib/post-time";
 import {
   summarizeOrders,
   type AffiliateOrderRecord,
   type ReminderState,
 } from "@/lib/dashboard";
-import { PostTimePanel, type PostTimeEntry } from "@/components/post-time-panel";
 import { Reconciliation } from "@/components/reconciliation";
 import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
@@ -36,7 +32,6 @@ type ImportState = { summary: AffiliateImportSummary | null; error: string | nul
 export function DashboardPanel({
   orders,
   clipMetrics,
-  followerActivity,
   importLogs,
   reminder,
   reminderActive,
@@ -46,13 +41,16 @@ export function DashboardPanel({
 }: {
   orders: AffiliateOrderRecord[];
   clipMetrics: ClipMetricRecord[];
-  followerActivity: FollowerActivityRecord[];
   importLogs: ImportLogRecord[];
   reminder: ReminderState;
   reminderActive: boolean;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
-  entries: (PostTimeEntry & ScoreboardEntry & { duplicatedFromId: string | null })[];
+  entries: (ScoreboardEntry & {
+    productName: string;
+    duplicatedFromId: string | null;
+    videoUrl: string;
+  })[];
   now: Date;
   onOpenEntry: (entryId: string) => void;
 }) {
@@ -92,20 +90,6 @@ export function DashboardPanel({
     { summary: null, error: null }
   );
 
-  const [followerState, followerAction, isImportingFollowers] = useActionState<
-    { summary: FollowerActivityImportSummary | null; error: string | null },
-    FormData
-  >(
-    async (_prev, formData) => {
-      try {
-        const summary = await importFollowerActivity(formData);
-        return { summary, error: null };
-      } catch (e) {
-        return { summary: null, error: e instanceof Error ? e.message : "อัปโหลดไม่สำเร็จ" };
-      }
-    },
-    { summary: null, error: null }
-  );
 
   return (
     <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
@@ -183,12 +167,6 @@ export function DashboardPanel({
       {orders.length > 0 && <RevenueByClipList orders={orders} />}
       {orders.length > 0 && <RevenueTrend orders={orders} />}
       {orders.length > 0 && <Reconciliation orders={orders} />}
-
-      <PostTimePanel
-        entries={entries}
-        metrics={clipMetrics}
-        followerActivity={followerActivity}
-      />
 
       {/* นำเข้าข้อมูล — งานประจำสัปดาห์ อยู่ล่างสุด พับไว้เมื่อยังไม่ถึงรอบ */}
       <div className="flex flex-col gap-3 border-t border-border pt-4">
@@ -288,34 +266,6 @@ export function DashboardPanel({
               </div>
             )}
 
-            <form action={followerAction} className="flex flex-wrap items-center gap-2">
-              <Input
-                type="file"
-                name="file"
-                accept=".csv,text/csv"
-                className="h-auto max-w-xs py-1.5"
-                required
-              />
-              <Button type="submit" size="sm" variant="outline" disabled={isImportingFollowers}>
-                <Upload className="size-3.5" />
-                {isImportingFollowers ? "กำลังนำเข้า..." : "นำเข้าผู้ติดตามรายชั่วโมง"}
-              </Button>
-              <span className="font-mono text-[0.7rem] text-muted-foreground">
-                โหลดจาก TikTok Studio → Analytics → Followers → Download (FollowerActivity.csv)
-              </span>
-            </form>
-
-            {followerState.error && (
-              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-                {followerState.error}
-              </p>
-            )}
-
-            {followerState.summary && (
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
-                นำเข้า {followerState.summary.total} แถว · {followerState.summary.days} วัน
-              </div>
-            )}
           </>
         )}
       </div>

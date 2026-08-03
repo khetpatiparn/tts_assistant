@@ -14,7 +14,6 @@ export default async function DashboardPage() {
         <DashboardRoute
           orders={data.orders}
           clipMetrics={data.clipMetrics}
-          followerActivity={data.followerActivity}
           importLogs={data.importLogs}
           reminder={data.reminder}
           reminderActive={data.reminderActive}
@@ -26,9 +25,6 @@ export default async function DashboardPage() {
             postedAt: r.postedAt,
             productName: r.productName,
             videoUrl: r.videoUrl,
-            postedTimeOfDay: r.postedTimeOfDay,
-            postedTimeSource: r.postedTimeSource,
-            isScheduledPost: r.isScheduledPost,
           }))}
           now={new Date()}
         />
