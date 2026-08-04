@@ -137,28 +137,33 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
   );
 }
 
-/** sparkline จิ๋วในบรรทัดเดียว — SVG วาดเองเหมือนเดิม (24px ไม่คุ้มใช้ library) */
-function Sparkline({ points }: { points: number[] }) {
-  if (points.length < 2) return null;
-  const W = 96;
-  const H = 24;
-  const max = Math.max(...points, 1);
-  const step = W / (points.length - 1);
-  const line = points
-    .map((p, i) => `${i * step},${H - (p / max) * (H - 4) - 2}`)
-    .join(" ");
+/**
+ * แท่งคู่เทียบยอดรวม 2 ช่วง (ไม่ใช่เส้นรายวัน) — ข้อมูลระดับวันของช่องนี้เบาบางเกินกว่าจะเล่า
+ * "แนวโน้มรายวัน" ได้น่าเชื่อถือ (มัธยฐาน 0 ออเดอร์/วัน) เส้นจะเต็มไปด้วยช่วงแบนราบเป็น 0 สลับพีค
+ * ซึ่งเป็น noise ไม่ใช่สัญญาณจริง แท่งคู่สื่อแค่สิ่งที่คำนวณจริง (ผลรวม 2 ก้อน) ไม่มากไปกว่านั้น
+ */
+function WindowCompareBars({ previous, current }: { previous: number; current: number }) {
+  const max = Math.max(previous, current, 1);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-6 w-24" aria-hidden="true">
-      <polyline points={line} className="fill-none stroke-teal" strokeWidth={1.5} strokeLinejoin="round" />
-    </svg>
+    <div className="flex h-6 items-end gap-1" aria-hidden="true">
+      <div
+        className="w-3 rounded-sm bg-smoke/50"
+        style={{ height: `${Math.max((previous / max) * 100, 4)}%` }}
+        title="7 วันก่อนหน้า"
+      />
+      <div
+        className="w-3 rounded-sm bg-teal"
+        style={{ height: `${Math.max((current / max) * 100, 4)}%` }}
+        title="7 วันล่าสุด"
+      />
+    </div>
   );
 }
 
 export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
   const [open, setOpen] = useState(false);
   if (orders.length === 0) return null;
-  const { points, currentWindowGmv, previousWindowGmv, direction, changePct } =
-    revenueTrend(orders);
+  const { currentWindowGmv, previousWindowGmv, direction, changePct } = revenueTrend(orders);
 
   const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
   const arrowClass =
@@ -172,7 +177,7 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
         <span className="font-mono text-[0.7rem] tracking-widest text-smoke uppercase">
           แนวโน้มรายได้
         </span>
-        <Sparkline points={points} />
+        <WindowCompareBars previous={previousWindowGmv} current={currentWindowGmv} />
         <span className={`flex items-center gap-1 text-sm ${arrowClass}`}>
           <Arrow className="size-4" />
           {pctLabel}

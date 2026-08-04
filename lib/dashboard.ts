@@ -111,15 +111,13 @@ function startOfLocalDay(d: Date): Date {
  * บันทึกทันทีตอนสั่งซื้อ จึงไม่มีปัญหา settlement lag นี้
  */
 export function revenueTrend(orders: AffiliateOrderRecord[]): {
-  /** 14 จุด รายวัน GMV เรียงเก่า→ใหม่ (7 วันของช่วง B ต่อด้วย 7 วันของช่วง A) ใช้วาด sparkline */
-  points: number[];
   currentWindowGmv: number;
   previousWindowGmv: number;
   changePct: number;
   direction: "up" | "down" | "flat";
 } {
   if (orders.length === 0) {
-    return { points: [], currentWindowGmv: 0, previousWindowGmv: 0, changePct: 0, direction: "flat" };
+    return { currentWindowGmv: 0, previousWindowGmv: 0, changePct: 0, direction: "flat" };
   }
 
   const latestOrderDate = new Date(Math.max(...orders.map((o) => o.orderDate.getTime())));
@@ -127,18 +125,14 @@ export function revenueTrend(orders: AffiliateOrderRecord[]): {
   const windowAStart = windowAEnd - 7 * DAY_MS;
   const windowBStart = windowAStart - 7 * DAY_MS;
 
-  const daily = new Array<number>(14).fill(0);
   let currentWindowGmv = 0;
   let previousWindowGmv = 0;
 
   for (const o of orders) {
     const t = o.orderDate.getTime();
     if (t < windowBStart || t >= windowAEnd) continue;
-    const dayIndex = Math.floor((t - windowBStart) / DAY_MS);
-    const gmv = o.gmv;
-    daily[dayIndex] += gmv;
-    if (t >= windowAStart) currentWindowGmv += gmv;
-    else previousWindowGmv += gmv;
+    if (t >= windowAStart) currentWindowGmv += o.gmv;
+    else previousWindowGmv += o.gmv;
   }
 
   let changePct: number;
@@ -149,7 +143,7 @@ export function revenueTrend(orders: AffiliateOrderRecord[]): {
   }
   const direction = changePct > 5 ? "up" : changePct < -5 ? "down" : "flat";
 
-  return { points: daily, currentWindowGmv, previousWindowGmv, changePct, direction };
+  return { currentWindowGmv, previousWindowGmv, changePct, direction };
 }
 
 export function revenueByClip(orders: AffiliateOrderRecord[]) {
