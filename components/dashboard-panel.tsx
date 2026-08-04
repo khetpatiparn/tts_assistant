@@ -18,8 +18,6 @@ import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { RevenueByClipList } from "@/components/revenue-by-clip";
 import { RevenueTrend } from "@/components/revenue-charts";
-import { WeeklyScoreboard } from "@/components/weekly-scoreboard";
-import type { ScoreboardEntry } from "@/lib/weekly-scoreboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -46,11 +44,13 @@ export function DashboardPanel({
   reminderActive: boolean;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
-  entries: (ScoreboardEntry & {
+  entries: {
+    id: string;
     productName: string;
     duplicatedFromId: string | null;
     videoUrl: string;
-  })[];
+    postedAt: Date | null;
+  }[];
   now: Date;
   onOpenEntry: (entryId: string) => void;
 }) {
@@ -101,8 +101,6 @@ export function DashboardPanel({
       </div>
 
       {reminderActive && <ReminderBanner reminder={reminder} />}
-
-      <WeeklyScoreboard entries={entries} orders={orders} now={now} />
 
       <Recommendations
         entries={entries}

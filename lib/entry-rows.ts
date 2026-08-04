@@ -28,9 +28,6 @@ export type EntryRow = {
   status: EntryStatus;
   /** ชื่อไฟล์รูปแรก — URL เต็มประกอบเป็น /api/uploads/<id>/<thumbnailFilename> */
   thumbnailFilename: string | null;
-  // สามตัวล่างนี้หน้ารายการกับแถบข้างไม่ได้ใช้ แต่ /dashboard ต้องใช้: DashboardPanel
-  // รับ entries เป็น PostTimeEntry & ScoreboardEntry ซึ่งบังคับให้มีครบ เป็น scalar
-  // เล็กๆ ทั้งสามตัวจึงรวมมาในแถวเบาได้โดยไม่กระทบเป้าหมายเรื่องขนาด
 };
 
 export const PER_PAGE = 30;

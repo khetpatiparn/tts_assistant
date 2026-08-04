@@ -9,7 +9,7 @@ export type ImportKind = "orders" | "clips";
 /** จำนวนไฟล์ Content.csv ที่ควรอัปต่อรอบ (ช่วง 7 + 28 + 60 วัน) */
 export const EXPECTED_CLIP_FILES = 3;
 
-/** รับ shape แคบๆ ไม่ผูกกับ Prisma เพื่อให้ทดสอบง่าย (แบบเดียวกับ ScoreboardEntry) */
+/** รับ shape แคบๆ ไม่ผูกกับ Prisma เพื่อให้ทดสอบง่าย */
 export type ImportLogRecord = {
   kind: string;
   uploadedAt: Date;
