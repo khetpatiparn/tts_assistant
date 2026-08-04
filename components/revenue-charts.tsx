@@ -157,7 +157,8 @@ function Sparkline({ points }: { points: number[] }) {
 export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
   const [open, setOpen] = useState(false);
   if (orders.length === 0) return null;
-  const { points, direction, changePct } = revenueTrend(orders);
+  const { points, currentWindowRevenue, previousWindowRevenue, direction, changePct } =
+    revenueTrend(orders);
 
   const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
   const arrowClass =
@@ -184,6 +185,9 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
           {open ? "ซ่อนกราฟ" : "ดูกราฟ"}
         </button>
       </div>
+      <p className="font-mono text-[0.7rem] text-muted-foreground">
+        7 วันล่าสุด {baht(currentWindowRevenue)} · 7 วันก่อนหน้า {baht(previousWindowRevenue)}
+      </p>
       {open && <TimeChart orders={orders} />}
     </div>
   );
