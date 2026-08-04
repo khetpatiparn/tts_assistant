@@ -91,32 +91,60 @@ export function ordersByDay(orders: AffiliateOrderRecord[]) {
   return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** ตัดเวลาออก เหลือแค่วันตามปฏิทินท้องถิ่น — ใช้ตัดขอบหน้าต่าง 7 วัน */
+function startOfLocalDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 /**
- * แนวโน้มรายได้สำหรับ sparkline — เทียบผลรวมครึ่งหลังกับครึ่งแรกของช่วง
- * points = gmv รายวัน (ใช้วาดเส้นจิ๋ว)
+ * แนวโน้มรายได้ rolling 7 วัน: เทียบ "7 วันล่าสุดที่มีข้อมูลจริง" กับ "7 วันก่อนหน้านั้น"
+ *
+ * จุดยึดคือวันที่ล่าสุดที่มีออเดอร์จริงในระบบ ไม่ใช่ new Date() วันนี้ตามนาฬิกา — เหตุผลเดียวกับ
+ * filterByRange ใน components/revenue-charts.tsx: ข้อมูลนำเข้ามือมักค้างหลายวัน ถ้านับจากวันนี้จริง
+ * ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล และผู้ใช้อัปข้อมูลไม่ตรงรอบตายตัว (5-7 วัน) จึงใช้ rolling
+ * ไม่ใช่ปฏิทินจันทร์-อาทิตย์ — ปฏิทินจะทำให้สัปดาห์ปัจจุบัน "ยังไม่จบ" เกือบทุกครั้งที่อัปข้อมูล
  */
 export function revenueTrend(orders: AffiliateOrderRecord[]): {
   points: number[];
-  direction: "up" | "down" | "flat";
+  currentWindowRevenue: number;
+  previousWindowRevenue: number;
   changePct: number;
+  direction: "up" | "down" | "flat";
 } {
-  const points = ordersByDay(orders).map((d) => d.gmv);
-  if (points.length < 2) {
-    return { points, direction: "flat", changePct: 0 };
+  if (orders.length === 0) {
+    return { points: [], currentWindowRevenue: 0, previousWindowRevenue: 0, changePct: 0, direction: "flat" };
   }
-  const mid = Math.floor(points.length / 2);
-  const firstHalf = points.slice(0, mid);
-  const secondHalf = points.slice(mid);
-  const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
-  const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+
+  const latestOrderDate = new Date(Math.max(...orders.map((o) => o.orderDate.getTime())));
+  const windowAEnd = startOfLocalDay(latestOrderDate).getTime() + DAY_MS; // exclusive
+  const windowAStart = windowAEnd - 7 * DAY_MS;
+  const windowBStart = windowAStart - 7 * DAY_MS;
+
+  const daily = new Array<number>(14).fill(0);
+  let currentWindowRevenue = 0;
+  let previousWindowRevenue = 0;
+
+  for (const o of orders) {
+    const t = o.orderDate.getTime();
+    if (t < windowBStart || t >= windowAEnd) continue;
+    const dayIndex = Math.floor((t - windowBStart) / DAY_MS);
+    const revenue = o.finalRevenue ?? 0;
+    daily[dayIndex] += revenue;
+    if (t >= windowAStart) currentWindowRevenue += revenue;
+    else previousWindowRevenue += revenue;
+  }
+
   let changePct: number;
-  if (firstAvg === 0) {
-    changePct = secondAvg > 0 ? 100 : 0;
+  if (previousWindowRevenue === 0) {
+    changePct = currentWindowRevenue > 0 ? 100 : 0;
   } else {
-    changePct = ((secondAvg - firstAvg) / firstAvg) * 100;
+    changePct = ((currentWindowRevenue - previousWindowRevenue) / previousWindowRevenue) * 100;
   }
   const direction = changePct > 5 ? "up" : changePct < -5 ? "down" : "flat";
-  return { points, direction, changePct };
+
+  return { points: daily, currentWindowRevenue, previousWindowRevenue, changePct, direction };
 }
 
 export function revenueByClip(orders: AffiliateOrderRecord[]) {
