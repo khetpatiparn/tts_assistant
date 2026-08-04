@@ -99,22 +99,27 @@ function startOfLocalDay(d: Date): Date {
 }
 
 /**
- * แนวโน้มรายได้ rolling 7 วัน: เทียบ "7 วันล่าสุดที่มีข้อมูลจริง" กับ "7 วันก่อนหน้านั้น"
+ * แนวโน้มยอดขาย (GMV) rolling 7 วัน: เทียบ "7 วันล่าสุดที่มีข้อมูลจริง" กับ "7 วันก่อนหน้านั้น"
  *
  * จุดยึดคือวันที่ล่าสุดที่มีออเดอร์จริงในระบบ ไม่ใช่ new Date() วันนี้ตามนาฬิกา — เหตุผลเดียวกับ
  * filterByRange ใน components/revenue-charts.tsx: ข้อมูลนำเข้ามือมักค้างหลายวัน ถ้านับจากวันนี้จริง
  * ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล และผู้ใช้อัปข้อมูลไม่ตรงรอบตายตัว (5-7 วัน) จึงใช้ rolling
  * ไม่ใช่ปฏิทินจันทร์-อาทิตย์ — ปฏิทินจะทำให้สัปดาห์ปัจจุบัน "ยังไม่จบ" เกือบทุกครั้งที่อัปข้อมูล
+ *
+ * ใช้ GMV ไม่ใช่ settledRevenue (`finalRevenue ?? 0`): การ settle ใช้เวลา ~7-14 วัน นานกว่าหน้าต่าง
+ * 7 วันเอง ทำให้ช่วง "ปัจจุบัน" เป็นช่วงที่ settle น้อยที่สุดเสมอและโชว์แนวโน้มกลับด้านหลอกๆ — GMV
+ * บันทึกทันทีตอนสั่งซื้อ จึงไม่มีปัญหา settlement lag นี้
  */
 export function revenueTrend(orders: AffiliateOrderRecord[]): {
+  /** 14 จุด รายวัน GMV เรียงเก่า→ใหม่ (7 วันของช่วง B ต่อด้วย 7 วันของช่วง A) ใช้วาด sparkline */
   points: number[];
-  currentWindowRevenue: number;
-  previousWindowRevenue: number;
+  currentWindowGmv: number;
+  previousWindowGmv: number;
   changePct: number;
   direction: "up" | "down" | "flat";
 } {
   if (orders.length === 0) {
-    return { points: [], currentWindowRevenue: 0, previousWindowRevenue: 0, changePct: 0, direction: "flat" };
+    return { points: [], currentWindowGmv: 0, previousWindowGmv: 0, changePct: 0, direction: "flat" };
   }
 
   const latestOrderDate = new Date(Math.max(...orders.map((o) => o.orderDate.getTime())));
@@ -123,28 +128,28 @@ export function revenueTrend(orders: AffiliateOrderRecord[]): {
   const windowBStart = windowAStart - 7 * DAY_MS;
 
   const daily = new Array<number>(14).fill(0);
-  let currentWindowRevenue = 0;
-  let previousWindowRevenue = 0;
+  let currentWindowGmv = 0;
+  let previousWindowGmv = 0;
 
   for (const o of orders) {
     const t = o.orderDate.getTime();
     if (t < windowBStart || t >= windowAEnd) continue;
     const dayIndex = Math.floor((t - windowBStart) / DAY_MS);
-    const revenue = o.finalRevenue ?? 0;
-    daily[dayIndex] += revenue;
-    if (t >= windowAStart) currentWindowRevenue += revenue;
-    else previousWindowRevenue += revenue;
+    const gmv = o.gmv;
+    daily[dayIndex] += gmv;
+    if (t >= windowAStart) currentWindowGmv += gmv;
+    else previousWindowGmv += gmv;
   }
 
   let changePct: number;
-  if (previousWindowRevenue === 0) {
-    changePct = currentWindowRevenue > 0 ? 100 : 0;
+  if (previousWindowGmv === 0) {
+    changePct = currentWindowGmv > 0 ? 100 : 0;
   } else {
-    changePct = ((currentWindowRevenue - previousWindowRevenue) / previousWindowRevenue) * 100;
+    changePct = ((currentWindowGmv - previousWindowGmv) / previousWindowGmv) * 100;
   }
   const direction = changePct > 5 ? "up" : changePct < -5 ? "down" : "flat";
 
-  return { points: daily, currentWindowRevenue, previousWindowRevenue, changePct, direction };
+  return { points: daily, currentWindowGmv, previousWindowGmv, changePct, direction };
 }
 
 export function revenueByClip(orders: AffiliateOrderRecord[]) {
