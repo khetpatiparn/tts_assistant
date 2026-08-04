@@ -146,6 +146,36 @@ export function revenueTrend(orders: AffiliateOrderRecord[]): {
   return { currentWindowGmv, previousWindowGmv, changePct, direction };
 }
 
+/**
+ * ยอดขาย (GMV) รวมรายสัปดาห์ (rolling 7 วัน ไม่ทับซ้อนกัน) ย้อนหลัง `weeks` สัปดาห์ เรียงเก่า→ใหม่
+ *
+ * ต่างจาก revenueTrend() ตรงที่นี่คือ "ภาพรวมยาว" ไม่ใช่แค่ 2 จุดล่าสุด — ใช้ยอดรวมต่อสัปดาห์
+ * (ไม่ใช่ค่าเฉลี่ยรายวัน) เพราะ sum ไม่ถูกบิดเบือนจากคลิป/วันที่ขายดีผิดปกติแบบที่ average เจอ
+ * จุดยึดเดียวกับ revenueTrend(): วันที่ล่าสุดที่มีออเดอร์จริง ไม่ใช่ new Date()
+ */
+export function weeklyGmvTrend(
+  orders: AffiliateOrderRecord[],
+  weeks: number = 8
+): { weekStart: string; gmv: number }[] {
+  if (orders.length === 0) return [];
+
+  const latestOrderDate = new Date(Math.max(...orders.map((o) => o.orderDate.getTime())));
+  const anchorEnd = startOfLocalDay(latestOrderDate).getTime() + DAY_MS;
+
+  const result: { weekStart: string; gmv: number }[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const end = anchorEnd - i * 7 * DAY_MS;
+    const start = end - 7 * DAY_MS;
+    let gmv = 0;
+    for (const o of orders) {
+      const t = o.orderDate.getTime();
+      if (t >= start && t < end) gmv += o.gmv;
+    }
+    result.push({ weekStart: dayKey(new Date(start)), gmv });
+  }
+  return result;
+}
+
 export function revenueByClip(orders: AffiliateOrderRecord[]) {
   const map = new Map<
     string,

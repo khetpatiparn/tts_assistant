@@ -15,6 +15,7 @@ import {
 import {
   ordersByDay,
   revenueTrend,
+  weeklyGmvTrend,
   type AffiliateOrderRecord,
 } from "@/lib/dashboard";
 
@@ -59,6 +60,78 @@ function ChartTooltip({
       <div className="text-muted-foreground">{d.date}</div>
       <div className="text-foreground">GMV {baht(d.gmv)}</div>
       <div className="text-muted-foreground">{d.orders.toLocaleString("th-TH")} ออเดอร์</div>
+    </div>
+  );
+}
+
+type WeekPoint = { weekStart: string; gmv: number };
+
+function WeeklyTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: { payload: WeekPoint }[];
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs shadow-sm">
+      <div className="text-muted-foreground">สัปดาห์ {d.weekStart}</div>
+      <div className="text-foreground">GMV {baht(d.gmv)}</div>
+    </div>
+  );
+}
+
+/** ยอดขาย (GMV) รายสัปดาห์ 8 สัปดาห์ล่าสุด — ภาพรวมยาว ต่างจาก TimeChart ที่เป็นรายวัน */
+function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+  const data = weeklyGmvTrend(orders, 8);
+  if (data.length < 2) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="font-mono text-[0.7rem] tracking-widest text-smoke uppercase">
+        แนวโน้มยอดขายรายสัปดาห์ (8 สัปดาห์ล่าสุด)
+      </span>
+      <div className="h-40 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="var(--color-border)"
+              vertical={false}
+            />
+            <XAxis
+              dataKey="weekStart"
+              tickFormatter={(v: string) => v.slice(5)}
+              tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+              tickLine={false}
+              axisLine={{ stroke: "var(--color-border)" }}
+            />
+            <YAxis
+              tickFormatter={(v: number) => baht(v)}
+              tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
+              tickLine={false}
+              axisLine={false}
+              width={64}
+            />
+            <Tooltip
+              content={<WeeklyTooltip />}
+              cursor={{ stroke: "var(--color-smoke)", strokeDasharray: "3 3" }}
+            />
+            <Area
+              type="monotone"
+              dataKey="gmv"
+              stroke="var(--color-amber)"
+              strokeWidth={2}
+              fill="var(--color-teal)"
+              fillOpacity={0.15}
+              dot={{ r: 2.5, fill: "var(--color-amber)", strokeWidth: 0 }}
+              activeDot={{ r: 4, fill: "var(--color-amber)" }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -193,7 +266,12 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
       <p className="font-mono text-[0.7rem] text-muted-foreground">
         ยอดขาย (GMV) 7 วันล่าสุด {baht(currentWindowGmv)} · 7 วันก่อนหน้า {baht(previousWindowGmv)}
       </p>
-      {open && <TimeChart orders={orders} />}
+      {open && (
+        <>
+          <WeeklyTrendChart orders={orders} />
+          <TimeChart orders={orders} />
+        </>
+      )}
     </div>
   );
 }
