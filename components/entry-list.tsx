@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { DateRangeFields } from "@/components/date-range-fields";
 import { cn } from "@/lib/utils";
 import type { EntryRow, EntryStatus } from "@/lib/entry-rows";
+import type { DateFilterBasis } from "@/lib/entry-date-filter";
 import type { EntrySalesSummary } from "@/lib/entry-sales";
 import { Plus, Search } from "lucide-react";
 
@@ -57,6 +58,7 @@ function buildHref(params: {
   status: EntryStatus | "all";
   from: string | null;
   to: string | null;
+  by: DateFilterBasis;
   page: number;
 }) {
   const sp = new URLSearchParams();
@@ -64,10 +66,40 @@ function buildHref(params: {
   if (params.status !== "all") sp.set("status", params.status);
   if (params.from !== null) sp.set("from", params.from);
   if (params.to !== null) sp.set("to", params.to);
+  if (params.by === "created") sp.set("by", params.by);
   if (params.page > 1) sp.set("page", String(params.page));
   const qs = sp.toString();
   return qs === "" ? "/" : `/?${qs}`;
 }
+
+/** "YYYY-MM-DD" ของวันนี้ตามฐานที่เลือก — posted ใช้ UTC getter (คีย์เดียวกับที่ postedAt เก็บ),
+ *  created ใช้ local getter (คีย์เดียวกับ createdAt) เหตุผลเดียวกับ filterByCreatedDateRange */
+function todayKey(by: DateFilterBasis): string {
+  const now = new Date();
+  const y = by === "created" ? now.getFullYear() : now.getUTCFullYear();
+  const m = by === "created" ? now.getMonth() : now.getUTCMonth();
+  const d = by === "created" ? now.getDate() : now.getUTCDate();
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function daysAgoKey(by: DateFilterBasis, days: number): string {
+  const now = new Date();
+  const base =
+    by === "created"
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  base.setTime(base.getTime() - days * 86400000);
+  const y = by === "created" ? base.getFullYear() : base.getUTCFullYear();
+  const m = by === "created" ? base.getMonth() : base.getUTCMonth();
+  const d = by === "created" ? base.getDate() : base.getUTCDate();
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+const QUICK_RANGES: { label: string; days: number }[] = [
+  { label: "วันนี้", days: 0 },
+  { label: "7 วัน", days: 6 },
+  { label: "30 วัน", days: 29 },
+];
 
 export function EntryList({
   rows,
@@ -75,6 +107,7 @@ export function EntryList({
   status,
   from,
   to,
+  by,
   page,
   totalPages,
   matchCount,
@@ -85,6 +118,7 @@ export function EntryList({
   status: EntryStatus | "all";
   from: string | null;
   to: string | null;
+  by: DateFilterBasis;
   page: number;
   totalPages: number;
   matchCount: number;
@@ -124,7 +158,7 @@ export function EntryList({
         {FILTERS.map((f) => (
           <Link
             key={f.value}
-            href={buildHref({ query, status: f.value, from, to, page: 1 })}
+            href={buildHref({ query, status: f.value, from, to, by, page: 1 })}
             aria-current={status === f.value ? "page" : undefined}
             className={cn(
               "rounded-md px-2.5 py-1.5 font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
@@ -136,10 +170,66 @@ export function EntryList({
             {f.label}
           </Link>
         ))}
+
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+
+        {QUICK_RANGES.map((r) => {
+          const rangeTo = todayKey(by);
+          const rangeFrom = daysAgoKey(by, r.days);
+          const isActive = from === rangeFrom && to === rangeTo;
+          return (
+            <Link
+              key={r.label}
+              href={buildHref({ query, status, from: rangeFrom, to: rangeTo, by, page: 1 })}
+              aria-current={isActive ? "page" : undefined}
+              className={cn(
+                "rounded-md px-2.5 py-1.5 font-mono text-[0.65rem] tracking-widest uppercase transition-colors",
+                isActive
+                  ? "bg-teal text-primary-foreground"
+                  : "text-muted-foreground hover:bg-card hover:text-foreground"
+              )}
+            >
+              {r.label}
+            </Link>
+          );
+        })}
+
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+
+        <span className="font-mono text-[0.65rem] text-muted-foreground">ตามวัน:</span>
+        <Link
+          href={buildHref({ query, status, from, to, by: "posted", page: 1 })}
+          aria-current={by === "posted" ? "page" : undefined}
+          className={cn(
+            "rounded-md px-2 py-1 font-mono text-[0.65rem] uppercase transition-colors",
+            by === "posted"
+              ? "bg-teal/20 text-teal"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          ลงคลิป
+        </Link>
+        <Link
+          href={buildHref({ query, status, from, to, by: "created", page: 1 })}
+          aria-current={by === "created" ? "page" : undefined}
+          className={cn(
+            "rounded-md px-2 py-1 font-mono text-[0.65rem] uppercase transition-colors",
+            by === "created"
+              ? "bg-teal/20 text-teal"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          สร้าง
+        </Link>
       </div>
 
-      <p className="font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
+      <p className="flex items-center gap-2 font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
         {isFiltering ? `พบ ${matchCount} จาก ${total}` : `ทั้งหมด ${total} รายการ`}
+        {isFiltering && (
+          <Link href="/" className="text-teal normal-case hover:underline">
+            ล้างตัวกรองทั้งหมด
+          </Link>
+        )}
       </p>
 
       {rows.length === 0 ? (
@@ -151,14 +241,10 @@ export function EntryList({
                 ? "ไม่พบรายการ — ลองใช้คำที่สั้นลงหรือน้อยคำลง"
                 : "ไม่พบรายการ — ลองปรับช่วงวันที่หรือตัวกรองสถานะ"}
           </p>
-          {total === 0 ? (
+          {total === 0 && (
             <Button render={<Link href="/entry/new" />} nativeButton={false} size="sm">
               <Plus className="size-4" />
               เพิ่มสินค้าแรก
-            </Button>
-          ) : (
-            <Button render={<Link href="/" />} nativeButton={false} variant="ghost" size="sm">
-              ล้างตัวกรองทั้งหมด
             </Button>
           )}
         </div>
@@ -247,7 +333,7 @@ export function EntryList({
         <nav className="flex items-center justify-center gap-2" aria-label="แบ่งหน้า">
           {page > 1 && (
             <Link
-              href={buildHref({ query, status, from, to, page: page - 1 })}
+              href={buildHref({ query, status, from, to, by, page: page - 1 })}
               className="rounded-md border border-border px-3 py-1.5 font-mono text-xs transition-colors hover:bg-card"
             >
               ก่อนหน้า
@@ -258,7 +344,7 @@ export function EntryList({
           </span>
           {page < totalPages && (
             <Link
-              href={buildHref({ query, status, from, to, page: page + 1 })}
+              href={buildHref({ query, status, from, to, by, page: page + 1 })}
               className="rounded-md border border-border px-3 py-1.5 font-mono text-xs transition-colors hover:bg-card"
             >
               ถัดไป
