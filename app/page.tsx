@@ -5,7 +5,12 @@ import {
   parseStatusParam,
   searchAndFilter,
 } from "@/lib/entry-rows";
-import { filterByPostedDateRange, parseDateParam } from "@/lib/entry-date-filter";
+import {
+  filterByPostedDateRange,
+  filterByCreatedDateRange,
+  parseDateParam,
+  parseDateBasisParam,
+} from "@/lib/entry-date-filter";
 import { AppHeader } from "@/components/app-header";
 import { EntryList } from "@/components/entry-list";
 
@@ -20,9 +25,13 @@ export default async function EntryListPage({
   const page = parsePageParam(sp.page);
   const from = parseDateParam(sp.from);
   const to = parseDateParam(sp.to);
+  const by = parseDateBasisParam(sp.by);
 
   const [rows, salesByEntry] = await Promise.all([getEntryRows(), getEntrySales()]);
-  const dateFiltered = filterByPostedDateRange(rows, from, to);
+  const dateFiltered =
+    by === "created"
+      ? filterByCreatedDateRange(rows, from, to)
+      : filterByPostedDateRange(rows, from, to);
 
   // อ่านข้อความเฉพาะตอนที่ต้องค้นจริง — ไม่มีคำค้นก็ไม่ต้องแตะ productInfo เลย
   const searchText = query.trim() === "" ? null : await getSearchText();
@@ -57,6 +66,7 @@ export default async function EntryListPage({
           status={status}
           from={from}
           to={to}
+          by={by}
           page={safePage}
           totalPages={totalPages}
           matchCount={filtered.length}
