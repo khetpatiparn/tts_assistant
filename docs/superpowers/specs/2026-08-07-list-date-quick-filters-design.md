@@ -1,5 +1,9 @@
 # Spec: ปุ่มกรองวันด่วน + ตัวสลับฐานวันที่ + ปุ่มล้างตัวกรองที่คงอยู่
 
+## แก้ไขหลัง final review (2026-08-07): `todayKey`/`daysAgoKey` ต้องใช้ local getter เสมอ ไม่แตกตาม `by`
+
+**ตัดสินใจตอนแรกผิด** — คิดว่าฐาน `posted` ควรคำนวณ "วันนี้" ด้วย UTC getter เพราะ `postedAt` ถูก*เก็บ*เป็น UTC midnight จึงเข้าใจผิดว่าต้องอ่าน `new Date()` ด้วยฐานเดียวกับที่เก็บ แต่ `new Date()` เป็น**ค่าเวลาจริงตอนนี้** ไม่ใช่ค่าที่เข้ารหัสแบบ UTC-midnight เหมือน `postedAt` — ปฏิทินวันที่ที่ผู้ใช้หมายถึงเสมอคือ**ปฏิทินท้องถิ่น (เวลาไทย)** ไม่ว่าจะเทียบกับฐานไหน ส่วนการตีความสตริง "YYYY-MM-DD" ที่ได้กลับมาว่าจะแปลงเป็น UTC-midnight หรือ local-midnight ก่อนเทียบกับ DB นั้นเป็นหน้าที่ของ `filterByPostedDateRange`/`filterByCreatedDateRange` ต่างหาก ไม่ใช่หน้าที่ของฟังก์ชันที่สร้างคีย์ "วันนี้" final review จับได้ว่าการแตกตาม `by` แบบเดิมทำให้ช่วงตี 0–7 เวลาไทย ปุ่ม "วันนี้" ของฐาน `posted` เลื่อนไปแสดงเมื่อวานแทน และฐาน `posted`/`created` คำนวณคีย์ไม่ตรงกันสำหรับ instant เดียวกัน — แก้แล้วโดยตัดพารามิเตอร์ `by` ออกจากทั้งสองฟังก์ชัน ให้ใช้ local getter เสมอ (โค้ดด้านล่างในสเปกนี้แก้ให้ตรงกับ implementation จริงแล้ว)
+
 ## Context
 
 หน้ารายการ (`/`) มีตัวกรองอยู่แล้ว: คำค้น, สถานะ (4 ปุ่ม), ช่วงวันที่ (ปฏิทิน 2 ช่อง `DateRangeFields` ในฟอร์มค้นหา) — ทั้งหมดเป็น URL query params อ่านที่ `app/page.tsx` (server component) ไม่มี client state
@@ -116,25 +120,25 @@ function buildHref(params: {
 **3. คำนวณช่วงวันที่ด่วน — วางไว้ในตัว component เอง (server component, คำนวณตอน render):**
 
 ```ts
-/** "YYYY-MM-DD" ของวันนี้ตามฐานที่เลือก — posted ใช้ UTC getter (คีย์เดียวกับที่ postedAt เก็บ),
- *  created ใช้ local getter (คีย์เดียวกับ createdAt) เหตุผลเดียวกับฟังก์ชันกรองด้านบน */
-function todayKey(by: DateFilterBasis): string {
+/** "YYYY-MM-DD" ของวันนี้ตามปฏิทินท้องถิ่น (เวลาไทย) — ใช้ local getter เสมอไม่ว่า by จะเป็นค่าไหน
+ *  เพราะ new Date() เป็น timestamp จริง ไม่ใช่ค่าที่เข้ารหัสเป็น UTC midnight แบบ postedAt ที่เก็บไว้ —
+ *  filterByPostedDateRange/filterByCreatedDateRange ใน lib/entry-date-filter.ts เป็นตัวตีความสตริงนี้
+ *  ต่างกันไปตามฐานเอง ไม่ใช่หน้าที่ของฟังก์ชันนี้ */
+function todayKey(): string {
   const now = new Date();
-  const y = by === "created" ? now.getFullYear() : now.getUTCFullYear();
-  const m = by === "created" ? now.getMonth() : now.getUTCMonth();
-  const d = by === "created" ? now.getDate() : now.getUTCDate();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function daysAgoKey(by: DateFilterBasis, days: number): string {
+function daysAgoKey(days: number): string {
   const now = new Date();
-  const base = by === "created"
-    ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   base.setTime(base.getTime() - days * 86400000);
-  const y = by === "created" ? base.getFullYear() : base.getUTCFullYear();
-  const m = by === "created" ? base.getMonth() : base.getUTCMonth();
-  const d = by === "created" ? base.getDate() : base.getUTCDate();
+  const y = base.getFullYear();
+  const m = base.getMonth();
+  const d = base.getDate();
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
@@ -168,8 +172,8 @@ const QUICK_RANGES: { label: string; days: number }[] = [
   <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
 
   {QUICK_RANGES.map((r) => {
-    const rangeTo = todayKey(by);
-    const rangeFrom = daysAgoKey(by, r.days);
+    const rangeTo = todayKey();
+    const rangeFrom = daysAgoKey(r.days);
     const isActive = from === rangeFrom && to === rangeTo;
     return (
       <Link

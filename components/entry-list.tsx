@@ -72,26 +72,25 @@ function buildHref(params: {
   return qs === "" ? "/" : `/?${qs}`;
 }
 
-/** "YYYY-MM-DD" ของวันนี้ตามฐานที่เลือก — posted ใช้ UTC getter (คีย์เดียวกับที่ postedAt เก็บ),
- *  created ใช้ local getter (คีย์เดียวกับ createdAt) เหตุผลเดียวกับ filterByCreatedDateRange */
-function todayKey(by: DateFilterBasis): string {
+/** "YYYY-MM-DD" ของวันนี้ตามปฏิทินท้องถิ่น (เวลาไทย) — ใช้ local getter เสมอไม่ว่า by จะเป็นค่าไหน
+ *  เพราะ new Date() เป็น timestamp จริง ไม่ใช่ค่าที่เข้ารหัสเป็น UTC midnight แบบ postedAt ที่เก็บไว้ —
+ *  filterByPostedDateRange/filterByCreatedDateRange ใน lib/entry-date-filter.ts เป็นตัวตีความสตริงนี้
+ *  ต่างกันไปตามฐานเอง ไม่ใช่หน้าที่ของฟังก์ชันนี้ */
+function todayKey(): string {
   const now = new Date();
-  const y = by === "created" ? now.getFullYear() : now.getUTCFullYear();
-  const m = by === "created" ? now.getMonth() : now.getUTCMonth();
-  const d = by === "created" ? now.getDate() : now.getUTCDate();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
-function daysAgoKey(by: DateFilterBasis, days: number): string {
+function daysAgoKey(days: number): string {
   const now = new Date();
-  const base =
-    by === "created"
-      ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   base.setTime(base.getTime() - days * 86400000);
-  const y = by === "created" ? base.getFullYear() : base.getUTCFullYear();
-  const m = by === "created" ? base.getMonth() : base.getUTCMonth();
-  const d = by === "created" ? base.getDate() : base.getUTCDate();
+  const y = base.getFullYear();
+  const m = base.getMonth();
+  const d = base.getDate();
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
@@ -174,8 +173,8 @@ export function EntryList({
         <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
 
         {QUICK_RANGES.map((r) => {
-          const rangeTo = todayKey(by);
-          const rangeFrom = daysAgoKey(by, r.days);
+          const rangeTo = todayKey();
+          const rangeFrom = daysAgoKey(r.days);
           const isActive = from === rangeFrom && to === rangeTo;
           return (
             <Link
