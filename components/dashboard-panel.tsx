@@ -92,10 +92,10 @@ export function DashboardPanel({
 
 
   return (
-    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-teal" />
-        <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
+        <span className="h-4 w-1 rounded-full bg-primary" />
+        <h2 className="text-xs text-primary">
           Dashboard · รายได้ Affiliate
         </h2>
       </div>
@@ -118,8 +118,8 @@ export function DashboardPanel({
         <div className="flex flex-col gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             {/* เงินจริง — พระเอก */}
-            <div className="flex flex-col gap-1 rounded-xl border border-teal/40 bg-teal/5 p-5">
-              <span className="font-mono text-[0.65rem] tracking-widest text-teal uppercase">
+            <div className="flex flex-col gap-1 rounded-xl border border-primary/40 bg-primary/5 p-5">
+              <span className="text-xs text-primary">
                 เงินที่ได้จริงแล้ว
               </span>
               <span className="font-display text-4xl text-foreground">
@@ -131,8 +131,8 @@ export function DashboardPanel({
             </div>
 
             {/* กำลังรอ — รอง จางกว่า */}
-            <div className="flex flex-col gap-1 rounded-xl border border-border bg-card p-5">
-              <span className="font-mono text-[0.65rem] tracking-widest text-smoke uppercase">
+            <div className="flex flex-col gap-1 rounded-xl border border-border bg-surface p-5">
+              <span className="text-xs text-muted-foreground">
                 กำลังรอ (ยังไม่ใช่เงินเรา)
               </span>
               <span className="font-display text-2xl text-foreground/80">
@@ -148,7 +148,7 @@ export function DashboardPanel({
           </div>
 
           {/* แถวเล็กจาง + หมายเหตุความซื่อสัตย์ */}
-          <p className="font-mono text-[0.7rem] leading-relaxed text-muted-foreground">
+          <p className="text-xs leading-relaxed text-muted-foreground">
             ยอดสั่งรวมทุกสถานะ {baht(summary.totalGmv)} · ขายได้{" "}
             {summary.itemCount.toLocaleString("th-TH")} ชิ้น · ไม่มีสิทธิ์{" "}
             {summary.ineligibleOrders} ออเดอร์ (ไม่ได้ค่าคอม)
@@ -172,7 +172,7 @@ export function DashboardPanel({
           type="button"
           onClick={() => setImportsOpen((open) => !open)}
           aria-expanded={importsOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+          className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
         >
           {importsOpen ? (
             <ChevronDown className="size-3.5" />
@@ -199,13 +199,13 @@ export function DashboardPanel({
                 <Upload className="size-3.5" />
                 {isImporting ? "กำลังนำเข้า..." : "นำเข้าไฟล์รายได้"}
               </Button>
-              <span className="font-mono text-[0.7rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 โหลดจาก TikTok Studio → คำสั่งซื้อในโปรแกรมนายหน้า → ดาวน์โหลด (.xlsx)
               </span>
             </form>
 
             {state.error && (
-              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {state.error}
               </p>
             )}
@@ -234,13 +234,13 @@ export function DashboardPanel({
                 <Upload className="size-3.5" />
                 {isImportingMetrics ? "กำลังนำเข้า..." : "นำเข้าข้อมูลวิว"}
               </Button>
-              <span className="font-mono text-[0.7rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 โหลดจาก TikTok Studio → Analytics → Content → Download (.csv) · เลือกได้หลายไฟล์พร้อมกัน (ช่วง 7 + 28 + 60 วัน)
               </span>
             </form>
 
             {metricState.error && (
-              <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {metricState.error}
               </p>
             )}
@@ -250,13 +250,13 @@ export function DashboardPanel({
                 นำเข้า {metricState.summary.files} ไฟล์ · {metricState.summary.total} คลิป ·
                 จับคู่ได้ {metricState.summary.matched} · ไม่มีในแอป {metricState.summary.unmatched}
                 {metricState.summary.duplicates.length > 0 && (
-                  <span className="text-danger">
+                  <span className="text-destructive">
                     {" "}
                     · ไฟล์ที่เคยอัปแล้ว {metricState.summary.duplicates.length} ไฟล์
                   </span>
                 )}
                 {metricState.summary.failed > 0 && (
-                  <span className="text-danger">
+                  <span className="text-destructive">
                     {" "}
                     · อ่านไม่ได้ {metricState.summary.failed} ไฟล์
                   </span>

@@ -56,10 +56,12 @@ function ChartTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs shadow-sm">
-      <div className="text-muted-foreground">{d.date}</div>
-      <div className="text-foreground">GMV {baht(d.gmv)}</div>
-      <div className="text-muted-foreground">{d.orders.toLocaleString("th-TH")} ออเดอร์</div>
+    <div className="rounded-md border border-border bg-surface px-3 py-2 text-xs shadow-sm">
+      <div className="font-mono text-muted-foreground">{d.date}</div>
+      <div className="font-mono text-foreground">GMV {baht(d.gmv)}</div>
+      <div className="text-muted-foreground">
+        <span className="font-mono">{d.orders.toLocaleString("th-TH")}</span> ออเดอร์
+      </div>
     </div>
   );
 }
@@ -76,9 +78,11 @@ function WeeklyTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 font-mono text-xs shadow-sm">
-      <div className="text-muted-foreground">สัปดาห์ {d.weekStart}</div>
-      <div className="text-foreground">GMV {baht(d.gmv)}</div>
+    <div className="rounded-md border border-border bg-surface px-3 py-2 text-xs shadow-sm">
+      <div className="text-muted-foreground">
+        สัปดาห์ <span className="font-mono">{d.weekStart}</span>
+      </div>
+      <div className="font-mono text-foreground">GMV {baht(d.gmv)}</div>
     </div>
   );
 }
@@ -90,7 +94,7 @@ function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="font-mono text-[0.7rem] tracking-widest text-smoke uppercase">
+      <span className="text-xs text-muted-foreground">
         แนวโน้มยอดขายรายสัปดาห์ (8 สัปดาห์ล่าสุด)
       </span>
       <div className="h-40 w-full">
@@ -117,17 +121,17 @@ function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
             />
             <Tooltip
               content={<WeeklyTooltip />}
-              cursor={{ stroke: "var(--color-smoke)", strokeDasharray: "3 3" }}
+              cursor={{ stroke: "var(--color-muted-foreground)", strokeDasharray: "3 3" }}
             />
             <Area
               type="monotone"
               dataKey="gmv"
-              stroke="var(--color-amber)"
+              stroke="var(--color-status-warning)"
               strokeWidth={2}
-              fill="var(--color-teal)"
+              fill="var(--color-primary)"
               fillOpacity={0.15}
-              dot={{ r: 2.5, fill: "var(--color-amber)", strokeWidth: 0 }}
-              activeDot={{ r: 4, fill: "var(--color-amber)" }}
+              dot={{ r: 2.5, fill: "var(--color-status-warning)", strokeWidth: 0 }}
+              activeDot={{ r: 4, fill: "var(--color-status-warning)" }}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -150,10 +154,10 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
             key={r.key}
             type="button"
             onClick={() => setRange(r.key)}
-            className={`rounded-md border px-2 py-0.5 font-mono text-xs ${
+            className={`rounded-md border px-2 py-0.5 text-xs ${
               range === r.key
-                ? "border-teal bg-teal/10 text-teal"
-                : "border-border text-muted-foreground hover:text-foreground"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border-interactive text-muted-foreground hover:text-foreground"
             }`}
           >
             {r.label}
@@ -190,17 +194,17 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
               />
               <Tooltip
                 content={<ChartTooltip />}
-                cursor={{ stroke: "var(--color-smoke)", strokeDasharray: "3 3" }}
+                cursor={{ stroke: "var(--color-muted-foreground)", strokeDasharray: "3 3" }}
               />
               <Area
                 type="monotone"
                 dataKey="gmv"
-                stroke="var(--color-amber)"
+                stroke="var(--color-status-warning)"
                 strokeWidth={2}
-                fill="var(--color-teal)"
+                fill="var(--color-primary)"
                 fillOpacity={0.15}
-                dot={{ r: 2.5, fill: "var(--color-amber)", strokeWidth: 0 }}
-                activeDot={{ r: 4, fill: "var(--color-amber)" }}
+                dot={{ r: 2.5, fill: "var(--color-status-warning)", strokeWidth: 0 }}
+                activeDot={{ r: 4, fill: "var(--color-status-warning)" }}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -220,12 +224,12 @@ function WindowCompareBars({ previous, current }: { previous: number; current: n
   return (
     <div className="flex h-6 items-end gap-1" aria-hidden="true">
       <div
-        className="w-3 rounded-sm bg-smoke/50"
+        className="w-3 rounded-sm bg-muted-foreground/50"
         style={{ height: `${Math.max((previous / max) * 100, 4)}%` }}
         title="7 วันก่อนหน้า"
       />
       <div
-        className="w-3 rounded-sm bg-teal"
+        className="w-3 rounded-sm bg-primary"
         style={{ height: `${Math.max((current / max) * 100, 4)}%` }}
         title="7 วันล่าสุด"
       />
@@ -240,14 +244,18 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
 
   const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
   const arrowClass =
-    direction === "up" ? "text-teal" : direction === "down" ? "text-danger" : "text-smoke";
+    direction === "up"
+      ? "text-primary"
+      : direction === "down"
+        ? "text-destructive"
+        : "text-muted-foreground";
   const pctLabel =
     direction === "flat" ? "ทรงตัว" : `${changePct > 0 ? "+" : ""}${changePct.toFixed(0)}%`;
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-4">
       <div className="flex items-center gap-3">
-        <span className="font-mono text-[0.7rem] tracking-widest text-smoke uppercase">
+        <span className="text-xs text-muted-foreground">
           แนวโน้มรายได้
         </span>
         <WindowCompareBars previous={previousWindowGmv} current={currentWindowGmv} />
@@ -258,12 +266,12 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="ml-auto font-mono text-xs text-teal hover:underline"
+          className="ml-auto text-xs text-primary hover:underline"
         >
           {open ? "ซ่อนกราฟ" : "ดูกราฟ"}
         </button>
       </div>
-      <p className="font-mono text-[0.7rem] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         ยอดขาย (GMV) 7 วันล่าสุด {baht(currentWindowGmv)} · 7 วันก่อนหน้า {baht(previousWindowGmv)}
       </p>
       {open && (

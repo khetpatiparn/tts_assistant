@@ -53,7 +53,7 @@ export function ImportLogPanel({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="font-mono text-[0.6rem] tracking-widest text-muted-foreground uppercase">
+      <p className="text-xs text-muted-foreground">
         อัปล่าสุด
       </p>
       {sorted.map((r) => {
@@ -66,7 +66,7 @@ export function ImportLogPanel({
         const overdue = stale !== null && stale > IMPORT_STALE_DAYS;
         return (
           <div key={r.kind} className="flex flex-col gap-0.5">
-            <p className="font-mono text-[0.7rem]">
+            <p className="text-xs">
               <span className="text-muted-foreground">
                 {KIND_LABEL[r.kind] ?? r.kind}
               </span>{" "}
@@ -78,7 +78,7 @@ export function ImportLogPanel({
                     : `${stamp(r.files[0].uploadedAt)} · ${r.files[0].summary}`}
               </span>
               {overdue && (
-                <span className="text-danger">
+                <span className="text-status-warning">
                   {" "}
                   — เกินกำหนดมา {stale - IMPORT_STALE_DAYS} วัน
                 </span>
@@ -88,7 +88,7 @@ export function ImportLogPanel({
               r.files.map((f) => (
                 <p
                   key={f.uploadedAt.getTime()}
-                  className="pl-4 font-mono text-[0.65rem] text-muted-foreground"
+                  className="pl-4 text-xs text-muted-foreground"
                 >
                   {f.summary} ({stamp(f.uploadedAt)})
                 </p>

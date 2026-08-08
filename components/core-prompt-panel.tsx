@@ -42,10 +42,10 @@ export function CorePromptPanel({
 
   return (
     <div className="flex flex-1 flex-col gap-5 xl:flex-row">
-      <section className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:p-6 xl:w-96">
+      <section className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-5 sm:p-6 xl:w-96">
         <div className="flex items-center gap-2 border-b border-border pb-3">
-          <span className="h-4 w-1 rounded-full bg-amber" />
-          <h2 className="font-mono text-xs tracking-widest text-secondary-foreground uppercase">
+          <span className="h-4 w-1 rounded-full bg-status-warning" />
+          <h2 className="text-xs text-secondary-foreground">
             {title}
           </h2>
         </div>
@@ -65,7 +65,7 @@ export function CorePromptPanel({
                   {core.label}
                 </span>
                 {core.isActive && (
-                  <span className="ml-auto flex items-center gap-1 font-mono text-[0.65rem] text-secondary-foreground">
+                  <span className="ml-auto flex items-center gap-1 text-xs text-secondary-foreground">
                     <Check className="size-3" />
                     ใช้อยู่
                   </span>
@@ -82,7 +82,7 @@ export function CorePromptPanel({
 
         <form action={addAction} className="flex flex-col gap-3 border-t border-border pt-4">
           <input type="hidden" name="kind" value={kind} />
-          <p className="font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
+          <p className="text-xs text-muted-foreground">
             เพิ่มเวอร์ชันใหม่
           </p>
           <Input name="label" placeholder="ชื่อเวอร์ชัน เช่น v5" required />
@@ -98,11 +98,11 @@ export function CorePromptPanel({
         </form>
       </section>
 
-      <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:p-6">
+      <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 border-b border-border pb-3">
           <div className="flex items-center gap-2">
-            <span className="h-4 w-1 rounded-full bg-teal" />
-            <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
+            <span className="h-4 w-1 rounded-full bg-primary" />
+            <h2 className="text-xs text-primary">
               {viewing ? viewing.label : "ยังไม่ได้เลือก"}
             </h2>
           </div>
