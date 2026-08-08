@@ -189,7 +189,6 @@ export function DashboardPanel({
         {/* แผงสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
         <ImportLogPanel
           logs={importLogs}
-          reminder={reminder}
           now={now}
           lastOrdersImportedAt={lastOrdersImportedAt}
           lastMetricsImportedAt={lastMetricsImportedAt}

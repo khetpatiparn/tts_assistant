@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 
-import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
 import { daysUntil, nextImportDate } from "@/lib/import-schedule";
 import {
   EXPECTED_CLIP_FILES,
@@ -32,21 +31,13 @@ function dayOnly(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
 
-function staleDaysOf(kind: string, reminder: ReminderState): number | null {
-  if (kind === "orders") return reminder.daysSinceOrdersImport;
-  if (kind === "clips") return reminder.daysSinceMetricsImport;
-  return null;
-}
-
 export function ImportLogPanel({
   logs,
-  reminder,
   now,
   lastOrdersImportedAt,
   lastMetricsImportedAt,
 }: {
   logs: ImportLogRecord[];
-  reminder: ReminderState;
   now: Date;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
@@ -79,10 +70,13 @@ export function ImportLogPanel({
         // ชนิดอื่นที่มีหลายไฟล์ในวันเดียวกันเป็นเรื่องปกติ ไม่มี "จำนวนที่ควรจะเป็น" ให้เทียบ
         const hasMultipleFiles = round !== null && round.files.length > 1;
         const isMultiExpectedKind = kind === "clips" && hasMultipleFiles;
-        const stale = staleDaysOf(kind, reminder);
-        const overdue = stale !== null && stale > IMPORT_STALE_DAYS;
         const due = nextImportDate(importedAt);
         const daysLeft = due === null ? null : daysUntil(due, now);
+        // overdue ต้อง derive จาก daysLeft (ปฏิทินท้องถิ่นเดียวกับที่ recommendations.tsx ใช้)
+        // ไม่ใช่ reminder.daysSince*Import ที่นับเป็นช่วง 24 ชั่วโมงเต็ม — สองวิธีนี้ไม่ตรงกันเมื่อ
+        // เวลาปัจจุบันเช้ากว่าเวลาที่นำเข้า (เช่น นำเข้า 20:00 ดูตอนเช้าของวันครบกำหนดพอดี)
+        // เคยทำให้ !overdue เป็นจริงพร้อมกับ daysLeft ติดลบ จนเรนเดอร์ "(อีก -1 วัน)"
+        const overdue = daysLeft !== null && daysLeft < 0;
 
         return (
           <div key={kind} className="flex flex-col gap-0.5">
@@ -99,10 +93,10 @@ export function ImportLogPanel({
                       ? `${dayOnly(round.files[0].uploadedAt)} · อัป ${round.files.length} ครั้ง`
                       : `${stamp(round.files[0].uploadedAt)} · ${round.files[0].summary}`}
               </span>
-              {overdue && (
+              {overdue && daysLeft !== null && (
                 <span className="text-status-warning">
                   {" "}
-                  — เกินกำหนดมา {stale - IMPORT_STALE_DAYS} วัน
+                  — เกินกำหนดมา {Math.abs(daysLeft)} วัน
                 </span>
               )}
             </p>

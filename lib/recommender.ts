@@ -35,6 +35,14 @@ export type ClipStat = {
   productName: string;
   views: number;
   viewDelta: number | null;
+  /**
+   * จำนวนวันระหว่าง snapshot ล่าสุดกับก่อนหน้า (ที่ viewDelta คำนวณมาจาก) — null คู่กับ
+   * viewDelta เสมอ (มี snapshot เดียวหรือน้อยกว่า) ใช้ normalize viewDelta ให้เป็น "วิวต่อวัน"
+   * ก่อนเทียบข้าม clip เพราะ Content.csv จำกัด 15 แถวต่อไฟล์ (ดู CLAUDE.md) — clip ที่หลุดจาก
+   * top-15 ไปหนึ่งรอบแล้วกลับมาจะมีช่วงเวลาระหว่าง snapshot กว้างกว่าปกติ ถ้าเทียบ viewDelta
+   * ดิบตรงๆ ตัวเลขจะพองจากช่องว่างการ export ไม่ใช่การเติบโตจริง
+   */
+  daysSinceLastSnapshot: number | null;
   orders: number;
   badOrders: number;
   ordersLast7Days: number;
@@ -86,6 +94,9 @@ export function buildClipStats(args: {
       productName: e.productName,
       views: latest.views,
       viewDelta: previous ? latest.views - previous.views : null,
+      daysSinceLastSnapshot: previous
+        ? Math.round((latest.capturedOn.getTime() - previous.capturedOn.getTime()) / DAY_MS)
+        : null,
       orders: entryOrders.length,
       badOrders: entryOrders.filter(
         (o) => o.status === INELIGIBLE_STATUS || o.itemsSold === 0 || o.itemsRefunded > 0
@@ -107,6 +118,18 @@ export function buildClipStats(args: {
  *
  * วัดจากข้อมูลจริงแล้ว: เกณฑ์เดิมให้สัญญาณ 18 รายการซึ่ง 2 ใน 3 ของที่เหลือหลัง
  * ตัด "หยุดแล้ว"/"ดูเยอะไม่ซื้อ" ยังแยกจากคลิปธรรมดาไม่ได้ทางสถิติ
+ *
+ * ข้อจำกัดทางสถิติที่รู้แล้วแต่ยังไม่แก้ (ยืนยันด้วย two-proportion z-test จริง
+ * ชั้นวางของ z=2.73 โต๊ะรีดผ้า z=4.85 — เกณฑ์ปัจจุบันยังผ่านสบาย ไม่ต้องแก้ตรรกะตอนนี้):
+ * 1. `channelConv` ถูกปฏิบัติเหมือนค่าคงที่แม่นยำ ทั้งที่จริงเป็นค่าประมาณจาก ~350 ออเดอร์
+ *    (relative SE ~5.3%) — clip ที่ conv ขอบล่างอยู่ที่ ~1.06 เท่า อยู่ในขอบเขตความไม่แน่นอน
+ *    ของ baseline เองพอดี
+ * 2. clip ที่ถูกทดสอบถูกนับรวมอยู่ใน baseline (totalViews/totalOrders) ที่ใช้เทียบด้วย
+ *    (self-inclusion) — ยืนยันด้วย leave-one-out แล้วว่าทิศทางผลกระทบเป็นฝ่าย conservative
+ *    (ทำให้ผ่านยากขึ้น ไม่ใช่ง่ายขึ้น)
+ * 3. ไม่มีการปรับ multiple-comparison เมื่อทดสอบหลาย clip พร้อมกัน (~36 clip ต่อการเรนเดอร์
+ *    ที่ระดับนัยสำคัญทางเดียว ~2.5%) คาดว่ามี false positive เฉลี่ย ~0.9 ครั้งต่อการเรนเดอร์
+ *    และจะเพิ่มขึ้นเมื่อข้อมูลมากขึ้น
  */
 export function detectTasks(stats: ClipStat[]): ClipTask[] {
   const usable = stats.filter((s) => s.views > 0);
@@ -115,7 +138,20 @@ export function detectTasks(stats: ClipStat[]): ClipTask[] {
   const totalViews = usable.reduce((a, s) => a + s.views, 0);
   const totalOrders = usable.reduce((a, s) => a + s.orders, 0);
   const channelConv = totalViews > 0 ? totalOrders / totalViews : 0;
-  const medianViews = median(usable.map((s) => s.views));
+
+  // "กำลังโต" เทียบ "วิวต่อวัน" ไม่ใช่ viewDelta ดิบ — viewDelta คือผลต่าง (มิติ "ต่อช่วงเวลา")
+  // แต่ค่าที่เคยเทียบ (medianViews) เป็นระดับสะสม (มิติ "ปริมาณ") คนละมิติกัน และ clip ที่
+  // หลุดจาก top-15 ของ Content.csv ไปหนึ่งรอบแล้วกลับมาจะมีช่วงเวลาระหว่าง snapshot กว้างกว่า
+  // clip อื่น ทำให้ viewDelta ดิบพองขึ้นจากช่องว่างการ export ล้วนๆ ไม่ใช่การเติบโตจริง —
+  // normalize เป็นวิวต่อวันด้วย daysSinceLastSnapshot ก่อนเทียบกับค่ากลางของช่อง (คำนวณจาก
+  // เฉพาะ clip ที่มี snapshot คู่ที่ห่างกันจริง 1 วันขึ้นไปเท่านั้น)
+  const viewsPerDayByEntry = new Map<string, number>();
+  for (const s of usable) {
+    if (s.viewDelta !== null && s.daysSinceLastSnapshot !== null && s.daysSinceLastSnapshot > 0) {
+      viewsPerDayByEntry.set(s.entryId, s.viewDelta / s.daysSinceLastSnapshot);
+    }
+  }
+  const medianViewsPerDay = median([...viewsPerDayByEntry.values()]);
 
   const tasks: ClipTask[] = [];
   for (const s of usable) {
@@ -128,7 +164,8 @@ export function detectTasks(stats: ClipStat[]): ClipTask[] {
     // การบอกว่าคลิปกำลังโตจึงไม่ต้องพึ่งการทดสอบทางสถิติ
     // (เกณฑ์เดิมมีท่อน conv >= channelConv * 0.8 พ่วงมาด้วย ซึ่งวัดแล้วพบว่าไม่กรองอะไร
     //  เพราะ 0.8 เท่าคือต่ำกว่าค่าเฉลี่ย จึงถูกตัดทิ้ง)
-    if (s.viewDelta !== null && s.viewDelta >= medianViews) kinds.push("growing");
+    const viewsPerDay = viewsPerDayByEntry.get(s.entryId);
+    if (viewsPerDay !== undefined && viewsPerDay >= medianViewsPerDay) kinds.push("growing");
 
     // "ขายดีจริง" ต้องพิสูจน์ว่า conv สูงกว่าค่าเฉลี่ยช่องจริง ไม่ใช่แค่ดูสูง
     // ขอบล่างของช่วงเชื่อมั่นต้องเกินค่าเฉลี่ยช่อง — n น้อยจะได้ช่วงกว้างจนไม่ผ่านเอง

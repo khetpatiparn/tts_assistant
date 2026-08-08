@@ -123,12 +123,19 @@ try {
 
   const rec = await import(pathToFileURL(join(out, "recommender.js")).href);
 
-  /** สร้าง ClipStat แบบย่อ — ค่าที่ไม่ระบุใช้ค่าที่ไม่ทำให้ติดเกณฑ์ */
+  /**
+   * สร้าง ClipStat แบบย่อ — ค่าที่ไม่ระบุใช้ค่าที่ไม่ทำให้ติดเกณฑ์
+   * daysSinceLastSnapshot default เป็น 7 เมื่อมี viewDelta (รอบนำเข้าปกติ ~สัปดาห์) เพื่อให้
+   * เคสทดสอบเดิมที่ไม่ได้ตั้งใจทดสอบ normalization ยังใช้ viewDelta ดิบเป็นตัวแทน "วิวต่อวัน"
+   * ได้ตรงไปตรงมา (หาร 7 ทุกตัวเท่ากันจึงไม่กระทบการเรียงลำดับ/เกณฑ์เทียบ median)
+   */
   const stat = (o) => ({
     entryId: o.entryId,
     productName: o.productName ?? o.entryId,
     views: o.views ?? 0,
     viewDelta: o.viewDelta ?? null,
+    daysSinceLastSnapshot:
+      o.daysSinceLastSnapshot ?? (o.viewDelta != null ? 7 : null),
     orders: o.orders ?? 0,
     badOrders: o.badOrders ?? 0,
     ordersLast7Days: o.ordersLast7Days ?? 0,
@@ -171,17 +178,122 @@ try {
   check("ขอบล่างของช่วงต้องเกิน 1 เท่า", (pTask?.convRatioRange?.low ?? 0) > 1, true);
 
   // ติดทั้งสองป้ายต้องมาก่อนตัวที่ติดป้ายเดียว
+  // หมายเหตุ (Task 3): เกณฑ์ growing เทียบ "วิวต่อวัน" กับค่ากลางวิวต่อวันของคลิปที่มี
+  // viewDelta เท่านั้น (ไม่ใช่ทั้งช่องเหมือน medianViews เดิม) ใช้ base เดิม (ไม่มี viewDelta)
+  // ตรงนี้ไม่ได้ ต้องมี "clip อ้างอิง" ที่มี viewDelta เตี้ยๆ ด้วย ไม่งั้น median จะคำนวณจาก
+  // both/onlyGrow แค่ 2 ตัว ซึ่งฟังก์ชัน median (sorted[floor(n/2)]) จะเลือกค่าที่สูงกว่าเป็น
+  // threshold เสมอ ทำให้ตัวที่ค่าต่ำกว่าไม่ผ่านโดยไม่ตั้งใจ (ยืนยันด้วยการรันจริง)
+  const growthRefs = [
+    stat({ entryId: "ref1", views: 1000, viewDelta: 100, orders: 2 }),
+    stat({ entryId: "ref2", views: 1000, viewDelta: 100, orders: 2 }),
+    stat({ entryId: "ref3", views: 1000, viewDelta: 100, orders: 2 }),
+  ];
   const both = rec.detectTasks([
-    ...base,
+    ...growthRefs,
     stat({ entryId: "both", views: 20000, viewDelta: 5000, orders: 120 }),
     stat({ entryId: "onlyGrow", views: 9000, viewDelta: 8000, orders: 18 }),
   ]);
   check("คลิปที่ติดสองป้ายมาเป็นอันดับแรก", both[0]?.entryId, "both");
   check("คลิปที่ติดสองป้ายมี kinds ครบสอง", both[0]?.kinds.length, 2);
 
+  // Task 3: normalize เป็นวิวต่อวัน — clip ที่ viewDelta ดิบสูงกว่าแต่ห่างกันหลายวัน (หลุด
+  // top-15 ไปหนึ่งรอบ) ต้องไม่ชนะ clip ที่ viewDelta ต่ำกว่าแต่ถี่กว่า เมื่อคิดเป็นอัตราต่อวัน
+  // อ้างอิง 3 ตัวมีอัตรา 200/วัน (delta 1400 ÷ 7 วัน) เป็นเส้นแบ่ง median
+  const spanRefs = [
+    stat({ entryId: "sr1", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
+    stat({ entryId: "sr2", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
+    stat({ entryId: "sr3", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
+  ];
+  const spanGrowth = rec.detectTasks([
+    ...spanRefs,
+    // ดิบ 6000 ใน 40 วัน = 150/วัน (raw สูงกว่า tight มาก แต่ห่างเพราะหลุด top-15 ไปพักหนึ่ง)
+    stat({ entryId: "wide", views: 20000, viewDelta: 6000, daysSinceLastSnapshot: 40, orders: 5 }),
+    // ดิบ 900 ใน 3 วัน = 300/วัน (raw ต่ำกว่า wide มาก แต่ถี่กว่าจึงอัตราสูงกว่าจริง)
+    stat({ entryId: "tight", views: 9000, viewDelta: 900, daysSinceLastSnapshot: 3, orders: 5 }),
+  ]);
+  check(
+    "viewDelta ดิบสูงกว่าแต่ห่างหลายวัน ต้องไม่ติด growing เมื่อวิวต่อวันต่ำกว่า median",
+    spanGrowth.find((t) => t.entryId === "wide")?.kinds.includes("growing") ?? false,
+    false
+  );
+  check(
+    "viewDelta ดิบต่ำกว่าแต่ถี่กว่า ต้องติด growing เมื่อวิวต่อวันสูงกว่า median แม้ raw ต่ำกว่า",
+    spanGrowth.find((t) => t.entryId === "tight")?.kinds.includes("growing") ?? false,
+    true
+  );
+
   // badRatio เกินเกณฑ์ต้องถูกตัดออกก่อนพิจารณาอะไรทั้งสิ้น
   const bad = rec.detectTasks([...base, stat({ entryId: "bad", views: 20000, viewDelta: 9000, orders: 120, badOrders: 60 })]);
   check("badRatio >= 0.3 ถูกตัดออก", bad.find((t) => t.entryId === "bad") === undefined, true);
+
+  // ช่องไม่มีออเดอร์เลย -> channelConv === 0 -> convRatioRange ต้องเป็น null และห้ามมี "proven"
+  const noOrders = rec.detectTasks([
+    stat({ entryId: "no1", views: 1000, orders: 0 }),
+    stat({ entryId: "no2", views: 5000, orders: 0, viewDelta: 4000 }),
+  ]);
+  check(
+    "ช่องไม่มีออเดอร์เลย ไม่มี clip ไหนติด proven",
+    noOrders.some((t) => t.kinds.includes("proven")),
+    false
+  );
+  check(
+    "ช่องไม่มีออเดอร์เลย convRatioRange เป็น null เสมอ",
+    noOrders.every((t) => t.convRatioRange === null),
+    true
+  );
+
+  // clip มีออเดอร์แต่วิว 0 -> ต้องถูกกรองออกจาก usable อย่างเงียบๆ ไม่ขึ้น error/NaN
+  const zeroViews = rec.detectTasks([
+    ...base,
+    stat({ entryId: "zv", views: 0, orders: 3 }),
+  ]);
+  check(
+    "clip วิว 0 (แต่มีออเดอร์) ถูกกรองออกจากผลลัพธ์เสมอ",
+    zeroViews.find((t) => t.entryId === "zv") === undefined,
+    true
+  );
+
+  // orders > views (เคสขอบ: ข้อมูลออเดอร์ใหม่กว่าข้อมูลวิว) -> wilsonLowerBound ต้อง clamp
+  // k ให้ไม่เกิน trials และห้ามได้ NaN/Infinity ออกมาที่ convRatioRange
+  const overOrdered = rec.detectTasks([
+    ...base,
+    stat({ entryId: "over", views: 10, orders: 50 }),
+  ]);
+  const overTask = overOrdered.find((t) => t.entryId === "over");
+  check("orders > views ไม่ทำให้ detectTasks พัง (ยังคืนผลลัพธ์)", overTask !== undefined, true);
+  check(
+    "orders > views: convRatioRange.low ไม่ใช่ NaN/Infinity",
+    Number.isFinite(overTask?.convRatioRange?.low),
+    true
+  );
+  check(
+    "orders > views: convRatioRange.high ไม่ใช่ NaN/Infinity",
+    Number.isFinite(overTask?.convRatioRange?.high),
+    true
+  );
+
+  console.log("\n=== Deadline/countdown (Task 1 fix) ===");
+  // จำลองเคสที่เคยพัง: นำเข้า 1 ส.ค. 20:00 ดูหน้าเว็บ 9 ส.ค. 09:00 — ผ่านมา 7 วัน 13 ชม.
+  // (< 8 วันเต็ม) แต่ปฏิทินท้องถิ่นถือว่าเลยกำหนด (8 ส.ค.) มาแล้ว 1 วัน
+  // overdue ต้อง derive จาก daysUntil (ปฏิทิน) เท่านั้น ไม่ใช่ผสมกับการนับช่วง 24 ชม. เต็ม —
+  // ยืนยันว่า daysLeft ที่ import-log-panel.tsx และ recommendations.tsx ใช้ตรงกันเสมอ (ไม่มีทาง
+  // ได้ !overdue พร้อมกับ daysLeft ติดลบอีก เพราะทั้งคู่คำนวณจากค่าเดียวกัน)
+  const importedEvening = new Date(2026, 7, 1, 20, 0);
+  const viewedMorning = new Date(2026, 7, 9, 9, 0);
+  const dueDate = schedule.nextImportDate(importedEvening);
+  const daysLeftCase = schedule.daysUntil(dueDate, viewedMorning);
+  check("นำเข้าเย็น 1 ส.ค. -> รอบหน้า 8 ส.ค.", key(dueDate), "2026-08-08");
+  check("ดูเช้าวันที่ 9 ส.ค. -> daysLeft ติดลบ (เลยกำหนดมาแล้ว 1 วัน)", daysLeftCase, -1);
+  // นิยาม overdue ที่ import-log-panel.tsx ใช้ตอนนี้ (daysLeft < 0) ต้องสอดคล้องกับ
+  // recommendations.tsx (daysLeft >= 0 ? ... : "เลยรอบนำเข้ามาแล้ว ...") เสมอ — ไม่มีทางที่
+  // อันหนึ่งบอกว่ายังไม่เกินกำหนดขณะอีกอันบอกว่าเลยแล้ว เพราะเป็นเงื่อนไขคู่ตรงข้ามของค่าเดียวกัน
+  const overdueFromDaysLeft = daysLeftCase < 0;
+  check(
+    "overdue (import-log-panel) เป็นค่าตรงข้ามของ daysLeft >= 0 (recommendations) เสมอ",
+    overdueFromDaysLeft,
+    !(daysLeftCase >= 0)
+  );
+  check("overdue เป็นจริงเมื่อ daysLeft ติดลบ", overdueFromDaysLeft, true);
 
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {
