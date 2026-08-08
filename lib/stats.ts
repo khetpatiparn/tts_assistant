@@ -9,6 +9,16 @@
 const Z_95 = 1.959964;
 
 /**
+ * Epsilon threshold สำหรับ clamp ขอบบน เพื่อรองรับความคลาดเคลื่อนของทศนิยม
+ *
+ * ในกรณี 100% สำเร็จ (successes === trials) สูตร Wilson ควรให้ผลลัพธ์เป็น 1.0 พอดี
+ * แต่การคำนวณด้วย JavaScript floating-point ให้ผลลัพธ์ 0.9999999999999999 แทน
+ * (เนื่องจาก (centre + spread) / denom ตรงแนวเส้นนี้ไม่เท่ากับพอดี เนื่องจากการปัดเศษ)
+ * ค่า threshold นี้ใช้ handle edge case นั้นให้ return เป็น 1 ตามที่คาดหวัง
+ */
+const NEAR_ONE_EPSILON = 0.9999999999;
+
+/**
  * ขอบล่างของช่วงความเชื่อมั่นแบบ Wilson สำหรับสัดส่วน successes/trials
  *
  * ใช้ Wilson ไม่ใช่สูตร normal ธรรมดา เพราะ conversion ของช่องนี้อยู่แถว 0.2%
@@ -46,5 +56,7 @@ export function wilsonUpperBound(
   const spread =
     z * Math.sqrt((p * (1 - p)) / trials + (z * z) / (4 * trials * trials));
   const result = (centre + spread) / denom;
-  return result > 0.9999999999 ? 1 : Math.min(1, result);
+  // Clamp ให้เป็น 1 สำหรับค่าที่เกือบ 1 เพื่อรองรับ floating-point precision
+  // (ดู NEAR_ONE_EPSILON comment ด้านบน)
+  return result > NEAR_ONE_EPSILON ? 1 : Math.min(1, result);
 }
