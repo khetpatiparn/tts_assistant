@@ -226,7 +226,6 @@
   --chart-4: var(--green-400);
   --chart-5: var(--red-400);
   --sidebar-accent: var(--navy-800);
-  --sidebar-border: var(--navy-700);
 }
 
 @layer base {
