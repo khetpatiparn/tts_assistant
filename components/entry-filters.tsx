@@ -264,7 +264,6 @@ export function EntryFilters({
                 />
                 <Button
                   type="button"
-                  size="sm"
                   onClick={applyCustomRange}
                   disabled={customFrom === "" && customTo === ""}
                   className="self-end"
