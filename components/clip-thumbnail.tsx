@@ -52,7 +52,7 @@ export function ClipThumbnail({
       {done ? (
         <ImageOff className="size-4" />
       ) : (
-        <span className="size-3 animate-pulse rounded-full bg-smoke/40" />
+        <span className="size-3 animate-pulse rounded-full bg-muted-foreground/40" />
       )}
     </div>
   );

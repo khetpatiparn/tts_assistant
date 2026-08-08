@@ -1,4 +1,4 @@
-import { getEntryRows, getEntrySales, getSearchText } from "@/lib/entry-queries";
+import { getEntryRows, getSearchText } from "@/lib/entry-queries";
 import {
   paginate,
   parsePageParam,
@@ -27,7 +27,7 @@ export default async function EntryListPage({
   const to = parseDateParam(sp.to);
   const by = parseDateBasisParam(sp.by);
 
-  const [rows, salesByEntry] = await Promise.all([getEntryRows(), getEntrySales()]);
+  const rows = await getEntryRows();
   const dateFiltered =
     by === "created"
       ? filterByCreatedDateRange(rows, from, to)
@@ -60,7 +60,6 @@ export default async function EntryListPage({
             duplicatedFromId: r.duplicatedFromId,
             status: r.status,
             thumbnailFilename: r.thumbnailFilename,
-            sales: salesByEntry.get(r.id) ?? null,
           }))}
           query={query}
           status={status}
