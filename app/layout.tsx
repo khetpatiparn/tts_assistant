@@ -1,33 +1,34 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Noto_Sans_Thai, Plus_Jakarta_Sans } from "next/font/google";
+import { JetBrains_Mono, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 
-// ฟอนต์ Latin/ตัวเลข และฟอนต์ไทยเป็นคนละตระกูลกันโดยตั้งใจ (Plus Jakarta Sans ไม่มี
-// Thai glyph) — รวมเป็น --font-sans เดียวใน globals.css ด้วยการเรียงลำดับ fallback
-// เบราว์เซอร์จะเลือกฟอนต์ตามตัวอักษรที่พบเอง (Thai -> Noto, Latin/ตัวเลข -> Jakarta)
-const latinFont = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-latin",
-});
-
+// Noto Sans Thai คุมทั้งข้อความไทยและละติน จึงต้องโหลด subset ทั้งสองชุด
+// ถ้าใส่แค่ ["thai"] ตัวอักษรละตินจะไม่มี glyph แล้วตกไปใช้ฟอนต์ระบบแบบควบคุมไม่ได้
 const thaiFont = Noto_Sans_Thai({
-  subsets: ["thai"],
+  subsets: ["thai", "latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-thai",
 });
 
+// เหลือไว้เฉพาะตัวเลขที่เรียงเป็นคอลัมน์ (เงิน วิว วันที่) ซึ่งความกว้างเท่ากันช่วยให้อ่านง่าย
+// ห้ามใช้กับข้อความไทย — ฟอนต์นี้ไม่มี glyph ไทย
 const monoFont = JetBrains_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
-  variable: "--font-mono",
+  variable: "--font-mono-src",
 });
 
 export const metadata: Metadata = {
   title: "Angle",
   description: "by LAGR — ประกอบ Core Prompt สำหรับสร้างวิดีโอ TikTok Shop ด้วย Gemini Flow",
 };
+
+// สคริปต์นี้ทำงานตอนเบราว์เซอร์ parse HTML คือก่อนหน้าจอวาดครั้งแรก จึงไม่มีอาการกระพริบ
+// วิธีนี้มาจากเอกสารทางการของ Next.js เวอร์ชันนี้:
+// node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md
+// ค่าเริ่มต้นคือ "dark" ตามที่ตั้งไว้บน <html> — สคริปต์เขียนทับเฉพาะเมื่อผู้ใช้เคยเลือกไว้
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()`;
 
 export default function RootLayout({
   children,
@@ -37,15 +38,13 @@ export default function RootLayout({
   return (
     <html
       lang="th"
-      className={cn(
-        "h-full",
-        "antialiased",
-        latinFont.variable,
-        thaiFont.variable,
-        monoFont.variable,
-        "font-sans"
-      )}
+      data-theme="dark"
+      suppressHydrationWarning
+      className={cn("h-full", "antialiased", thaiFont.variable, monoFont.variable, "font-sans")}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col lg:h-full lg:overflow-hidden">
         {children}
       </body>
