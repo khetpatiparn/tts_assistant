@@ -70,17 +70,6 @@
      ไหนอ้างถึงเลย Recharts ในแอปนี้ผูก var(--color-primary)/var(--color-status-warning)
      ตรงๆ ไม่ผ่าน chart token และไม่มี sidebar component ในแอป */
 
-  /* alias ชั่วคราวของชื่อพาเลตต์เดิม — ดูคอมเมนต์ท้าย :root */
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-paper: var(--paper);
-  --color-teal: var(--teal);
-  --color-amber: var(--amber);
-  --color-smoke: var(--smoke);
-  --color-danger: var(--danger);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -162,20 +151,6 @@
   --header-active: var(--brass-500);
   --header-active-foreground: var(--navy-ink);
   --radius: 0.75rem;
-
-  /* ── alias ชั่วคราวของชื่อพาเลตต์เดิม ──
-     เหลือไว้ให้ components/entry-list.tsx (โปรเจกต์ B) และ
-     components/recommendations.tsx (โปรเจกต์ C) เท่านั้น ซึ่งจะถูกรื้อทั้งไฟล์
-     ห้ามใช้ในโค้ดใหม่ · ลบทั้งบล็อกนี้และคู่ --color-* ด้านบนเมื่อสองไฟล์นั้นเสร็จ */
-  --ink: var(--header);
-  --ink-2: var(--navy-850);
-  --paper: var(--header-foreground);
-  --teal: var(--primary);
-  --amber: var(--status-warning);
-  --smoke: var(--muted-foreground);
-  --danger: var(--destructive);
-  --success: var(--surface-2);
-  --success-foreground: var(--status-success);
 }
 
 /* ═══ ชั้นที่ 2: semantic (โหมดมืด) ═══

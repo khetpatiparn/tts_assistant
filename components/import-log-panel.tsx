@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+import { daysUntil, nextImportDate } from "@/lib/import-schedule";
 import {
   EXPECTED_CLIP_FILES,
   groupLatestRound,
@@ -26,7 +27,7 @@ function stamp(d: Date): string {
   );
 }
 
-/** วันเดียวไม่มีเวลา — ใช้กับหัวกลุ่มที่มีหลายไฟล์ */
+/** วันเดียวไม่มีเวลา — ใช้กับหัวกลุ่มที่มีหลายไฟล์ และบรรทัดรอบถัดไป */
 function dayOnly(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
@@ -40,42 +41,63 @@ function staleDaysOf(kind: string, reminder: ReminderState): number | null {
 export function ImportLogPanel({
   logs,
   reminder,
+  now,
+  lastOrdersImportedAt,
+  lastMetricsImportedAt,
 }: {
   logs: ImportLogRecord[];
   reminder: ReminderState;
+  now: Date;
+  lastOrdersImportedAt: Date | null;
+  lastMetricsImportedAt: Date | null;
 }) {
   const rounds = useMemo(() => groupLatestRound(logs), [logs]);
-  if (rounds.length === 0) return null;
 
-  const sorted = [...rounds].sort(
-    (a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)
-  );
+  function importedAtOf(kind: string): Date | null {
+    if (kind === "orders") return lastOrdersImportedAt;
+    if (kind === "clips") return lastMetricsImportedAt;
+    return null;
+  }
+
+  // แสดงชนิดที่ "มีแถว log" หรือ "มีข้อมูลนำเข้าแล้ว" อย่างใดอย่างหนึ่ง
+  //
+  // สองอย่างนี้ไม่เท่ากัน: ImportLog เพิ่งถูกเพิ่มทีหลัง รอบนำเข้ารายได้ที่เกิดก่อนหน้านั้น
+  // จึงไม่มีแถว log ทั้งที่ข้อมูลมีอยู่จริง ถ้ายึดแถว log อย่างเดียวบรรทัดรายได้จะหายไปทั้งบรรทัด
+  const visible = KIND_ORDER.map((kind) => ({
+    kind,
+    round: rounds.find((r) => r.kind === kind) ?? null,
+    importedAt: importedAtOf(kind),
+  })).filter((v) => v.round !== null || v.importedAt !== null);
+
+  if (visible.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-xs text-muted-foreground">
-        อัปล่าสุด
-      </p>
-      {sorted.map((r) => {
+      <p className="text-xs text-muted-foreground">อัปล่าสุด</p>
+      {visible.map(({ kind, round, importedAt }) => {
         // "N จาก M ไฟล์" มีความหมายเฉพาะ kind "clips" เท่านั้น (ต้องอัป 3 ช่วงวันต่อรอบ)
-        // ชนิดอื่น (เช่น orders) ที่มีหลายไฟล์ในวันเดียวกันเป็นเรื่องปกติ/ที่แนะนำ
-        // (อัปซ้ำช่วงกว้างขึ้นเรื่อยๆ ตาม CLAUDE.md) ไม่มี "จำนวนที่ควรจะเป็น" ให้เทียบ
-        const hasMultipleFiles = r.files.length > 1;
-        const isMultiExpectedKind = r.kind === "clips" && hasMultipleFiles;
-        const stale = staleDaysOf(r.kind, reminder);
+        // ชนิดอื่นที่มีหลายไฟล์ในวันเดียวกันเป็นเรื่องปกติ ไม่มี "จำนวนที่ควรจะเป็น" ให้เทียบ
+        const hasMultipleFiles = round !== null && round.files.length > 1;
+        const isMultiExpectedKind = kind === "clips" && hasMultipleFiles;
+        const stale = staleDaysOf(kind, reminder);
         const overdue = stale !== null && stale > IMPORT_STALE_DAYS;
+        const due = nextImportDate(importedAt);
+        const daysLeft = due === null ? null : daysUntil(due, now);
+
         return (
-          <div key={r.kind} className="flex flex-col gap-0.5">
+          <div key={kind} className="flex flex-col gap-0.5">
             <p className="text-xs">
-              <span className="text-muted-foreground">
-                {KIND_LABEL[r.kind] ?? r.kind}
-              </span>{" "}
+              <span className="text-muted-foreground">{KIND_LABEL[kind] ?? kind}</span>{" "}
               <span className="text-foreground">
-                {isMultiExpectedKind
-                  ? `${dayOnly(r.files[0].uploadedAt)} · ${r.files.length} จาก ${EXPECTED_CLIP_FILES} ไฟล์`
-                  : hasMultipleFiles
-                    ? `${dayOnly(r.files[0].uploadedAt)} · อัป ${r.files.length} ครั้ง`
-                    : `${stamp(r.files[0].uploadedAt)} · ${r.files[0].summary}`}
+                {round === null
+                  ? importedAt !== null
+                    ? stamp(importedAt)
+                    : "-"
+                  : isMultiExpectedKind
+                    ? `${dayOnly(round.files[0].uploadedAt)} · ${round.files.length} จาก ${EXPECTED_CLIP_FILES} ไฟล์`
+                    : hasMultipleFiles
+                      ? `${dayOnly(round.files[0].uploadedAt)} · อัป ${round.files.length} ครั้ง`
+                      : `${stamp(round.files[0].uploadedAt)} · ${round.files[0].summary}`}
               </span>
               {overdue && (
                 <span className="text-status-warning">
@@ -84,8 +106,18 @@ export function ImportLogPanel({
                 </span>
               )}
             </p>
+
+            {/* เลยกำหนดแล้วใช้ข้อความเตือนด้านบนพอ ไม่ต้องบอกวันที่แนะนำซ้อนอีก */}
+            {!overdue && due !== null && daysLeft !== null && (
+              <p className="pl-4 text-xs text-muted-foreground">
+                แนะนำรอบหน้า {dayOnly(due)}{" "}
+                {daysLeft === 0 ? "(วันนี้)" : `(อีก ${daysLeft} วัน)`}
+              </p>
+            )}
+
             {hasMultipleFiles &&
-              r.files.map((f) => (
+              round !== null &&
+              round.files.map((f) => (
                 <p
                   key={f.uploadedAt.getTime()}
                   className="pl-4 text-xs text-muted-foreground"

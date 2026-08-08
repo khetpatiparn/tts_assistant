@@ -33,6 +33,8 @@ export function DashboardPanel({
   importLogs,
   reminder,
   reminderActive,
+  lastOrdersImportedAt,
+  lastMetricsImportedAt,
   entries,
   now,
   onOpenEntry,
@@ -107,6 +109,8 @@ export function DashboardPanel({
         metrics={clipMetrics}
         orders={orders}
         now={now}
+        lastOrdersImportedAt={lastOrdersImportedAt}
+        lastMetricsImportedAt={lastMetricsImportedAt}
         onOpenEntry={onOpenEntry}
       />
 
@@ -183,7 +187,13 @@ export function DashboardPanel({
         </button>
 
         {/* แผงสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
-        <ImportLogPanel logs={importLogs} reminder={reminder} />
+        <ImportLogPanel
+          logs={importLogs}
+          reminder={reminder}
+          now={now}
+          lastOrdersImportedAt={lastOrdersImportedAt}
+          lastMetricsImportedAt={lastMetricsImportedAt}
+        />
 
         {importsOpen && (
           <>
