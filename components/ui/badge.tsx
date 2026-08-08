@@ -1,18 +1,21 @@
 import { cn } from "@/lib/utils";
 
-const BADGE_VARIANT_CLASS = {
-  success: "bg-success text-success-foreground",
-  warning: "bg-secondary text-secondary-foreground",
-  neutral: "bg-muted text-foreground",
-  danger: "bg-destructive/10 text-destructive",
+/**
+ * จุดสีเป็นตัวสื่อสถานะ ส่วนพื้นและตัวอักษรเป็นกลางเหมือนกันทุก variant
+ *
+ * เหตุผล: ถ้าย้อมทั้งก้อนตามสถานะ badge จะหน้าตาใกล้ปุ่มจนแยกไม่ออกว่าอันไหนกดได้
+ * และตัวอักษรสีเดียวกับพื้นของมันเอง (tone-on-tone) อ่านยากกว่าที่คิด
+ * จุดสีทุกตัวผ่าน 3:1 บนพื้น --surface-2 ตาม WCAG 1.4.11 (ตรวจโดย scripts/check-contrast.mjs)
+ */
+const BADGE_DOT_CLASS = {
+  success: "bg-status-success",
+  warning: "bg-status-warning",
+  neutral: "bg-status-neutral",
+  danger: "bg-status-danger",
 } as const;
 
-export type BadgeVariant = keyof typeof BADGE_VARIANT_CLASS;
+export type BadgeVariant = keyof typeof BADGE_DOT_CLASS;
 
-/**
- * Badge สถานะ — ใช้สี tint เสมอ ไม่ใช่สีปุ่ม action (--primary) โดยตั้งใจ
- * เพื่อแยกบทบาท "ระบบบอกสถานะ" ออกจาก "ผู้ใช้กดทำ action" ตามสเปกการรีแบรนด์
- */
 export function Badge({
   variant,
   children,
@@ -25,11 +28,15 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[0.6rem] font-bold tracking-wide",
-        BADGE_VARIANT_CLASS[variant],
+        // ทรงแคปซูลและจุดสีคือสิ่งที่แยก badge ออกจากปุ่ม ซึ่งมุมโค้ง 8px และไม่มีจุด
+        "inline-flex items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-foreground",
         className
       )}
     >
+      <span
+        aria-hidden="true"
+        className={cn("size-1.5 shrink-0 rounded-full", BADGE_DOT_CLASS[variant])}
+      />
       {children}
     </span>
   );
