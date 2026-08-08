@@ -71,7 +71,11 @@ function detailLine(task: ClipTask): string {
   } else {
     bits.push(`${task.views.toLocaleString("th-TH")} วิว`);
   }
-  if (task.growthRatioRange !== null) {
+  // growthRatioRange ถูกคำนวณให้ทุก task ที่มี snapshot >= 3 จุด ไม่ว่าจะติดป้าย "growing"
+  // จริงหรือไม่ (ดูคอมเมนต์ที่ push ClipTask ใน lib/recommender.ts) — ต้องเช็ก kinds ด้วย
+  // ไม่งั้น clip ที่ติดแค่ "proven" แต่อัตราวิวกำลังช้าลงจริง (เช่น 0.45-0.96 เท่า) จะโชว์
+  // คำว่า "เร็วขึ้น" คู่กับตัวเลขที่บอกว่าช้าลง ซึ่งขัดกันเอง
+  if (task.kinds.includes("growing") && task.growthRatioRange !== null) {
     // แสดงเป็นช่วงไม่ใช่ตัวเลขเดียว — ตัวเลขเดียวสร้างความมั่นใจเกินกว่าที่ข้อมูลรองรับ
     // ขอบบนอาจเป็น Infinity ได้จริง (ช่วงก่อนหน้าวิวไม่ขยับเลย) แสดงเป็นสัญลักษณ์อนันต์
     const highLabel = Number.isFinite(task.growthRatioRange.high)
