@@ -117,6 +117,7 @@ const PAIRS = [
   ["--status-danger", "--surface-2", 3.0],
   ["--status-neutral", "--surface-2", 3.0],
   ["--status-warning", "--surface", 4.5],
+  ["--status-success", "--surface", 4.5],
   ["--header-foreground", "--header", 4.5],
   ["--header-muted", "--header", 4.5],
   ["--header-active-foreground", "--header-active", 4.5],
