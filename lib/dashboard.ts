@@ -1,7 +1,9 @@
 import { PAID_STATUS } from "@/lib/affiliate";
 
-/** รอบนำเข้าไฟล์รายได้ — อิงรอบ settle ของ TikTok (~สัปดาห์) ใช้ทั้งแถบเตือนและบรรทัดสถานะ */
-export const IMPORT_STALE_DAYS = 7;
+// ค่าจริงย้ายไป lib/import-schedule.ts แล้ว (ไฟล์นั้นไม่ import อะไรเลยจึงทดสอบเดี่ยวได้)
+// re-export ไว้เพื่อให้ผู้เรียกเดิมไม่ต้องแก้: lib/entry-queries.ts,
+// components/import-log-panel.tsx, components/reminder-banner.tsx
+export { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 
 export type AffiliateOrderRecord = {
   orderId: string;
