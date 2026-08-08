@@ -43,7 +43,7 @@ export function ScriptOutput({
             onChange={(e) => onModelChange(e.target.value)}
             disabled={isGenerating}
             aria-label="เลือกโมเดล AI"
-            className="h-8 rounded-lg border border-border-interactive bg-background px-2 text-xs text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
+            className="h-9 rounded-lg border border-border-interactive bg-background px-2 text-xs text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
           >
             {GEMINI_MODELS.map((geminiModel) => (
               <option key={geminiModel.id} value={geminiModel.id}>

@@ -154,7 +154,7 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
             key={r.key}
             type="button"
             onClick={() => setRange(r.key)}
-            className={`rounded-md border px-2 py-0.5 text-xs ${
+            className={`inline-flex h-9 items-center rounded-md border px-3 text-xs ${
               range === r.key
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border-interactive text-muted-foreground hover:text-foreground"

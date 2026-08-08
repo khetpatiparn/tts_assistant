@@ -65,19 +65,10 @@
   --color-header-muted: var(--header-muted);
   --color-header-active: var(--header-active);
   --color-header-active-foreground: var(--header-active-foreground);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* --chart-1..5 และ --sidebar-* ถูกลบแล้ว (2026-08-08) — grep ยืนยันไม่มี .tsx
+     ไหนอ้างถึงเลย Recharts ในแอปนี้ผูก var(--color-primary)/var(--color-status-warning)
+     ตรงๆ ไม่ผ่าน chart token และไม่มี sidebar component ในแอป */
 
   /* alias ชั่วคราวของชื่อพาเลตต์เดิม — ดูคอมเมนต์ท้าย :root */
   --color-ink: var(--ink);
@@ -112,7 +103,7 @@
   --navy-800: oklch(0.29 0.015 250);
   --navy-700: oklch(0.34 0.018 250);
   --navy-600: oklch(0.52 0.018 250);
-  --navy-550: oklch(0.55 0.018 250);
+  --navy-550: oklch(0.58 0.018 250);
   --navy-500: oklch(0.62 0.012 250);
   --navy-400: oklch(0.69 0.015 250);
   --navy-300: oklch(0.87 0.01 250);
@@ -170,19 +161,6 @@
   --header-muted: var(--navy-400);
   --header-active: var(--brass-500);
   --header-active-foreground: var(--navy-ink);
-  --chart-1: var(--navy-accent);
-  --chart-2: var(--brass-600);
-  --chart-3: var(--navy-600);
-  --chart-4: var(--green-600);
-  --chart-5: var(--red-600);
-  --sidebar: var(--header);
-  --sidebar-foreground: var(--header-foreground);
-  --sidebar-primary: var(--header-active);
-  --sidebar-primary-foreground: var(--header-active-foreground);
-  --sidebar-accent: var(--navy-850);
-  --sidebar-accent-foreground: var(--header-foreground);
-  --sidebar-border: var(--navy-700);
-  --sidebar-ring: var(--ring);
   --radius: 0.75rem;
 
   /* ── alias ชั่วคราวของชื่อพาเลตต์เดิม ──
@@ -221,11 +199,6 @@
   --status-danger: var(--red-400);
   --status-neutral: var(--navy-400);
   --header: var(--navy-950);
-  --chart-2: var(--brass-400);
-  --chart-3: var(--navy-400);
-  --chart-4: var(--green-400);
-  --chart-5: var(--red-400);
-  --sidebar-accent: var(--navy-800);
 }
 
 @layer base {

@@ -460,7 +460,7 @@ export function BriefForm({
                     placeholder="อธิบายรูปนี้ เช่น ด้านหน้า มี logo"
                     onClick={(e) => e.stopPropagation()}
                     onBlur={(e) => onSaveCaption(image.id, e.target.value)}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   />
                 </div>
               ))}
@@ -493,7 +493,7 @@ export function BriefForm({
                     placeholder="อธิบายรูปนี้ เช่น ด้านหลัง ไม่มี logo"
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onUpdatePendingCaption(index, e.target.value)}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   />
                 </div>
               ))}
