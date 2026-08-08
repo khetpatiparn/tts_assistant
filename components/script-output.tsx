@@ -28,11 +28,11 @@ export function ScriptOutput({
   const wordCount = output.trim().length === 0 ? 0 : output.trim().split(/\s+/).length;
 
   return (
-    <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-1 flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
         <div className="flex items-center gap-2">
-          <span className="h-4 w-1 rounded-full bg-teal" />
-          <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
+          <span className="h-4 w-1 rounded-full bg-primary" />
+          <h2 className="text-xs text-primary">
             Script · 10-Part Prompt
           </h2>
         </div>
@@ -43,7 +43,7 @@ export function ScriptOutput({
             onChange={(e) => onModelChange(e.target.value)}
             disabled={isGenerating}
             aria-label="เลือกโมเดล AI"
-            className="h-8 rounded-lg border border-border bg-background px-2 font-mono text-xs text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
+            className="h-8 rounded-lg border border-border-interactive bg-background px-2 text-xs text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
           >
             {GEMINI_MODELS.map((geminiModel) => (
               <option key={geminiModel.id} value={geminiModel.id}>
@@ -78,8 +78,8 @@ export function ScriptOutput({
         />
       </div>
 
-      <p className="text-right font-mono text-[0.7rem] text-muted-foreground">
-        {wordCount} คำ
+      <p className="text-right text-xs text-muted-foreground">
+        <span className="font-mono">{wordCount}</span> คำ
       </p>
     </section>
   );

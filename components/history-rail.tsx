@@ -50,7 +50,7 @@ export function HistoryRail({
   onDelete: (id: string) => void;
 }) {
   return (
-    <aside className="flex w-full shrink-0 flex-col gap-3 overflow-hidden bg-ink px-3 py-4 text-paper lg:h-full lg:w-60">
+    <aside className="flex w-full shrink-0 flex-col gap-3 overflow-hidden bg-header px-3 py-4 text-header-foreground lg:h-full lg:w-60">
       <Link
         href="/entry/new"
         className={cn(buttonVariants(), "w-full shadow-none")}
@@ -59,7 +59,7 @@ export function HistoryRail({
         สินค้าใหม่
       </Link>
 
-      <p className="px-1 font-mono text-[0.65rem] tracking-widest text-paper/40 uppercase">
+      <p className="px-1 text-xs text-header-muted">
         ล่าสุด
       </p>
 
@@ -72,8 +72,8 @@ export function HistoryRail({
               <li
                 key={row.id}
                 className={cn(
-                  "group flex items-center rounded-md border-l-2 border-transparent text-sm text-paper/80 transition-colors hover:bg-ink-2 hover:text-paper",
-                  isActive && "border-[#22c1b3] bg-ink-2 text-paper"
+                  "group flex items-center rounded-md border-l-2 border-transparent text-sm text-header-muted transition-colors hover:bg-header-foreground/10 hover:text-header-foreground",
+                  isActive && "border-header-active bg-header-foreground/10 text-header-foreground"
                 )}
               >
                 <Link
@@ -86,20 +86,20 @@ export function HistoryRail({
                       src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
                       alt=""
                       loading="lazy"
-                      className="size-9 shrink-0 rounded border border-paper/10 object-cover"
+                      className="size-9 shrink-0 rounded border border-header-foreground/10 object-cover"
                     />
                   ) : (
-                    <span className="size-9 shrink-0 rounded border border-dashed border-paper/10" />
+                    <span className="size-9 shrink-0 rounded border border-dashed border-header-foreground/10" />
                   )}
 
                   <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="line-clamp-2 leading-tight">{row.productName}</span>
-                    <span className="flex items-center gap-1.5 font-mono text-[0.6rem]">
+                    <span className="line-clamp-2 text-sm leading-tight font-semibold">{row.productName}</span>
+                    <span className="flex items-center gap-1.5 text-xs">
                       {date ? (
-                        <span className="text-paper/30">{date}</span>
+                        <span className="font-mono text-header-muted">{date}</span>
                       ) : (
-                        <span className="text-paper/20">
-                          สร้าง {shortCreatedDate(row.createdAt)}
+                        <span className="text-header-muted">
+                          สร้าง <span className="font-mono">{shortCreatedDate(row.createdAt)}</span>
                         </span>
                       )}
                     </span>
@@ -109,23 +109,23 @@ export function HistoryRail({
                 <Menu.Root>
                   <Menu.Trigger
                     aria-label="เมนูรายการ"
-                    className="shrink-0 rounded-md px-1.5 py-2 text-paper/30 opacity-0 transition-opacity hover:text-paper focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
+                    className="shrink-0 rounded-md px-1.5 py-2 text-header-muted opacity-0 transition-opacity hover:text-header-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
                   >
                     <EllipsisVertical className="size-3.5" />
                   </Menu.Trigger>
                   <Menu.Portal>
                     <Menu.Positioner side="bottom" align="end" sideOffset={4} className="z-50">
-                      <Menu.Popup className="min-w-32 rounded-md border border-paper/15 bg-ink-2 py-1 text-sm text-paper shadow-lg">
+                      <Menu.Popup className="min-w-32 rounded-md border border-border bg-popover py-1 text-sm text-popover-foreground shadow-lg">
                         <Menu.Item
                           onClick={() => onDuplicate(row.id)}
-                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 outline-none data-[highlighted]:bg-ink"
+                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 outline-none data-[highlighted]:bg-muted"
                         >
                           <Copy className="size-3.5" />
                           ทำซ้ำ
                         </Menu.Item>
                         <Menu.Item
                           onClick={() => onDelete(row.id)}
-                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-danger outline-none data-[highlighted]:bg-ink"
+                          className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-destructive outline-none data-[highlighted]:bg-muted"
                         >
                           <Trash2 className="size-3.5" />
                           ลบ
@@ -141,7 +141,7 @@ export function HistoryRail({
 
         <Link
           href="/"
-          className="mt-1 rounded-md px-2.5 py-2 text-center font-mono text-[0.65rem] tracking-widest text-paper/40 uppercase transition-colors hover:bg-ink-2 hover:text-paper"
+          className="mt-1 rounded-md px-2.5 py-2 text-center text-xs text-header-muted transition-colors hover:bg-header-foreground/10 hover:text-header-foreground"
         >
           ดูทั้งหมด
         </Link>

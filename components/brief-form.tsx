@@ -210,10 +210,10 @@ export function BriefForm({
   const shownError = localError ?? imageError;
 
   return (
-    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-amber" />
-        <h2 className="font-mono text-xs tracking-widest text-secondary-foreground uppercase">
+        <span className="h-4 w-1 rounded-full bg-status-warning" />
+        <h2 className="text-xs text-secondary-foreground">
           Brief · ข้อมูลสินค้า
         </h2>
       </div>
@@ -227,14 +227,14 @@ export function BriefForm({
           type="button"
           onClick={() => setExtractOpen((open) => !open)}
           aria-expanded={extractOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+          className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
         >
           <ScanText className="size-3.5" />
           สกัดจากแคปหน้าสินค้า
         </button>
 
         {extractOpen && (
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-teal/40 p-3">
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-primary/40 p-3">
             <div
               role="button"
               tabIndex={0}
@@ -253,7 +253,7 @@ export function BriefForm({
                       <img
                         src={extractPreviews[index]}
                         alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
-                        className="size-24 rounded-md border border-dashed border-teal object-cover"
+                        className="size-24 rounded-md border border-dashed border-primary object-cover"
                       />
                       <Button
                         type="button"
@@ -273,7 +273,7 @@ export function BriefForm({
                 </div>
               )}
 
-              <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ClipboardPaste className="size-3.5 shrink-0" />
                 กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
               </p>
@@ -302,7 +302,7 @@ export function BriefForm({
             </Button>
 
             {extractError && (
-              <p className="font-mono text-[0.7rem] text-danger">{extractError}</p>
+              <p className="text-xs text-destructive">{extractError}</p>
             )}
           </div>
         )}
@@ -338,7 +338,7 @@ export function BriefForm({
             type="button"
             onClick={() => setRiskOpen((open) => !open)}
             aria-expanded={riskOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+            className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
           >
             <TriangleAlert className="size-3.5" />
             Product Risk Module (ถ้ามี)
@@ -364,7 +364,7 @@ export function BriefForm({
             type="button"
             onClick={() => setNotesOpen((open) => !open)}
             aria-expanded={notesOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+            className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
           >
             <NotebookPen className="size-3.5" />
             ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)
@@ -393,7 +393,7 @@ export function BriefForm({
           {/* ปุ่มนี้เรียก createPrompt ซึ่งสร้าง entry ใหม่ที่ duplicatedFromId = null เสมอ
               กดพลาดหลังกดทำซ้ำ = สายเลือดขาด ระบบตามรอย angle ไม่ได้ */}
           {hasSelectedEntry && (
-            <span className="font-mono text-[0.7rem] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               จะได้รายการใหม่ที่ไม่ผูกกับสินค้าเดิม — ถ้าจะแก้รายการนี้ ใช้ปุ่ม &quot;สร้างด้วย AI&quot; ทางขวา
             </span>
           )}
@@ -427,7 +427,7 @@ export function BriefForm({
             acceptFiles(imageFilesFrom(e.dataTransfer.files));
           }}
           className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-dashed p-3 transition-colors ${
-            isDraggingOver ? "border-teal bg-teal/5" : "border-border"
+            isDraggingOver ? "border-primary bg-primary/5" : "border-border"
           }`}
         >
           {(pendingImages.length > 0 || productImages.length > 0) && (
@@ -472,7 +472,7 @@ export function BriefForm({
                     <img
                       src={pendingPreviews[index]}
                       alt="รูปสินค้า (ยังไม่บันทึก)"
-                      className="size-24 rounded-md border border-dashed border-teal object-cover"
+                      className="size-24 rounded-md border border-dashed border-primary object-cover"
                     />
                     <Button
                       type="button"
@@ -500,7 +500,7 @@ export function BriefForm({
             </div>
           )}
 
-          <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ClipboardPaste className="size-3.5 shrink-0" />
             {isUploading
               ? "กำลังอัปโหลด..."
@@ -521,7 +521,7 @@ export function BriefForm({
         </div>
 
         {shownError && (
-          <p className="font-mono text-[0.7rem] text-danger">{shownError}</p>
+          <p className="text-xs text-destructive">{shownError}</p>
         )}
       </div>
 

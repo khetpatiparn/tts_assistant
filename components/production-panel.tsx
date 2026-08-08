@@ -91,10 +91,10 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   );
 
   return (
-    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-teal" />
-        <h2 className="font-mono text-xs tracking-widest text-teal uppercase">
+        <span className="h-4 w-1 rounded-full bg-primary" />
+        <h2 className="text-xs text-primary">
           Production · ผลลัพธ์ &amp; คลิป
         </h2>
       </div>
@@ -150,7 +150,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             value={hashtags}
             onChange={(e) => setHashtags(e.target.value)}
             placeholder="#แฮชแท็ก จะถูกสร้างอัตโนมัติ"
-            className="font-mono text-xs"
+            className="text-xs"
           />
         </div>
 
@@ -197,7 +197,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
               ariaLabel="วันที่ลงคลิป"
               className="w-full sm:w-auto"
             />
-            <p className="font-mono text-[0.7rem] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {postedAt ? " " : "ยังไม่ได้ลงคลิป"}
             </p>
           </div>
@@ -209,7 +209,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             {isSaving ? "กำลังบันทึก..." : "บันทึกผลลัพธ์"}
           </Button>
           {state?.ok && !isSaving && (
-            <span className="font-mono text-xs text-muted-foreground">บันทึกแล้ว</span>
+            <span className="text-xs text-muted-foreground">บันทึกแล้ว</span>
           )}
         </div>
       </form>
