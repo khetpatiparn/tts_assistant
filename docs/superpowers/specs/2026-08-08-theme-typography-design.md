@@ -41,7 +41,9 @@ A ต้องมาก่อนเพราะ B/C จะได้ใช้ tok
 | 2 | ทิศทางสี | **Navy + Brass** (เปลี่ยนจาก teal + amber เดิม) |
 | 3 | JetBrains Mono | เก็บไว้เฉพาะตัวเลขที่เรียงเป็นคอลัมน์ ตัดออกจาก label/ข้อความไทย |
 | 4 | สเกลตัวอักษร | base 15px · ชื่อสินค้า 18px · พื้นต่ำสุด 12px |
-| 5 | ปุ่มสลับ | อยู่ทั้ง `app-header.tsx` และ `clapper-header.tsx` · ค่าเริ่มต้น = มืด |
+| 5 | ปุ่มสลับ | อยู่ทั้ง `app-header.tsx` และ `entry-header.tsx` · ค่าเริ่มต้น = มืด |
+
+> **แก้หลังตรวจโค้ดจริง (2026-08-08):** สเปกฉบับแรกเขียนว่าหัวเว็บของหน้า entry คือ `clapper-header.tsx` ตามที่ `CLAUDE.md` ระบุ — ไฟล์นั้น **ไม่มีอยู่จริงแล้ว** ชื่อจริงคือ `components/entry-header.tsx` (`CLAUDE.md` ล้าสมัย ต้องแก้ตามหัวข้อ 10)
 | 6 | ขอบเขตการกวาด | 17 ไฟล์ **เว้น** `entry-list.tsx` และ `recommendations.tsx` (B/C จะรื้ออยู่แล้ว) |
 
 ### 3.1 ข้อห้ามที่นิยามว่า "ไม่เป็น AI slop"
@@ -92,7 +94,11 @@ component   ปุ่ม/badge/input อ้าง semantic เท่านั้
 | **ขอบของสิ่งที่กดได้** | `oklch(.52 .018 250)` `#616A73` | **3.4:1** | `oklch(.62 .012 250)` `#81878D` | **3.3:1** |
 | focus ring | brass `oklch(.75 .11 85)` | 8.3:1 | navy `oklch(.38 .07 250)` | — |
 | จุดสถานะ สำเร็จ | `oklch(.72 .12 155)` | 7.0:1 | `oklch(.52 .13 155)` | 5.0:1 |
+| จุดสถานะ รอ/เตือน | brass `oklch(.75 .11 85)` | 6.3:1 | `oklch(.55 .12 85)` | 4.2:1 |
+| จุดสถานะ กลาง | `oklch(.69 .015 250)` | 5.1:1 | `oklch(.51 .015 250)` | 4.9:1 |
 | ข้อความผิดพลาด | `oklch(.70 .14 25)` | 5.8:1 | `oklch(.50 .17 25)` | 6.4:1 |
+
+(อัตราของ "จุดสถานะ" วัดบนพื้นรอง `surface-2` ซึ่งเป็นพื้นของ badge — ต้องผ่าน 3:1 ตาม WCAG 1.4.11 เพราะจุดสีเป็นตัวสื่อความหมาย ไม่ใช่ของตกแต่ง · ตรวจแล้วผ่านครบ 14/14 คู่)
 
 พื้นมืดที่สุดคือ `#0E141C` ตัวอักษรสว่างที่สุดคือ `#E4E8ED` — **ไม่มีดำสนิทและไม่มีขาวสนิท**
 
@@ -182,18 +188,20 @@ badge (`ลงแล้ว` / `รอลงคลิป`) กดไม่ได�
 
 ## 7. กลไก toggle
 
-1. สคริปต์สั้นฝังใน `<head>` ของ `app/layout.tsx` — อ่าน `localStorage.theme` แล้วใส่ class `dark` บน `<html>` **ก่อนหน้าจอวาดครั้งแรก** ไม่มีค่า = มืด (กันอาการกระพริบขาวตอนโหลด ซึ่งจะแสบตากว่าเดิมถ้าไม่ทำ)
-2. `<html suppressHydrationWarning>` เพราะ class ฝั่ง server กับ client ต่างกันโดยตั้งใจ
-3. `components/theme-toggle.tsx` (`"use client"`) — ปุ่มไอคอน สลับ class + เขียน `localStorage`
-4. วางใน `app-header.tsx` และ `clapper-header.tsx`
+อ่าน `node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md` แล้ว — เวอร์ชันกำหนดเองนี้**มีสูตรธีมอย่างเป็นทางการอยู่ในเอกสาร** ให้ทำตามนั้นตรงๆ:
 
-ไม่เพิ่ม dependency ใหม่ · `@custom-variant dark (&:is(.dark *))` ใน `globals.css` มีอยู่แล้วและใช้กับวิธีนี้ได้เลย
+1. `<html lang="th" data-theme="dark" suppressHydrationWarning>` — ค่าเริ่มต้นคือมืด
+2. `<script dangerouslySetInnerHTML>` ใน `<head>` อ่าน `localStorage.getItem("theme")` แล้ว `setAttribute("data-theme", t)` ครอบด้วย `try/catch` — ทำงานตอนเบราว์เซอร์ parse HTML คือ **ก่อนหน้าจอวาดครั้งแรก** จึงไม่กระพริบ
+3. `components/theme-toggle.tsx` (`"use client"`) — ปุ่มไอคอน สลับ attribute + เขียน `localStorage`
+4. วางใน `app-header.tsx` และ `entry-header.tsx`
 
-ตาม `AGENTS.md` ต้องเช็ก `node_modules/next/dist/docs/` เรื่องการฝัง script ใน `<head>` ของ Next.js เวอร์ชันกำหนดเองนี้ก่อนเขียนจริง ห้ามเดาจากความรู้เดิม
+**ใช้ attribute `data-theme` ไม่ใช่ class `dark`** ตามที่เอกสารกำหนด — ต้องแก้ `@custom-variant dark` ใน `globals.css` จาก `(&:is(.dark *))` เป็นตัวที่จับ `[data-theme="dark"]` ทั้งตัว `<html>` เองและลูกหลาน เพื่อให้ `dark:` ที่คอมโพเนนต์ shadcn ใช้อยู่ยังทำงานเหมือนเดิม
+
+ไม่เพิ่ม dependency ใหม่
 
 ## 8. ไฟล์ที่เกี่ยวข้อง
 
-- **แก้:** `app/globals.css`, `app/layout.tsx`, `components/ui/{button,badge,input,textarea,calendar}.tsx`, `app-header.tsx`, `clapper-header.tsx`, และไฟล์ที่เหลือที่มีตัวอักษรต่ำกว่า 12px หรือ `font-mono` ผิดที่ (`angle-panel`, `core-prompt-panel`, `dashboard-panel`, `history-rail`, `import-log-panel`, `revenue-by-clip`, `revenue-charts`, `brief-form`, `product-spec-panel`, `production-panel`, `script-output`, `entry-header`, `workspace-tabs`, `reconciliation`)
+- **แก้:** `app/globals.css`, `app/layout.tsx`, `components/ui/{button,badge,input,textarea,calendar}.tsx`, `app-header.tsx`, `entry-header.tsx`, และไฟล์ที่เหลือที่มีตัวอักษรต่ำกว่า 12px หรือ `font-mono` ผิดที่ (`angle-panel`, `core-prompt-panel`, `dashboard-panel`, `history-rail`, `import-log-panel`, `revenue-by-clip`, `revenue-charts`, `brief-form`, `product-spec-panel`, `production-panel`, `script-output`, `entry-header`, `workspace-tabs`, `reconciliation`)
 - **ใหม่:** `components/theme-toggle.tsx`, สคริปต์ตรวจ contrast
 - **ยกเว้น:** `entry-list.tsx` (โปรเจกต์ B), `recommendations.tsx` (โปรเจกต์ C)
 
