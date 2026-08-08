@@ -2,15 +2,84 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* ธีมสลับด้วย attribute data-theme บน <html> ตามสูตรทางการของ Next.js เวอร์ชันนี้
+   (node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md)
+   ไม่ใช่ class .dark — ต้องจับทั้งตัว <html> เองและลูกหลานทั้งหมด */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-latin), var(--font-thai), sans-serif;
-  --font-mono: var(--font-mono);
+  /* ฟอนต์ — Noto Sans Thai คุมทั้งไทยและละติน (มี glyph ครบทั้งสองชุด)
+     JetBrains Mono เหลือใช้เฉพาะตัวเลขที่เรียงเป็นคอลัมน์ ห้ามใช้กับข้อความไทย
+     เพราะไม่มี glyph ไทย ข้อความจะตกไปใช้ฟอนต์สำรองแบบควบคุมไม่ได้ */
+  --font-sans: var(--font-thai), sans-serif;
+  --font-mono: var(--font-mono-src), ui-monospace, monospace;
   --font-display: var(--font-sans);
   --font-heading: var(--font-sans);
+
+  /* สเกลตัวอักษร — 12px คือพื้นต่ำสุด ห้ามมีอะไรเล็กกว่านี้
+     line-height ของข้อความ 1.6 เพราะภาษาไทยมีสระบนและวรรณยุกต์ซ้อนสองชั้น
+     ค่ามาตรฐาน 1.5 ของภาษาละตินตึงเกินไปจนสระชนบรรทัดบน */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.6;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.5;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.35;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.35;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 1.35;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-border-interactive: var(--border-interactive);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-status-success: var(--status-success);
+  --color-status-warning: var(--status-warning);
+  --color-status-danger: var(--status-danger);
+  --color-status-neutral: var(--status-neutral);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-header-muted: var(--header-muted);
+  --color-header-active: var(--header-active);
+  --color-header-active-foreground: var(--header-active-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* alias ชั่วคราวของชื่อพาเลตต์เดิม — ดูคอมเมนต์ท้าย :root */
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-paper: var(--paper);
@@ -20,36 +89,7 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -60,95 +100,133 @@
 }
 
 :root {
-  /* named palette — "Dusk Market": warm neutral canvas, teal action, amber accent */
-  --ink: #1a1d1f;
-  --ink-2: #2a2e30;
-  --paper: #f0ebe0;
-  --teal: #0a6d64;
-  --amber: #e8a33b;
-  --smoke: #766f63;
-  --danger: #ba372a;
+  /* ═══ ชั้นที่ 1: primitive ═══
+     สเกล navy สร้างบน OKLCH เพราะค่า L ตรงกับความสว่างที่ตารับรู้จริง
+     ต่างจาก hex ที่ต้องเดา · เลขมากกว่า = เข้มกว่า (ตามแบบแผน Tailwind)
+     พื้นที่ยิ่งกว้าง chroma ยิ่งต่ำ — พื้นหลัง/การ์ดอยู่แถว 0.006-0.020
+     เก็บ chroma สูง (0.07-0.17) ไว้ให้ปุ่มและจุดสถานะซึ่งกินพื้นที่น้อย
+     นี่คือกลไกที่ทำให้ตาไม่ล้า ไม่ใช่การเลือกเฉดสี */
+  --navy-950: oklch(0.16 0.02 250);
+  --navy-900: oklch(0.19 0.018 250);
+  --navy-850: oklch(0.25 0.02 250);
+  --navy-800: oklch(0.29 0.015 250);
+  --navy-700: oklch(0.34 0.018 250);
+  --navy-600: oklch(0.52 0.018 250);
+  --navy-550: oklch(0.55 0.018 250);
+  --navy-500: oklch(0.62 0.012 250);
+  --navy-400: oklch(0.69 0.015 250);
+  --navy-300: oklch(0.87 0.01 250);
+  --navy-200: oklch(0.93 0.008 250);
+  --navy-100: oklch(0.945 0.006 250);
+  --navy-50: oklch(0.965 0.006 250);
+  --navy-25: oklch(0.99 0.003 250);
+  /* กรมท่าเข้มพิเศษสำหรับตัวอักษรบนพื้นทองเหลือง และปุ่มหลักในโหมดสว่าง */
+  --navy-ink: oklch(0.18 0.03 250);
+  --navy-accent: oklch(0.38 0.07 250);
+  --brass-400: oklch(0.75 0.11 85);
+  --brass-500: oklch(0.72 0.12 85);
+  --brass-600: oklch(0.55 0.12 85);
+  --green-400: oklch(0.72 0.12 155);
+  --green-600: oklch(0.52 0.13 155);
+  --red-400: oklch(0.7 0.14 25);
+  --red-600: oklch(0.5 0.17 25);
 
-  --background: var(--paper);
-  --foreground: var(--ink);
-  --card: #f9f6ee;
-  --card-foreground: var(--ink);
-  --popover: #f9f6ee;
-  --popover-foreground: var(--ink);
-  --primary: var(--teal);
-  --primary-foreground: #ffffff;
-  --secondary: #f5e9d3;
-  --secondary-foreground: #8a5b1e;
-  --muted: #e5e1d8;
-  --muted-foreground: var(--smoke);
-  --accent: var(--teal);
-  --accent-foreground: #ffffff;
-  --success: #e3f2f0;
-  --success-foreground: var(--teal);
-  --destructive: var(--danger);
-  --destructive-foreground: var(--danger);
-  --border: #ddd5c4;
-  --input: #ddd5c4;
-  --ring: var(--teal);
-  --chart-1: var(--teal);
-  --chart-2: var(--amber);
-  --chart-3: var(--smoke);
-  --chart-4: var(--ink-2);
-  --chart-5: var(--danger);
+  /* ═══ ชั้นที่ 2: semantic (โหมดสว่าง) ═══ */
+  --background: var(--navy-50);
+  --foreground: var(--navy-850);
+  --surface: var(--navy-25);
+  --surface-2: var(--navy-100);
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface);
+  --popover-foreground: var(--foreground);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--navy-600);
+  /* ปุ่มหลักต้องตัดกับพื้นหน้าเสมอ โหมดสว่างพื้นเกือบขาว ปุ่มจึงเป็นกรมท่าเข้ม
+     โหมดมืดพื้นเป็นกรมท่า ปุ่มจึงเป็นทองเหลืองสว่าง (ดูบล็อกด้านล่าง) */
+  --primary: var(--navy-accent);
+  --primary-foreground: var(--navy-25);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--foreground);
+  /* --border คือเส้นคั่นตกแต่ง จางได้ · --border-interactive คือขอบของสิ่งที่กดได้
+     ต้องผ่าน 3:1 ตาม WCAG 1.4.11 ห้ามทำให้จางกว่านี้ไม่ว่าจะอยากให้ดูมินิมอลแค่ไหน
+     การใช้ token เดียวทำสองหน้าที่คือสาเหตุที่ธีมเดิมแยกไม่ออกว่าอะไรกดได้ */
+  --border: var(--navy-300);
+  --border-interactive: var(--navy-500);
+  --input: var(--border-interactive);
+  --ring: var(--navy-accent);
+  --destructive: var(--red-600);
+  --destructive-foreground: var(--navy-25);
+  --status-success: var(--green-600);
+  --status-warning: var(--brass-600);
+  --status-danger: var(--red-600);
+  --status-neutral: var(--navy-600);
+  /* หัวเว็บเป็นแถบเข้มในทั้งสองโหมดโดยตั้งใจ (เป็นองค์ประกอบแบรนด์)
+     จึงมี token ของตัวเองแทนการอ้าง --background/--foreground */
+  --header: var(--navy-900);
+  --header-foreground: var(--navy-50);
+  --header-muted: var(--navy-400);
+  --header-active: var(--brass-500);
+  --header-active-foreground: var(--navy-ink);
+  --chart-1: var(--navy-accent);
+  --chart-2: var(--brass-600);
+  --chart-3: var(--navy-600);
+  --chart-4: var(--green-600);
+  --chart-5: var(--red-600);
+  --sidebar: var(--header);
+  --sidebar-foreground: var(--header-foreground);
+  --sidebar-primary: var(--header-active);
+  --sidebar-primary-foreground: var(--header-active-foreground);
+  --sidebar-accent: var(--navy-850);
+  --sidebar-accent-foreground: var(--header-foreground);
+  --sidebar-border: var(--navy-700);
+  --sidebar-ring: var(--ring);
   --radius: 0.75rem;
-  --sidebar: var(--ink);
-  --sidebar-foreground: var(--paper);
-  --sidebar-primary: var(--teal);
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: var(--ink-2);
-  --sidebar-accent-foreground: var(--paper);
-  --sidebar-border: oklch(1 0 0 / 12%);
-  --sidebar-ring: var(--teal);
+
+  /* ── alias ชั่วคราวของชื่อพาเลตต์เดิม ──
+     เหลือไว้ให้ components/entry-list.tsx (โปรเจกต์ B) และ
+     components/recommendations.tsx (โปรเจกต์ C) เท่านั้น ซึ่งจะถูกรื้อทั้งไฟล์
+     ห้ามใช้ในโค้ดใหม่ · ลบทั้งบล็อกนี้และคู่ --color-* ด้านบนเมื่อสองไฟล์นั้นเสร็จ */
+  --ink: var(--header);
+  --ink-2: var(--navy-850);
+  --paper: var(--header-foreground);
+  --teal: var(--primary);
+  --amber: var(--status-warning);
+  --smoke: var(--muted-foreground);
+  --danger: var(--destructive);
+  --success: var(--surface-2);
+  --success-foreground: var(--status-success);
 }
 
-.dark {
-  --ink: #14181a;
-  --ink-2: #1e2325;
-  --paper: #eef1f0;
-  --teal: #22c1b3;
-  --amber: #f0b429;
-  --smoke: #9aa39f;
-  --danger: #f16158;
-
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --card: var(--ink-2);
-  --card-foreground: var(--paper);
-  --popover: var(--ink-2);
-  --popover-foreground: var(--paper);
-  --primary: var(--teal);
-  --primary-foreground: #0a1f1c;
-  --secondary: #3a2f18;
-  --secondary-foreground: var(--amber);
-  --muted: #2a2e30;
-  --muted-foreground: var(--smoke);
-  --accent: var(--teal);
-  --accent-foreground: #0a1f1c;
-  --success: #14302c;
-  --success-foreground: var(--teal);
-  --destructive: var(--danger);
-  --destructive-foreground: var(--danger);
-  --border: oklch(1 0 0 / 12%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: var(--teal);
-  --chart-1: var(--teal);
-  --chart-2: var(--amber);
-  --chart-3: var(--smoke);
-  --chart-4: var(--paper);
-  --chart-5: var(--danger);
-  --sidebar: #0f1112;
-  --sidebar-foreground: var(--paper);
-  --sidebar-primary: var(--teal);
-  --sidebar-primary-foreground: #0a1f1c;
-  --sidebar-accent: #1e2325;
-  --sidebar-accent-foreground: var(--paper);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: var(--teal);
+/* ═══ ชั้นที่ 2: semantic (โหมดมืด) ═══
+   เขียนทับเฉพาะตัวที่ต่างจริง — ตัวที่อ้าง var() ของ token ที่ถูกทับ
+   (เช่น --card: var(--surface)) จะตามมาเองเพราะ CSS คลี่ var ตอนใช้งาน */
+:root[data-theme="dark"] {
+  --background: var(--navy-900);
+  --foreground: var(--navy-200);
+  --surface: var(--navy-850);
+  --surface-2: var(--navy-800);
+  --muted-foreground: var(--navy-400);
+  --primary: var(--brass-500);
+  --primary-foreground: var(--navy-ink);
+  --border: var(--navy-700);
+  --border-interactive: var(--navy-550);
+  --ring: var(--brass-400);
+  --destructive: var(--red-400);
+  --destructive-foreground: var(--navy-ink);
+  --status-success: var(--green-400);
+  --status-warning: var(--brass-400);
+  --status-danger: var(--red-400);
+  --status-neutral: var(--navy-400);
+  --header: var(--navy-950);
+  --chart-2: var(--brass-400);
+  --chart-3: var(--navy-400);
+  --chart-4: var(--green-400);
+  --chart-5: var(--red-400);
+  --sidebar-accent: var(--navy-800);
+  --sidebar-border: var(--navy-700);
 }
 
 @layer base {
@@ -156,7 +234,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground text-base;
   }
   html {
     @apply font-sans;
@@ -164,8 +242,8 @@
 }
 
 @layer utilities {
-  /* เส้นคั่นบางๆ ไล่สีแบรนด์ท้ายหัวเว็บ — แทนลายคลปเปอร์บอร์ดเดิม */
+  /* เส้นคั่นบางๆ ไล่สีแบรนด์ท้ายหัวเว็บ */
   .brand-divider {
-    background-image: linear-gradient(90deg, var(--teal), var(--amber));
+    background-image: linear-gradient(90deg, var(--navy-accent), var(--brass-500));
   }
 }
