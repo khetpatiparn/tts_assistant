@@ -149,13 +149,13 @@ export function DashboardPanel({
 
           {/* แถวเล็กจาง + หมายเหตุความซื่อสัตย์ */}
           <p className="text-xs leading-relaxed text-muted-foreground">
-            ยอดสั่งรวมทุกสถานะ {baht(summary.totalGmv)} · ขายได้{" "}
-            {summary.itemCount.toLocaleString("th-TH")} ชิ้น · ไม่มีสิทธิ์{" "}
-            {summary.ineligibleOrders} ออเดอร์ (ไม่ได้ค่าคอม)
+            ยอดสั่งรวมทุกสถานะ <span className="font-mono">{baht(summary.totalGmv)}</span> · ขายได้{" "}
+            <span className="font-mono">{summary.itemCount.toLocaleString("th-TH")}</span> ชิ้น · ไม่มีสิทธิ์{" "}
+            <span className="font-mono">{summary.ineligibleOrders}</span> ออเดอร์ (ไม่ได้ค่าคอม)
             <br />
             {summary.realizedRate !== null && (
               <>*ประเมินจากอัตราค่าคอมจริง{" "}
-              {(summary.realizedRate * 100).toFixed(1)}% · </>
+              <span className="font-mono">{(summary.realizedRate * 100).toFixed(1)}%</span> · </>
             )}
             ตัวเลขฝั่งเงินเท่านั้น (ไม่มียอดวิว) และช้ากว่าจริง ~สัปดาห์ เพราะออเดอร์ทยอย settle
           </p>

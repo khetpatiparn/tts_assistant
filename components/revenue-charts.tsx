@@ -272,7 +272,8 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
         </button>
       </div>
       <p className="text-xs text-muted-foreground">
-        ยอดขาย (GMV) 7 วันล่าสุด {baht(currentWindowGmv)} · 7 วันก่อนหน้า {baht(previousWindowGmv)}
+        ยอดขาย (GMV) 7 วันล่าสุด <span className="font-mono">{baht(currentWindowGmv)}</span> · 7 วันก่อนหน้า{" "}
+        <span className="font-mono">{baht(previousWindowGmv)}</span>
       </p>
       {open && (
         <>
