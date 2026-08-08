@@ -106,7 +106,7 @@ export function EntryList({
                 : "ไม่พบรายการ — ลองปรับช่วงวันที่หรือตัวกรองสถานะ"}
           </p>
           {total === 0 && (
-            <Button render={<Link href="/entry/new" />} nativeButton={false} size="sm">
+            <Button render={<Link href="/entry/new" />} nativeButton={false}>
               <Plus className="size-4" />
               เพิ่มสินค้าแรก
             </Button>
@@ -123,7 +123,7 @@ export function EntryList({
             <span className="w-20 shrink-0">รูป</span>
             <span className="flex-1">สินค้า</span>
             <span className="w-32 shrink-0">สถานะ</span>
-            <span className="w-24 shrink-0 text-right">{dateColumnLabel}</span>
+            <span className="w-28 shrink-0 text-right">{dateColumnLabel}</span>
           </div>
 
           <ul className="flex flex-col gap-2 pt-2">
@@ -160,8 +160,8 @@ export function EntryList({
                     </Badge>
                   </div>
 
-                  <div className="w-24 shrink-0 text-right">
-                    <span className="font-mono text-sm">
+                  <div className="w-28 shrink-0 text-right">
+                    <span className="text-sm whitespace-nowrap">
                       {by === "created"
                         ? createdLabel(row.createdAt)
                         : (postedLabel(row.postedAt) ?? "-")}
@@ -185,7 +185,6 @@ export function EntryList({
               }
               nativeButton={false}
               variant="outline"
-              size="sm"
             >
               ก่อนหน้า
             </Button>
@@ -203,7 +202,6 @@ export function EntryList({
               }
               nativeButton={false}
               variant="outline"
-              size="sm"
             >
               ถัดไป
             </Button>
