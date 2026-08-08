@@ -57,6 +57,23 @@ try {
   const wideSpan = stats.wilsonUpperBound(3, 300) - stats.wilsonLowerBound(3, 300);
   check("n น้อยให้ช่วงกว้างกว่า n มาก ที่สัดส่วนเดียวกัน", wideSpan > narrowSpan, true);
 
+  console.log("\n=== rateRatioBounds ===");
+  check("c1 ติดลบ คืน null", stats.rateRatioBounds(-1, 1, 10, 1), null);
+  check("t1=0 คืน null", stats.rateRatioBounds(10, 0, 10, 1), null);
+  {
+    const equalRate = stats.rateRatioBounds(100, 1, 100, 1);
+    check("อัตราเท่ากันสองช่วง ช่วงต้องคร่อม 1.0 (low)", equalRate !== null && equalRate.low <= 1, true);
+    check("อัตราเท่ากันสองช่วง ช่วงต้องคร่อม 1.0 (high)", equalRate !== null && equalRate.high >= 1, true);
+  }
+  {
+    const fasterNow = stats.rateRatioBounds(10000, 1, 1000, 1);
+    check("ช่วงล่าสุดเร็วกว่าชัดเจนและ n มากพอ low > 1", fasterNow !== null && fasterNow.low > 1, true);
+  }
+  {
+    const noPriorMovement = stats.rateRatioBounds(500, 1, 0, 1);
+    check("c2=0 (ช่วงก่อนหน้าวิวไม่ขยับเลย) high เป็น Infinity", noPriorMovement?.high, Infinity);
+  }
+
   console.log("\n=== IMPORT_STALE_DAYS / nextImportDate / daysUntil ===");
   check("IMPORT_STALE_DAYS = 7", schedule.IMPORT_STALE_DAYS, 7);
   check("ยังไม่เคยนำเข้า คืน null", schedule.nextImportDate(null), null);
@@ -127,7 +144,8 @@ try {
    * สร้าง ClipStat แบบย่อ — ค่าที่ไม่ระบุใช้ค่าที่ไม่ทำให้ติดเกณฑ์
    * daysSinceLastSnapshot default เป็น 7 เมื่อมี viewDelta (รอบนำเข้าปกติ ~สัปดาห์) เพื่อให้
    * เคสทดสอบเดิมที่ไม่ได้ตั้งใจทดสอบ normalization ยังใช้ viewDelta ดิบเป็นตัวแทน "วิวต่อวัน"
-   * ได้ตรงไปตรงมา (หาร 7 ทุกตัวเท่ากันจึงไม่กระทบการเรียงลำดับ/เกณฑ์เทียบ median)
+   * ได้ตรงไปตรงมา priorViewDelta/priorDaysSinceSnapshot default เป็น null (มี snapshot
+   * ไม่ถึง 3 จุด) — ต้องระบุตรงๆ เมื่อจะทดสอบ growthRatioRange
    */
   const stat = (o) => ({
     entryId: o.entryId,
@@ -136,6 +154,8 @@ try {
     viewDelta: o.viewDelta ?? null,
     daysSinceLastSnapshot:
       o.daysSinceLastSnapshot ?? (o.viewDelta != null ? 7 : null),
+    priorViewDelta: o.priorViewDelta ?? null,
+    priorDaysSinceSnapshot: o.priorDaysSinceSnapshot ?? null,
     orders: o.orders ?? 0,
     badOrders: o.badOrders ?? 0,
     ordersLast7Days: o.ordersLast7Days ?? 0,
@@ -144,16 +164,22 @@ try {
   check("ไม่มีคลิปเลย คืนลิสต์ว่าง", rec.detectTasks([]).length, 0);
   check("มีคลิปแต่วิว 0 ทั้งหมด คืนลิสต์ว่าง", rec.detectTasks([stat({ entryId: "a", views: 0 })]).length, 0);
 
-  // ฐาน: 3 คลิปธรรมดา วิว 1000 ออเดอร์ 2 -> channelConv ~0.2% medianViews 1000
+  // ฐาน: 3 คลิปธรรมดา วิว 1000 ออเดอร์ 2 -> channelConv ~0.2%
   const base = [
     stat({ entryId: "b1", views: 1000, orders: 2 }),
     stat({ entryId: "b2", views: 1000, orders: 2 }),
     stat({ entryId: "b3", views: 1000, orders: 2 }),
   ];
 
-  const growing = rec.detectTasks([...base, stat({ entryId: "g", views: 5000, viewDelta: 3000, orders: 4 })]);
-  const gTask = growing.find((t) => t.entryId === "g");
-  check("วิวโตเกินค่ากลาง ติดป้าย growing", gTask?.kinds.includes("growing"), true);
+  // มี snapshot แค่ 2 จุด (ไม่มี priorViewDelta) -> growthRatioRange เป็น null เสมอ ไม่ว่า
+  // viewDelta จะสูงแค่ไหน (rateRatioBounds ต้องการช่วงก่อนหน้าเพื่อเทียบ)
+  const twoSnapshotsOnly = rec.detectTasks([
+    ...base,
+    stat({ entryId: "g", views: 5000, viewDelta: 3000, orders: 4 }),
+  ]);
+  const gTask = twoSnapshotsOnly.find((t) => t.entryId === "g");
+  check("มี snapshot แค่ 2 จุด (ไม่มี priorViewDelta) ไม่ติด growing ไม่ว่า viewDelta จะสูงแค่ไหน", gTask?.kinds.includes("growing") ?? false, false);
+  check("มี snapshot แค่ 2 จุด growthRatioRange เป็น null", gTask?.growthRatioRange ?? null, null);
 
   const noDelta = rec.detectTasks([...base, stat({ entryId: "nd", views: 5000, viewDelta: null, orders: 4 })]);
   check("ไม่มี viewDelta (นำเข้ารอบเดียว) ไม่ติด growing", noDelta.find((t) => t.entryId === "nd")?.kinds.includes("growing") ?? false, false);
@@ -177,50 +203,114 @@ try {
   check("proven มีช่วง convRatioRange", pTask?.convRatioRange !== null && pTask?.convRatioRange !== undefined, true);
   check("ขอบล่างของช่วงต้องเกิน 1 เท่า", (pTask?.convRatioRange?.low ?? 0) > 1, true);
 
-  // ติดทั้งสองป้ายต้องมาก่อนตัวที่ติดป้ายเดียว
-  // หมายเหตุ (Task 3): เกณฑ์ growing เทียบ "วิวต่อวัน" กับค่ากลางวิวต่อวันของคลิปที่มี
-  // viewDelta เท่านั้น (ไม่ใช่ทั้งช่องเหมือน medianViews เดิม) ใช้ base เดิม (ไม่มี viewDelta)
-  // ตรงนี้ไม่ได้ ต้องมี "clip อ้างอิง" ที่มี viewDelta เตี้ยๆ ด้วย ไม่งั้น median จะคำนวณจาก
-  // both/onlyGrow แค่ 2 ตัว ซึ่งฟังก์ชัน median (sorted[floor(n/2)]) จะเลือกค่าที่สูงกว่าเป็น
-  // threshold เสมอ ทำให้ตัวที่ค่าต่ำกว่าไม่ผ่านโดยไม่ตั้งใจ (ยืนยันด้วยการรันจริง)
-  const growthRefs = [
-    stat({ entryId: "ref1", views: 1000, viewDelta: 100, orders: 2 }),
-    stat({ entryId: "ref2", views: 1000, viewDelta: 100, orders: 2 }),
-    stat({ entryId: "ref3", views: 1000, viewDelta: 100, orders: 2 }),
-  ];
+  // clip ที่อัตราล่าสุดเร็วกว่าอัตราก่อนหน้าอย่างมีนัยสำคัญ (n มากพอ) -> ติด growing
+  const fasterNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "faster",
+      views: 20000,
+      viewDelta: 10000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดเร็วกว่าอัตราก่อนหน้าอย่างมีนัยสำคัญ ติด growing",
+    fasterNow.find((t) => t.entryId === "faster")?.kinds.includes("growing") ?? false,
+    true
+  );
+
+  // clip ที่อัตราล่าสุดช้ากว่าหรือใกล้เคียงอัตราก่อนหน้า -> ไม่ติด growing
+  const slowerNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "slower",
+      views: 20000,
+      viewDelta: 1000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 10000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดช้ากว่าอัตราก่อนหน้า ไม่ติด growing",
+    slowerNow.find((t) => t.entryId === "slower")?.kinds.includes("growing") ?? false,
+    false
+  );
+  const similarNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "similar",
+      views: 20000,
+      viewDelta: 1000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดใกล้เคียงอัตราก่อนหน้า ไม่ติด growing",
+    similarNow.find((t) => t.entryId === "similar")?.kinds.includes("growing") ?? false,
+    false
+  );
+
+  // ตัวเลขจริงจากการวิเคราะห์ dev.db — รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น: c1=14014,t1=5,
+  // c2=1269,t2=1 -> ช่วงควรอยู่แถว 2.09-2.34 เท่า ต้องติด growing
+  const realGrowing = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "cart",
+      views: 40000,
+      viewDelta: 14014,
+      daysSinceLastSnapshot: 5,
+      priorViewDelta: 1269,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  const cartTask = realGrowing.find((t) => t.entryId === "cart");
+  check("รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น ติด growing", cartTask?.kinds.includes("growing"), true);
+  checkClose("รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น ขอบล่าง ~2.09-2.34", cartTask?.growthRatioRange?.low ?? 0, 2.2, 0.15);
+
+  // ที่นอนแมว: c1=37,t1=5,c2=90,t2=8 -> อัตราช้าลง ต้องไม่ติด growing
+  const realNotGrowing = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "catbed",
+      views: 5000,
+      viewDelta: 37,
+      daysSinceLastSnapshot: 5,
+      priorViewDelta: 90,
+      priorDaysSinceSnapshot: 8,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "ที่นอนแมว (อัตราช้าลง) ไม่ติด growing",
+    realNotGrowing.find((t) => t.entryId === "catbed")?.kinds.includes("growing") ?? false,
+    false
+  );
+
+  // ติดทั้งสองป้ายต้องมาก่อนตัวที่ติดป้ายเดียว (ทั้งคู่ผ่านเกณฑ์ growing ใหม่)
   const both = rec.detectTasks([
-    ...growthRefs,
-    stat({ entryId: "both", views: 20000, viewDelta: 5000, orders: 120 }),
-    stat({ entryId: "onlyGrow", views: 9000, viewDelta: 8000, orders: 18 }),
+    ...base,
+    stat({
+      entryId: "both",
+      views: 20000,
+      viewDelta: 10000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 1000,
+    }),
+    stat({ entryId: "onlyProven", views: 5000, orders: 60 }),
   ]);
   check("คลิปที่ติดสองป้ายมาเป็นอันดับแรก", both[0]?.entryId, "both");
   check("คลิปที่ติดสองป้ายมี kinds ครบสอง", both[0]?.kinds.length, 2);
-
-  // Task 3: normalize เป็นวิวต่อวัน — clip ที่ viewDelta ดิบสูงกว่าแต่ห่างกันหลายวัน (หลุด
-  // top-15 ไปหนึ่งรอบ) ต้องไม่ชนะ clip ที่ viewDelta ต่ำกว่าแต่ถี่กว่า เมื่อคิดเป็นอัตราต่อวัน
-  // อ้างอิง 3 ตัวมีอัตรา 200/วัน (delta 1400 ÷ 7 วัน) เป็นเส้นแบ่ง median
-  const spanRefs = [
-    stat({ entryId: "sr1", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
-    stat({ entryId: "sr2", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
-    stat({ entryId: "sr3", views: 1000, viewDelta: 1400, daysSinceLastSnapshot: 7, orders: 2 }),
-  ];
-  const spanGrowth = rec.detectTasks([
-    ...spanRefs,
-    // ดิบ 6000 ใน 40 วัน = 150/วัน (raw สูงกว่า tight มาก แต่ห่างเพราะหลุด top-15 ไปพักหนึ่ง)
-    stat({ entryId: "wide", views: 20000, viewDelta: 6000, daysSinceLastSnapshot: 40, orders: 5 }),
-    // ดิบ 900 ใน 3 วัน = 300/วัน (raw ต่ำกว่า wide มาก แต่ถี่กว่าจึงอัตราสูงกว่าจริง)
-    stat({ entryId: "tight", views: 9000, viewDelta: 900, daysSinceLastSnapshot: 3, orders: 5 }),
-  ]);
-  check(
-    "viewDelta ดิบสูงกว่าแต่ห่างหลายวัน ต้องไม่ติด growing เมื่อวิวต่อวันต่ำกว่า median",
-    spanGrowth.find((t) => t.entryId === "wide")?.kinds.includes("growing") ?? false,
-    false
-  );
-  check(
-    "viewDelta ดิบต่ำกว่าแต่ถี่กว่า ต้องติด growing เมื่อวิวต่อวันสูงกว่า median แม้ raw ต่ำกว่า",
-    spanGrowth.find((t) => t.entryId === "tight")?.kinds.includes("growing") ?? false,
-    true
-  );
 
   // badRatio เกินเกณฑ์ต้องถูกตัดออกก่อนพิจารณาอะไรทั้งสิ้น
   const bad = rec.detectTasks([...base, stat({ entryId: "bad", views: 20000, viewDelta: 9000, orders: 120, badOrders: 60 })]);

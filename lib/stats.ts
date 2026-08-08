@@ -60,3 +60,33 @@ export function wilsonUpperBound(
   // (ดู NEAR_ONE_EPSILON comment ด้านบน)
   return result > NEAR_ONE_EPSILON ? 1 : Math.min(1, result);
 }
+
+/**
+ * ช่วงความเชื่อมั่นของอัตราส่วนความเร็วสองช่วงเวลา (rate ratio) — ใช้กับข้อมูลนับที่มาจาก
+ * ช่วงเวลาไม่เท่ากัน เช่น "วิวเพิ่มขึ้นเท่าไรในกี่วัน" สองช่วง
+ *
+ * แปลงโจทย์เป็นสัดส่วนแบบ Wilson: ถ้าอัตราทั้งสองช่วงเท่ากันจริง สัดส่วนของนับที่มาจาก
+ * ช่วงแรก (c1/(c1+c2)) ควรเท่ากับสัดส่วนเวลาของช่วงแรก (t1/(t1+t2)) พอดี ใช้ Wilson CI
+ * ของสัดส่วนนี้แล้วแปลงกลับเป็นช่วงของ rate ratio ผ่านความสัมพันธ์ odds: p/(1-p) = (c1/c2)
+ * ดังนั้น ratio = [p/(1-p)] * (t2/t1)
+ *
+ * ออกแบบมาแทนที่การเทียบ "อัตราของคลิปนี้กับค่ากลางของกลุ่มคลิปเดียวกับที่กำลังทดสอบ"
+ * ซึ่งรับประกันทางคณิตศาสตร์ว่าประมาณครึ่งหนึ่งจะผ่านเกณฑ์เสมอไม่ว่าจะโตจริงหรือไม่
+ * (self-referential median) — ตอนนี้เทียบกับตัวเองในอดีตแทน จึงเงียบได้จริงเมื่อไม่ได้โตขึ้น
+ *
+ * คืน null เมื่อ c1/c2 ติดลบ หรือ t1/t2 ไม่เป็นบวก (คำนวณไม่ได้)
+ */
+export function rateRatioBounds(
+  c1: number,
+  t1: number,
+  c2: number,
+  t2: number
+): { low: number; high: number } | null {
+  if (c1 < 0 || c2 < 0 || t1 <= 0 || t2 <= 0) return null;
+  const n = c1 + c2;
+  if (n <= 0) return null;
+  const pLow = wilsonLowerBound(c1, n);
+  const pHigh = wilsonUpperBound(c1, n);
+  const toRatio = (p: number) => (p >= 1 ? Infinity : (p / (1 - p)) * (t2 / t1));
+  return { low: toRatio(pLow), high: toRatio(pHigh) };
+}

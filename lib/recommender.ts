@@ -1,5 +1,5 @@
 import { INELIGIBLE_STATUS, type AffiliateOrderRecord } from "@/lib/dashboard";
-import { wilsonLowerBound, wilsonUpperBound } from "@/lib/stats";
+import { rateRatioBounds, wilsonLowerBound, wilsonUpperBound } from "@/lib/stats";
 
 export type ClipMetricRecord = {
   id: string;
@@ -28,6 +28,8 @@ export type ClipTask = {
   orders: number;
   /** ช่วงความเชื่อมั่นของ conv เทียบค่าเฉลี่ยช่อง (หน่วยเป็น "เท่า") null เมื่อช่องยังไม่มีออเดอร์เลย */
   convRatioRange: { low: number; high: number } | null;
+  /** ช่วงความเชื่อมั่นของ "อัตราเร็วรอบนี้เทียบกับรอบก่อนของคลิปเดียวกัน" null เมื่อมี snapshot ไม่ถึง 3 จุด หรือวิวลดลง */
+  growthRatioRange: { low: number; high: number } | null;
 };
 
 export type ClipStat = {
@@ -43,6 +45,14 @@ export type ClipStat = {
    * ดิบตรงๆ ตัวเลขจะพองจากช่องว่างการ export ไม่ใช่การเติบโตจริง
    */
   daysSinceLastSnapshot: number | null;
+  /**
+   * วิวที่เพิ่มระหว่าง snapshot ก่อนหน้ากับก่อนหน้านั้นอีกที (ช่วงก่อนช่วงล่าสุด) — null ถ้ามี
+   * snapshot ไม่ถึง 3 จุด ใช้คู่กับ priorDaysSinceSnapshot เพื่อคำนวณอัตราส่วนความเร็วสองช่วง
+   * แบบมีช่วงความเชื่อมั่น (rateRatioBounds ใน lib/stats.ts)
+   */
+  priorViewDelta: number | null;
+  /** จำนวนวันของช่วงก่อนหน้า (คู่กับ priorViewDelta) */
+  priorDaysSinceSnapshot: number | null;
   orders: number;
   badOrders: number;
   ordersLast7Days: number;
@@ -51,12 +61,6 @@ export type ClipStat = {
 /** ออเดอร์ที่ไม่มีสิทธิ์/คืนของเกินสัดส่วนนี้ = ไม่ใช่ของจริง */
 const MAX_BAD_RATIO = 0.3;
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)];
-}
 
 /**
  * รวม metric snapshot + ออเดอร์ ให้เป็นสถิติต่อคลิป
@@ -87,6 +91,7 @@ export function buildClipStats(args: {
 
     const latest = snaps[snaps.length - 1];
     const previous = snaps.length >= 2 ? snaps[snaps.length - 2] : null;
+    const beforePrevious = snaps.length >= 3 ? snaps[snaps.length - 3] : null;
     const entryOrders = orders.filter((o) => o.matchedEntryId === e.id);
 
     stats.push({
@@ -97,6 +102,12 @@ export function buildClipStats(args: {
       daysSinceLastSnapshot: previous
         ? Math.round((latest.capturedOn.getTime() - previous.capturedOn.getTime()) / DAY_MS)
         : null,
+      priorViewDelta:
+        previous && beforePrevious ? previous.views - beforePrevious.views : null,
+      priorDaysSinceSnapshot:
+        previous && beforePrevious
+          ? Math.round((previous.capturedOn.getTime() - beforePrevious.capturedOn.getTime()) / DAY_MS)
+          : null,
       orders: entryOrders.length,
       badOrders: entryOrders.filter(
         (o) => o.status === INELIGIBLE_STATUS || o.itemsSold === 0 || o.itemsRefunded > 0
@@ -139,20 +150,6 @@ export function detectTasks(stats: ClipStat[]): ClipTask[] {
   const totalOrders = usable.reduce((a, s) => a + s.orders, 0);
   const channelConv = totalViews > 0 ? totalOrders / totalViews : 0;
 
-  // "กำลังโต" เทียบ "วิวต่อวัน" ไม่ใช่ viewDelta ดิบ — viewDelta คือผลต่าง (มิติ "ต่อช่วงเวลา")
-  // แต่ค่าที่เคยเทียบ (medianViews) เป็นระดับสะสม (มิติ "ปริมาณ") คนละมิติกัน และ clip ที่
-  // หลุดจาก top-15 ของ Content.csv ไปหนึ่งรอบแล้วกลับมาจะมีช่วงเวลาระหว่าง snapshot กว้างกว่า
-  // clip อื่น ทำให้ viewDelta ดิบพองขึ้นจากช่องว่างการ export ล้วนๆ ไม่ใช่การเติบโตจริง —
-  // normalize เป็นวิวต่อวันด้วย daysSinceLastSnapshot ก่อนเทียบกับค่ากลางของช่อง (คำนวณจาก
-  // เฉพาะ clip ที่มี snapshot คู่ที่ห่างกันจริง 1 วันขึ้นไปเท่านั้น)
-  const viewsPerDayByEntry = new Map<string, number>();
-  for (const s of usable) {
-    if (s.viewDelta !== null && s.daysSinceLastSnapshot !== null && s.daysSinceLastSnapshot > 0) {
-      viewsPerDayByEntry.set(s.entryId, s.viewDelta / s.daysSinceLastSnapshot);
-    }
-  }
-  const medianViewsPerDay = median([...viewsPerDayByEntry.values()]);
-
   const tasks: ClipTask[] = [];
   for (const s of usable) {
     const badRatio = s.orders > 0 ? s.badOrders / s.orders : 0;
@@ -160,12 +157,24 @@ export function detectTasks(stats: ClipStat[]): ClipTask[] {
 
     const kinds: ClipSignalKind[] = [];
 
-    // "กำลังโต" อ้างเรื่องวิวล้วน ไม่แตะ conversion เลย — วิวเป็นเลขหลักพันขึ้นไป
-    // การบอกว่าคลิปกำลังโตจึงไม่ต้องพึ่งการทดสอบทางสถิติ
-    // (เกณฑ์เดิมมีท่อน conv >= channelConv * 0.8 พ่วงมาด้วย ซึ่งวัดแล้วพบว่าไม่กรองอะไร
-    //  เพราะ 0.8 เท่าคือต่ำกว่าค่าเฉลี่ย จึงถูกตัดทิ้ง)
-    const viewsPerDay = viewsPerDayByEntry.get(s.entryId);
-    if (viewsPerDay !== undefined && viewsPerDay >= medianViewsPerDay) kinds.push("growing");
+    // "กำลังโต" เทียบอัตราเร็วสองช่วงเวลาของคลิปเดียวกัน (ไม่เทียบกับคลิปอื่น) ด้วยช่วง
+    // ความเชื่อมั่นแบบเดียวกับที่ "ขายดีจริง" ใช้ — rateRatioBounds (lib/stats.ts) แปลงโจทย์
+    // อัตราส่วนความเร็วเป็นสัดส่วนแบบ Wilson แล้วคำนวณกลับ เพื่อเลี่ยงปัญหาที่เคยเจอ:
+    // เทียบกับ "ค่ากลางของกลุ่มเดียวกับที่กำลังทดสอบ" ทำให้ ~ครึ่งหนึ่งผ่านเกณฑ์เสมอไม่ว่า
+    // ช่องจะโตจริงหรือไม่ — ตอนนี้เทียบกับตัวเองในอดีตแทน จึงเงียบได้จริงเมื่อไม่ได้โตขึ้น
+    const growthRatioRange =
+      s.viewDelta !== null &&
+      s.daysSinceLastSnapshot !== null &&
+      s.priorViewDelta !== null &&
+      s.priorDaysSinceSnapshot !== null
+        ? rateRatioBounds(
+            s.viewDelta,
+            s.daysSinceLastSnapshot,
+            s.priorViewDelta,
+            s.priorDaysSinceSnapshot
+          )
+        : null;
+    if (growthRatioRange !== null && growthRatioRange.low > 1) kinds.push("growing");
 
     // "ขายดีจริง" ต้องพิสูจน์ว่า conv สูงกว่าค่าเฉลี่ยช่องจริง ไม่ใช่แค่ดูสูง
     // ขอบล่างของช่วงเชื่อมั่นต้องเกินค่าเฉลี่ยช่อง — n น้อยจะได้ช่วงกว้างจนไม่ผ่านเอง
@@ -186,15 +195,16 @@ export function detectTasks(stats: ClipStat[]): ClipTask[] {
       orders: s.orders,
       convRatioRange:
         channelConv > 0 ? { low: low / channelConv, high: high / channelConv } : null,
+      growthRatioRange,
     });
   }
 
-  // ติดสองป้ายอยู่บนสุด แล้วเรียงตามวิวที่เพิ่ม แล้วตามความแรงของ conv
+  // ติดสองป้ายอยู่บนสุด แล้วเรียงตามความมั่นใจทางสถิติ (ขอบล่างของช่วงที่แรงที่สุด)
   tasks.sort((a, b) => {
     if (a.kinds.length !== b.kinds.length) return b.kinds.length - a.kinds.length;
-    const byDelta = (b.viewDelta ?? 0) - (a.viewDelta ?? 0);
-    if (byDelta !== 0) return byDelta;
-    return (b.convRatioRange?.low ?? 0) - (a.convRatioRange?.low ?? 0);
+    const aStrength = Math.max(a.growthRatioRange?.low ?? 0, a.convRatioRange?.low ?? 0);
+    const bStrength = Math.max(b.growthRatioRange?.low ?? 0, b.convRatioRange?.low ?? 0);
+    return bStrength - aStrength;
   });
 
   return tasks;

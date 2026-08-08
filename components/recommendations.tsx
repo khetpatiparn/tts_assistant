@@ -71,9 +71,16 @@ function detailLine(task: ClipTask): string {
   } else {
     bits.push(`${task.views.toLocaleString("th-TH")} วิว`);
   }
+  if (task.growthRatioRange !== null) {
+    // แสดงเป็นช่วงไม่ใช่ตัวเลขเดียว — ตัวเลขเดียวสร้างความมั่นใจเกินกว่าที่ข้อมูลรองรับ
+    // ขอบบนอาจเป็น Infinity ได้จริง (ช่วงก่อนหน้าวิวไม่ขยับเลย) แสดงเป็นสัญลักษณ์อนันต์
+    const highLabel = Number.isFinite(task.growthRatioRange.high)
+      ? task.growthRatioRange.high.toFixed(2)
+      : "ไม่มีขีดจำกัด";
+    bits.push(`เร็วขึ้น ${task.growthRatioRange.low.toFixed(2)}-${highLabel} เท่าจากรอบก่อน`);
+  }
   bits.push(`${task.orders.toLocaleString("th-TH")} ออเดอร์`);
   if (task.convRatioRange !== null) {
-    // แสดงเป็นช่วงไม่ใช่ตัวเลขเดียว — ตัวเลขเดียวสร้างความมั่นใจเกินกว่าที่ข้อมูลรองรับ
     bits.push(
       `conv ${task.convRatioRange.low.toFixed(2)}-${task.convRatioRange.high.toFixed(2)} เท่าของช่อง`
     );
