@@ -1,4 +1,5 @@
 import { INELIGIBLE_STATUS, type AffiliateOrderRecord } from "@/lib/dashboard";
+import { wilsonLowerBound, wilsonUpperBound } from "@/lib/stats";
 
 export type ClipMetricRecord = {
   id: string;
@@ -14,15 +15,19 @@ export type ClipMetricRecord = {
   importedAt: Date;
 };
 
-export type ClipSignalKind = "emerging" | "hidden-gem" | "reach-no-convert" | "fading";
+/** สัญญาณเชิงบวกสองแบบ — ตัด "ดูเยอะไม่ซื้อ"/"หยุดแล้ว" ออกแล้วเพราะบอกสิ่งที่รู้อยู่แล้วซ้ำๆ */
+export type ClipSignalKind = "growing" | "proven";
 
-export type ClipSignal = {
-  kind: ClipSignalKind;
+export type ClipTask = {
   entryId: string;
   productName: string;
-  headline: string;
-  detail: string;
-  strength: number;
+  /** ติดได้มากกว่าหนึ่งป้าย — คลิปที่ทั้งโตและขายดีคือของที่ควรทำซ้ำที่สุด */
+  kinds: ClipSignalKind[];
+  views: number;
+  viewDelta: number | null;
+  orders: number;
+  /** ช่วงความเชื่อมั่นของ conv เทียบค่าเฉลี่ยช่อง (หน่วยเป็น "เท่า") null เมื่อช่องยังไม่มีออเดอร์เลย */
+  convRatioRange: { low: number; high: number } | null;
 };
 
 export type ClipStat = {
@@ -35,10 +40,6 @@ export type ClipStat = {
   ordersLast7Days: number;
 };
 
-/** ต้องมีวิวถึงเกณฑ์ก่อนจึงเชื่อ conversion ได้ — 1 ออเดอร์บน 50 วิว = 2% ซึ่งหลอกตา */
-const MIN_VIEWS_FOR_CONV = 500;
-/** เคลม "conv สูง" ด้วยออเดอร์เดียวไม่ได้ */
-const MIN_ORDERS_FOR_CONV = 2;
 /** ออเดอร์ที่ไม่มีสิทธิ์/คืนของเกินสัดส่วนนี้ = ไม่ใช่ของจริง */
 const MAX_BAD_RATIO = 0.3;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -97,7 +98,17 @@ export function buildClipStats(args: {
   return stats;
 }
 
-export function detectSignals(stats: ClipStat[]): ClipSignal[] {
+/**
+ * ตัดสินว่าคลิปไหนควรเป็น "งานรอบนี้"
+ *
+ * ต่างจากเวอร์ชันเดิมตรงที่ไม่มีอัตราส่วนที่ตั้งด้วยมือ (1.3 / 0.8) และไม่มีเกณฑ์
+ * จำนวนวิว/ออเดอร์ขั้นต่ำที่แช่ไว้ — ใช้ช่วงความเชื่อมั่นแทน สัญญาณจึงเงียบเอง
+ * เมื่อข้อมูลยังน้อย แทนที่จะยิงผิดอย่างมั่นใจ
+ *
+ * วัดจากข้อมูลจริงแล้ว: เกณฑ์เดิมให้สัญญาณ 18 รายการซึ่ง 2 ใน 3 ของที่เหลือหลัง
+ * ตัด "หยุดแล้ว"/"ดูเยอะไม่ซื้อ" ยังแยกจากคลิปธรรมดาไม่ได้ทางสถิติ
+ */
+export function detectTasks(stats: ClipStat[]): ClipTask[] {
   const usable = stats.filter((s) => s.views > 0);
   if (usable.length === 0) return [];
 
@@ -106,89 +117,48 @@ export function detectSignals(stats: ClipStat[]): ClipSignal[] {
   const channelConv = totalViews > 0 ? totalOrders / totalViews : 0;
   const medianViews = median(usable.map((s) => s.views));
 
-  const pct = (n: number) => (n * 100).toFixed(3) + "%";
-  const signals: ClipSignal[] = [];
-
+  const tasks: ClipTask[] = [];
   for (const s of usable) {
     const badRatio = s.orders > 0 ? s.badOrders / s.orders : 0;
     if (badRatio >= MAX_BAD_RATIO) continue;
 
-    const conv = s.views > 0 ? s.orders / s.views : 0;
-    const convTrusted = s.views >= MIN_VIEWS_FOR_CONV && s.orders >= MIN_ORDERS_FOR_CONV;
-    const reachEnough = s.views >= Math.max(MIN_VIEWS_FOR_CONV, medianViews * 2);
+    const kinds: ClipSignalKind[] = [];
 
-    if (
-      s.viewDelta !== null &&
-      s.viewDelta >= medianViews &&
-      convTrusted &&
-      conv >= channelConv * 0.8
-    ) {
-      signals.push({
-        kind: "emerging",
-        entryId: s.entryId,
-        productName: s.productName,
-        headline: "กำลังมา — ทำ angle ใหม่ซ้ำตอนนี้",
-        detail: `วิวเพิ่ม ${s.viewDelta.toLocaleString()} ในรอบล่าสุด · ${s.orders} ออเดอร์ · conv ${pct(conv)}`,
-        strength: s.viewDelta,
-      });
-    } else if (convTrusted && conv >= channelConv * 1.3 && s.views < medianViews) {
-      signals.push({
-        kind: "hidden-gem",
-        entryId: s.entryId,
-        productName: s.productName,
-        headline: "ของดีแต่คนไม่เห็น — ทำใหม่หรือดันด้วยแอด",
-        detail: `conv ${pct(conv)} (สูงกว่าค่าเฉลี่ยช่อง ${pct(channelConv)}) แต่ได้แค่ ${s.views.toLocaleString()} วิว`,
-        strength: conv / (channelConv || 1),
-      });
-    } else if (reachEnough && conv <= channelConv * 0.5) {
-      signals.push({
-        kind: "reach-no-convert",
-        entryId: s.entryId,
-        productName: s.productName,
-        headline: "คนดูเยอะแต่ไม่ซื้อ — คอนเทนต์ใช้ได้ ลองเปลี่ยนสินค้า",
-        detail: `${s.views.toLocaleString()} วิว แต่ conv แค่ ${pct(conv)} (ค่าเฉลี่ยช่อง ${pct(channelConv)})`,
-        strength: s.views,
-      });
-    } else if (
-      s.viewDelta !== null &&
-      s.viewDelta < s.views * 0.05 &&
-      s.ordersLast7Days === 0 &&
-      s.orders >= 1
-    ) {
-      signals.push({
-        kind: "fading",
-        entryId: s.entryId,
-        productName: s.productName,
-        headline: "หยุดแล้ว — ไม่ต้องลงแรงต่อ",
-        detail: `วิวแทบไม่ขยับ (+${s.viewDelta.toLocaleString()}) และไม่มีออเดอร์ใน 7 วัน`,
-        strength: 0,
-      });
-    }
+    // "กำลังโต" อ้างเรื่องวิวล้วน ไม่แตะ conversion เลย — วิวเป็นเลขหลักพันขึ้นไป
+    // การบอกว่าคลิปกำลังโตจึงไม่ต้องพึ่งการทดสอบทางสถิติ
+    // (เกณฑ์เดิมมีท่อน conv >= channelConv * 0.8 พ่วงมาด้วย ซึ่งวัดแล้วพบว่าไม่กรองอะไร
+    //  เพราะ 0.8 เท่าคือต่ำกว่าค่าเฉลี่ย จึงถูกตัดทิ้ง)
+    if (s.viewDelta !== null && s.viewDelta >= medianViews) kinds.push("growing");
+
+    // "ขายดีจริง" ต้องพิสูจน์ว่า conv สูงกว่าค่าเฉลี่ยช่องจริง ไม่ใช่แค่ดูสูง
+    // ขอบล่างของช่วงเชื่อมั่นต้องเกินค่าเฉลี่ยช่อง — n น้อยจะได้ช่วงกว้างจนไม่ผ่านเอง
+    // ไม่บังคับว่าวิวต้องน้อยกว่าค่ากลางแบบเกณฑ์เดิม เพราะเงื่อนไขนั้นตัดคลิปที่
+    // conv พิสูจน์ได้แน่นที่สุดของช่องทิ้งไปโดยไม่ตั้งใจ
+    const low = wilsonLowerBound(s.orders, s.views);
+    if (channelConv > 0 && low > channelConv) kinds.push("proven");
+
+    if (kinds.length === 0) continue;
+
+    const high = wilsonUpperBound(s.orders, s.views);
+    tasks.push({
+      entryId: s.entryId,
+      productName: s.productName,
+      kinds,
+      views: s.views,
+      viewDelta: s.viewDelta,
+      orders: s.orders,
+      convRatioRange:
+        channelConv > 0 ? { low: low / channelConv, high: high / channelConv } : null,
+    });
   }
 
-  return signals.sort((a, b) => b.strength - a.strength);
-}
+  // ติดสองป้ายอยู่บนสุด แล้วเรียงตามวิวที่เพิ่ม แล้วตามความแรงของ conv
+  tasks.sort((a, b) => {
+    if (a.kinds.length !== b.kinds.length) return b.kinds.length - a.kinds.length;
+    const byDelta = (b.viewDelta ?? 0) - (a.viewDelta ?? 0);
+    if (byDelta !== 0) return byDelta;
+    return (b.convRatioRange?.low ?? 0) - (a.convRatioRange?.low ?? 0);
+  });
 
-/**
- * เกณฑ์ความเชื่อมั่นด้านบนถูกตั้งไว้ตอนช่องยังเล็ก — ถ้าวิวกลางของช่องโตจนสูงกว่าเกณฑ์ขั้นต่ำหลายเท่า
- * แปลว่าเกณฑ์เริ่มหลวมเกินไป (เชื่อ conversion จากคลิปที่วิวน้อยมากเทียบกับมาตรฐานใหม่ของช่อง)
- * ตัวเลขนี้ไม่ได้ปรับตัวเอง เพราะ "แค่ไหนถึงเรียกว่าเชื่อถือได้" เป็นการตัดสินใจ ไม่ใช่คณิตศาสตร์ล้วน
- * — หน้าที่ของฟังก์ชันนี้คือสะกิดให้กลับมาทบทวน ไม่ใช่ปรับให้เอง
- */
-const GUARD_STALE_FACTOR = 10;
-
-export type GuardHealth = {
-  stale: boolean;
-  medianViews: number;
-  minViewsForConv: number;
-};
-
-export function checkGuardHealth(stats: ClipStat[]): GuardHealth {
-  const usable = stats.filter((s) => s.views > 0);
-  const medianViews = median(usable.map((s) => s.views));
-  return {
-    stale: medianViews >= MIN_VIEWS_FOR_CONV * GUARD_STALE_FACTOR,
-    medianViews,
-    minViewsForConv: MIN_VIEWS_FOR_CONV,
-  };
+  return tasks;
 }
