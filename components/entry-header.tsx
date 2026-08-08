@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowLeft, Compass } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 export function EntryHeader({
   productName,
   children,
@@ -9,34 +11,37 @@ export function EntryHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="relative bg-ink text-paper">
+    <header className="relative bg-header text-header-foreground">
       <div className="px-4 pt-3 sm:px-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-1.5 font-mono text-xs text-paper/50 transition-colors hover:text-paper"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-header-muted transition-colors hover:bg-header-foreground/10 hover:text-header-foreground focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none"
         >
-          <ArrowLeft className="size-3.5" />
+          <ArrowLeft className="size-4" />
           กลับไปรายการ
         </Link>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 pt-2 pb-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <Compass className="size-6 shrink-0 text-[#22c1b3]" strokeWidth={1.75} />
+          <Compass className="size-6 shrink-0 text-header-active" strokeWidth={1.75} />
           <div>
-            <h1 className="text-xl leading-none font-extrabold tracking-wide text-paper sm:text-2xl">
-              Angle <span className="text-sm font-normal text-paper/50">by LAGR</span>
+            <h1 className="text-xl leading-none font-extrabold text-header-foreground sm:text-2xl">
+              Angle <span className="text-sm font-normal text-header-muted">by LAGR</span>
             </h1>
-            <p className="mt-1 text-xs text-paper/60">
+            <p className="mt-1 text-xs text-header-muted">
               ประกอบ Core Prompt สำหรับวิดีโอ TikTok Shop
             </p>
           </div>
         </div>
 
-        <div className="-rotate-2 rounded-md border border-paper/15 bg-ink-2 px-4 py-2 shadow-[3px_3px_0_0_rgba(0,0,0,0.35)]">
-          <p className="max-w-[14rem] truncate font-mono text-sm text-paper">
-            {productName || "ยังไม่ตั้งชื่อสินค้า"}
-          </p>
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg border border-header-muted/40 bg-header-foreground/5 px-4 py-2">
+            <p className="max-w-[14rem] truncate text-sm text-header-foreground">
+              {productName || "ยังไม่ตั้งชื่อสินค้า"}
+            </p>
+          </div>
+          <ThemeToggle />
         </div>
       </div>
 
