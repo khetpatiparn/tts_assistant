@@ -6,6 +6,7 @@ import { PackageSearch } from "lucide-react";
 import { refreshProductSpec, saveProductSpec } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export function ProductSpecPanel({
   entryId,
@@ -46,11 +47,14 @@ export function ProductSpecPanel({
   function handleRefresh() {
     setError(null);
     startRefreshing(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         setDraft(await refreshProductSpec(entryId, model));
       } catch (e) {
+        outcome = "error";
         setError(e instanceof Error ? e.message : "สกัดสเปกไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 

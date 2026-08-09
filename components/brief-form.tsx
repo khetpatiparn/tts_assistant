@@ -9,6 +9,7 @@ import type { ProductImageRecord } from "@/components/entry-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export type FormState = {
   productName: string;
@@ -171,6 +172,7 @@ export function BriefForm({
     if (extractImages.length === 0) return;
     setExtractError(null);
     startExtracting(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         const formData = new FormData();
         for (const file of extractImages) formData.append("files", file);
@@ -179,8 +181,10 @@ export function BriefForm({
         setExtractImages([]);
         setExtractOpen(false);
       } catch (e) {
+        outcome = "error";
         setExtractError(e instanceof Error ? e.message : "สกัดข้อมูลไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 

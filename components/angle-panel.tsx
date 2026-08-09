@@ -7,6 +7,7 @@ import { saveAngle, suggestAngles } from "@/app/actions";
 import type { AngleSuggestion, EntryOutcome, UsedAngle } from "@/lib/angle";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export type UsedAngleWithOutcome = UsedAngle & { outcome: EntryOutcome };
 
@@ -69,11 +70,14 @@ export function AnglePanel({
   function handleSuggest() {
     setError(null);
     startSuggesting(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         setSuggestions(await suggestAngles(entryId));
       } catch (e) {
+        outcome = "error";
         setError(e instanceof Error ? e.message : "คิด angle ไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 

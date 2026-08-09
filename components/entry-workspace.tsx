@@ -12,6 +12,7 @@ import {
   uploadProductImages,
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
+import { playCompletionSound } from "@/lib/completion-sound";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail } from "@/components/history-rail";
@@ -209,6 +210,7 @@ export function EntryWorkspace({
     if (!entry) return;
     setGenError(null);
     startGenerating(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         const result = await generateWithAI(entry.id, model);
         // 10-part prompt บันทึกแล้วแน่นอน แม้ caption จะพัง — ไปแท็บผลลัพธ์เสมอ
@@ -217,8 +219,10 @@ export function EntryWorkspace({
           setGenError(`สร้าง 10-part prompt สำเร็จ แต่ Caption ไม่สำเร็จ: ${result.captionError}`);
         }
       } catch (e) {
+        outcome = "error";
         setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 
