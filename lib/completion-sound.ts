@@ -1,6 +1,7 @@
+"use client";
+
 // เสียงแจ้งเตือนเมื่อการเรียก AI จบ (สำเร็จหรือพัง) — สังเคราะห์ด้วย Web Audio API
 // ไม่ใช้ไฟล์เสียง (ไม่ต้องอัปโหลด/โฮสต์ asset) ทำงานได้แม้ไม่มีเน็ต
-"use client";
 
 const MUTE_KEY = "ai-sound-muted";
 export const SOUND_CHANGE_EVENT = "ai-sound:changed";
