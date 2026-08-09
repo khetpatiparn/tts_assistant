@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Compass } from "lucide-react";
 
+import { SoundToggle } from "@/components/sound-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export function EntryHeader({
@@ -41,6 +42,7 @@ export function EntryHeader({
               {productName || "ยังไม่ตั้งชื่อสินค้า"}
             </p>
           </div>
+          <SoundToggle />
           <ThemeToggle />
         </div>
       </div>
