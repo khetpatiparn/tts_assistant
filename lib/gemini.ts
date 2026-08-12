@@ -185,6 +185,7 @@ const ANGLE_INSTRUCTION = `คุณคือผู้ช่วยคิดม�
 export async function suggestAngleOptions(args: {
   productName: string;
   productInfo: string;
+  productSpec: string;
   usedAngles: string[];
 }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -199,6 +200,13 @@ export async function suggestAngleOptions(args: {
       ? "ยังไม่เคยทำคลิปสินค้านี้มาก่อน"
       : args.usedAngles.map((a, i) => `${i + 1}. ${a}`).join("\n");
 
+  // productSpec ว่างได้ (entry เก่าที่ยังไม่เคยสกัดสเปกจากรูป) — ไม่ใส่หัวข้อนี้เลยถ้าว่าง
+  // แทนที่จะส่งหัวข้อเปล่าไปสร้างความสับสนให้โมเดล
+  const specBlock =
+    args.productSpec.trim() === ""
+      ? ""
+      : `\n\n### สเปกสินค้าที่สกัดจากรูปจริง\n${args.productSpec}`;
+
   const response = await client.interactions.create({
     model: ANGLE_MODEL,
     // snake_case — camelCase จะถูก API เมินแบบเงียบๆ (ดูคอมเมนต์ใน generateTenPartPrompt)
@@ -210,7 +218,7 @@ export async function suggestAngleOptions(args: {
         type: "text",
         text:
           `### ชื่อสินค้า\n${args.productName}\n\n` +
-          `### ข้อมูลสินค้า\n${args.productInfo}\n\n` +
+          `### ข้อมูลสินค้า\n${args.productInfo}${specBlock}\n\n` +
           `### angle ที่เคยใช้ไปแล้ว (ห้ามซ้ำแนวนี้)\n${usedBlock}`,
       },
     ],

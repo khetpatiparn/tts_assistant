@@ -395,6 +395,7 @@ export async function suggestAngles(entryId: string): Promise<AngleSuggestion[]>
       chatgptOutput: true,
       productName: true,
       productInfo: true,
+      productSpec: true,
     },
   });
 
@@ -409,6 +410,7 @@ export async function suggestAngles(entryId: string): Promise<AngleSuggestion[]>
   const raw = await suggestAngleOptions({
     productName: current.productName,
     productInfo: current.productInfo,
+    productSpec: current.productSpec,
     usedAngles: used.map((u) => u.text),
   });
   return parseAngleSuggestions(raw);
