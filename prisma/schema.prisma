@@ -123,3 +123,30 @@ model ImportLog {
   @@index([kind, uploadedAt])
   @@index([fileHash])
 }
+
+/// สินค้าที่กำลังพิจารณาว่าจะทำคลิปไหม — มาจากแคปหน้าจัดอันดับ TikTok Shop
+///
+/// ไม่ผูก relation กับ PromptEntry โดยตั้งใจ (เก็บ linkedEntryId เป็น String เปล่า)
+/// เพราะประวัติการตัดสินใจไม่ควรหายตามเมื่อ entry ถูกลบ
+model ProductCandidate {
+  id            String   @id @default(cuid())
+  /// ชื่อเต็มตามภาพ ไม่ย่อ
+  name          String
+  /// normalizeName(name) — ใช้จับคู่ตอน upsert กันข้อมูลซ้ำเมื่อแคปสินค้าเดิมอีกรอบ
+  nameKey       String   @unique
+  price         Float
+  commission    Float
+  /// null = แคปมาจากหน้าที่ไม่มีตัวเลขยอดขาย (แถบ "คะแนนสูงสุด")
+  weeklySales   Int?
+  /// ชื่อหมวดที่ AI อ่านจากหัวข้อบนสุดของภาพ
+  categoryLabel String
+  capturedOn    DateTime
+  /// "new" | "interested" | "rejected" | "done"
+  status        String   @default("new")
+  note          String   @default("")
+  linkedEntryId String?
+  createdAt     DateTime @default(now())
+
+  @@index([status])
+  @@index([categoryLabel])
+}
