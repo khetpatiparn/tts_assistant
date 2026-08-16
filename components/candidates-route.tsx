@@ -65,7 +65,7 @@ export function CandidatesRoute({
   const [filter, setFilter] = useState<StatusFilter>("active");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [isExtracting, startExtracting] = useTransition();
-  const [, startUpdating] = useTransition();
+  const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => {
@@ -345,7 +345,7 @@ export function CandidatesRoute({
                         size="sm"
                         variant="outline"
                         onClick={() => handleStatus(r.id, "interested")}
-                        disabled={r.status === "interested"}
+                        disabled={isUpdating || r.status === "interested"}
                       >
                         {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
                       </Button>
@@ -354,11 +354,16 @@ export function CandidatesRoute({
                         size="sm"
                         variant="outline"
                         onClick={() => handleStatus(r.id, "rejected")}
-                        disabled={r.status === "rejected"}
+                        disabled={isUpdating || r.status === "rejected"}
                       >
                         {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
                       </Button>
-                      <Button type="button" size="sm" onClick={() => handleCreate(r.id)}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleCreate(r.id)}
+                        disabled={isUpdating}
+                      >
                         สร้างงานเลย
                       </Button>
                     </>
