@@ -11,6 +11,7 @@ import {
   generateCaptionAndHashtags,
   extractProductFields,
   extractProductSpec,
+  extractCandidateRows,
   suggestAngleOptions,
   isGeminiModelId,
 } from "@/lib/gemini";
@@ -20,6 +21,7 @@ import {
   parseAngleSuggestions,
   type AngleSuggestion,
 } from "@/lib/angle";
+import { normalizeName, parseCandidateRows } from "@/lib/candidates";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
@@ -915,4 +917,131 @@ export async function createEntryFromOrder(contentId: string, productName: strin
 
   revalidatePath("/");
   revalidatePath("/dashboard");
+}
+
+/**
+ * อ่านแคปหน้าจัดอันดับสินค้า แล้ว upsert ลง ProductCandidate
+ *
+ * รูปอยู่ใน memory เท่านั้น ไม่เขียนดิสก์ ไม่สร้างแถว ProductImage — เป็นแคปหน้าจัดอันดับ
+ * คนละชุดกับรูปสินค้าจริง ปนกันแล้ว 10-part prompt จะเพี้ยน
+ */
+export async function extractCandidates(
+  formData: FormData
+): Promise<{ added: number; updated: number; skipped: number }> {
+  const rawFiles = formData.getAll("files");
+  const files: File[] = [];
+  for (const value of rawFiles) {
+    if (value instanceof File && value.size > 0) files.push(value);
+  }
+  if (files.length === 0) {
+    throw new Error("กรุณาแนบแคปหน้าจัดอันดับสินค้าอย่างน้อย 1 รูป");
+  }
+
+  for (const file of files) {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP");
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      throw new Error("ไฟล์ใหญ่เกิน 10MB");
+    }
+  }
+
+  const images = await Promise.all(
+    files.map(async (file) => ({
+      base64: Buffer.from(await file.arrayBuffer()).toString("base64"),
+      mimeType: file.type,
+      caption: "",
+    }))
+  );
+
+  const raw = await extractCandidateRows({ images });
+  const { rows, skipped } = parseCandidateRows(raw);
+
+  const capturedOn = new Date();
+  let added = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    const nameKey = normalizeName(row.name);
+    const existing = await prisma.productCandidate.findUnique({ where: { nameKey } });
+    if (existing) {
+      // อัปเดตตัวเลขล่าสุด แต่คง status/note/linkedEntryId เดิม — ปัดตกแล้วต้องไม่กลับมา
+      await prisma.productCandidate.update({
+        where: { nameKey },
+        data: {
+          name: row.name,
+          price: row.price,
+          commission: row.commission,
+          weeklySales: row.weeklySales,
+          categoryLabel: row.categoryLabel,
+          capturedOn,
+        },
+      });
+      updated++;
+    } else {
+      await prisma.productCandidate.create({
+        data: {
+          name: row.name,
+          nameKey,
+          price: row.price,
+          commission: row.commission,
+          weeklySales: row.weeklySales,
+          categoryLabel: row.categoryLabel,
+          capturedOn,
+        },
+      });
+      added++;
+    }
+  }
+
+  revalidatePath("/products");
+  return { added, updated, skipped };
+}
+
+export async function setCandidateStatus(
+  id: string,
+  status: string,
+  note?: string
+): Promise<void> {
+  await prisma.productCandidate.update({
+    where: { id },
+    data: { status, ...(note === undefined ? {} : { note }) },
+  });
+  revalidatePath("/products");
+}
+
+/**
+ * สร้าง PromptEntry จากสินค้าที่เลือก แล้วผูกกลับมาที่ candidate
+ * ทำตามแบบ createEntryFromOrder — สร้าง entry ขั้นต่ำแล้วให้ผู้ใช้ไปกรอกต่อในหน้า entry
+ */
+export async function createEntryFromCandidate(id: string): Promise<string> {
+  const candidate = await prisma.productCandidate.findUnique({ where: { id } });
+  if (!candidate) {
+    throw new Error("ไม่พบสินค้าที่เลือก");
+  }
+
+  // ต้องใส่ kind: "core" เสมอ ไม่งั้นได้ SEO prompt มาแทน
+  const active = await prisma.corePrompt.findFirst({
+    where: { isActive: true, kind: "core" },
+  });
+
+  const created = await prisma.promptEntry.create({
+    data: {
+      productName: candidate.name,
+      productInfo: "",
+      riskModule: "",
+      extraNotes: "",
+      images: "[]",
+      corePromptId: active?.id ?? null,
+    },
+  });
+
+  await prisma.productCandidate.update({
+    where: { id },
+    data: { status: "done", linkedEntryId: created.id },
+  });
+
+  revalidatePath("/products");
+  revalidatePath("/");
+  return created.id;
 }

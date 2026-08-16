@@ -306,3 +306,55 @@ export async function extractProductSpec(args: {
   }
   return text;
 }
+
+const CANDIDATE_INSTRUCTION = `คุณคือผู้ช่วยอ่านตารางจัดอันดับสินค้าจากภาพแคปหน้าจอ TikTok Shop
+อ่านทุกภาพที่แนบมา แล้วตอบกลับตามรูปแบบนี้เท่านั้น:
+
+หมวด: <ชื่อหมวดจากหัวข้อบนสุดของภาพ>
+<ชื่อสินค้าเต็ม> | <ราคาขาย> | <ค่าคอม> | <ยอดขายต่อสัปดาห์>
+<ชื่อสินค้าเต็ม> | <ราคาขาย> | <ค่าคอม> | <ยอดขายต่อสัปดาห์>
+
+กติกา:
+- ชื่อสินค้าให้เอาเต็มตามที่เห็นในภาพ ห้ามย่อ ห้ามสรุป
+- ตัวเลขให้คัดลอกตามที่เห็น รวมสัญลักษณ์ K เช่น 13.9K (ห้ามแปลงเป็น 13900 เอง)
+- ราคาขายคือตัวเลขราคาสินค้า ส่วนค่าคอมคือตัวเลขที่ขึ้นต้นด้วยคำว่า "รับ"
+- ยอดขายคือตัวเลขในข้อความ "ขายได้ X ชิ้นในสัปดาห์ที่ผ่านมา"
+- ถ้าช่องใดไม่มีในภาพ ให้ใส่ขีด - แทน (เช่นหน้าที่โชว์ "รีวิวเชิงบวก 100.0%" แทนยอดขาย)
+- ถ้ามีหลายหมวดในภาพเดียว ให้ขึ้นบรรทัด "หมวด:" ใหม่ก่อนกลุ่มสินค้าของหมวดนั้น
+- ห้ามใส่หัวข้ออื่น ห้ามอธิบาย ห้ามสรุปท้าย`;
+
+/**
+ * อ่านตารางจัดอันดับสินค้าจากภาพ คืนข้อความดิบให้ parseCandidateRows แยกต่อ
+ *
+ * ล็อกที่ EXTRACT_MODEL เหมือน extractProductFields — เป็นงานอ่านข้อความจากภาพ
+ * ไม่ใช่งานตีความภาพเชิงลึกแบบ extractProductSpec ที่ให้ผู้ใช้เลือกโมเดลเอง
+ */
+export async function extractCandidateRows(args: {
+  images: GeminiImage[];
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  }
+
+  const client = new GoogleGenAI({ apiKey });
+  const input: object[] = [];
+  for (const image of args.images) {
+    input.push({ type: "image", data: image.base64, mime_type: image.mimeType });
+  }
+
+  const response = await client.interactions.create({
+    model: EXTRACT_MODEL,
+    // snake_case — camelCase จะถูก API เมินแบบเงียบๆ
+    system_instruction: CANDIDATE_INSTRUCTION,
+    // temperature 0 — งานคัดลอกตัวเลข ไม่ใช่งานสร้างสรรค์
+    generation_config: { temperature: 0 },
+    input,
+  });
+
+  const text = response.output_text;
+  if (!text || text.trim() === "") {
+    throw new Error("AI ไม่ได้ตอบกลับตอนอ่านข้อมูลจากรูป ลองใหม่อีกครั้ง");
+  }
+  return text;
+}
