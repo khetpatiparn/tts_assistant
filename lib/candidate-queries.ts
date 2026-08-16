@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { PAID_STATUS } from "@/lib/affiliate";
 import {
+  categorize,
   commissionPercent,
   demandTotal,
   detectFlags,
@@ -34,21 +36,6 @@ export type FocusCategory = {
   orderCount: number;
 };
 
-/**
- * จับกลุ่มหมวดจากคำในชื่อสินค้า — ใช้กับ "แถบเตือนหมวดที่ควรโฟกัส" เท่านั้น
- *
- * ห้ามเอาไปใช้กับเกณฑ์ตัดสินสถานะเขียว/แดง (ดูสเปกหัวข้อ "หมายเหตุความไม่สมมาตรที่ตั้งใจ") —
- * แถบเตือนจับกลุ่มพลาดก็แค่เลขบนป้ายคลาดเคลื่อน แต่เกณฑ์ตัดสินขับการตัดสินใจจริง
- * จึงใช้ค่ารวมทั้งร้านที่ไม่มีทางเพี้ยนแทน
- */
-function categorize(productName: string): string | null {
-  const n = productName;
-  if (/แมว|หมา|สุนัข|สัตว์|กระต่าย/.test(n)) return "สัตว์เลี้ยง";
-  if (/หม้อ|กระทะ|ช้อน|เขียง|ถ้วย|ชาม|ครัว|กระปุก/.test(n)) return "เครื่องครัว";
-  if (/ชั้นวาง|รถเข็น|ตู้|เคาเตอร์|โต๊ะ|ราวตาก|ม่าน|กล่องเก็บ/.test(n)) return "จัดระเบียบบ้าน";
-  return null;
-}
-
 export async function getCandidatesData(): Promise<{
   rows: CandidateRow[];
   summaries: CategorySummary[];
@@ -59,7 +46,7 @@ export async function getCandidatesData(): Promise<{
   const [candidates, paidOrders] = await Promise.all([
     prisma.productCandidate.findMany({ orderBy: { capturedOn: "desc" } }),
     prisma.affiliateOrder.findMany({
-      where: { finalRevenue: { gt: 0 } },
+      where: { status: PAID_STATUS },
       select: { productName: true, gmv: true, finalRevenue: true },
     }),
   ]);
