@@ -4,10 +4,11 @@ import { Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export type NavKey = "list" | "entry" | "core" | "dashboard";
+export type NavKey = "list" | "entry" | "core" | "dashboard" | "products";
 
 const NAV: { key: NavKey; href: string; label: string }[] = [
   { key: "list", href: "/", label: "รายการสินค้า" },
+  { key: "products", href: "/products", label: "หาสินค้า" },
   { key: "core", href: "/core-prompt", label: "Core Prompt" },
   { key: "dashboard", href: "/dashboard", label: "รายได้" },
 ];
