@@ -135,6 +135,61 @@ export function demandTotal(commission: number, weeklySales: number | null): num
   return commission * weeklySales;
 }
 
+export type CandidateBadge = "topSeller" | "topCommission";
+
+/** จำนวนแถวที่ติดป้ายต่อประเภท — ปรับได้ตรงนี้จุดเดียวถ้ารู้สึกว่าน้อย/เยอะไป */
+const TOP_BADGE_COUNT = 2;
+
+/**
+ * เลือกป้าย "ยอดขายดี"/"ค่าคอมสูงสุด" ท็อป TOP_BADGE_COUNT ต่อป้าย
+ *
+ * คำนวณเฉพาะแถวที่ (1) ยังไม่ถูกปัดตก และ (2) %ค่าคอมเกินเกณฑ์ร้าน (🟢) เท่านั้น —
+ * กันไม่ให้แนะนำสินค้าที่กำไรต่ำกว่ามาตรฐานร้านตัวเอง แม้ยอดขาย/ %จะดูสูงในกลุ่ม
+ * ถ้ายังไม่มีข้อมูลออเดอร์พอคำนวณเกณฑ์ (benchmarkOrderCount = 0) จะไม่ติดป้ายเลย
+ * เพราะเกณฑ์เขียว/แดงเองก็ยังไม่มีความหมายในสถานการณ์นั้น
+ *
+ * ป้ายค่าคอมสูงสุดใช้ % ไม่ใช่บาท เพราะบาทรวมมี demandTotal ให้แล้ว (ซ้ำข้อมูลเดิม)
+ * ส่วน % บอกมุมที่ต่างออกไปคือ "ดีลนี้ใจดีกว่าปกติแค่ไหนเทียบกับราคาสินค้า"
+ *
+ * คืนเป็น Map<id, CandidateBadge[]> เพราะแถวเดียวอาจติดทั้ง 2 ป้ายพร้อมกันได้
+ */
+export function pickCandidateBadges(
+  rows: {
+    id: string;
+    status: string;
+    commissionPercent: number;
+    weeklySales: number | null;
+  }[],
+  benchmarkPercent: number,
+  benchmarkOrderCount: number
+): Map<string, CandidateBadge[]> {
+  const result = new Map<string, CandidateBadge[]>();
+  if (benchmarkOrderCount === 0) return result;
+
+  const eligible = rows.filter(
+    (r) => r.status !== "rejected" && r.commissionPercent > benchmarkPercent
+  );
+
+  const addBadge = (id: string, badge: CandidateBadge) => {
+    const existing = result.get(id);
+    if (existing) existing.push(badge);
+    else result.set(id, [badge]);
+  };
+
+  eligible
+    .filter((r) => r.weeklySales !== null)
+    .sort((a, b) => (b.weeklySales as number) - (a.weeklySales as number))
+    .slice(0, TOP_BADGE_COUNT)
+    .forEach((r) => addBadge(r.id, "topSeller"));
+
+  [...eligible]
+    .sort((a, b) => b.commissionPercent - a.commissionPercent)
+    .slice(0, TOP_BADGE_COUNT)
+    .forEach((r) => addBadge(r.id, "topCommission"));
+
+  return result;
+}
+
 /**
  * จับกลุ่มหมวดจากคำในชื่อสินค้า — ใช้กับ "แถบเตือนหมวดที่ควรโฟกัส" เท่านั้น
  *

@@ -5,6 +5,8 @@ import {
   commissionPercent,
   demandTotal,
   detectFlags,
+  pickCandidateBadges,
+  type CandidateBadge,
   type CandidateFlag,
 } from "@/lib/candidates";
 
@@ -22,6 +24,7 @@ export type CandidateRow = {
   commissionPercent: number;
   demandTotal: number | null;
   flags: CandidateFlag[];
+  badges: CandidateBadge[];
 };
 
 export type CategorySummary = {
@@ -51,7 +54,19 @@ export async function getCandidatesData(): Promise<{
     }),
   ]);
 
-  const rows: CandidateRow[] = candidates.map((c) => ({
+  // เกณฑ์ตัดสินสถานะเขียว/แดง — ค่าคอมจริงเฉลี่ยรวมทั้งร้าน (settled ÷ GMV) คำนวณสดทุกครั้ง
+  // ใช้ค่าเดียวรวมทุกหมวดโดยตั้งใจ: ไม่ต้องมีตารางจับคู่หมวดที่ต้องดูแล และหมวดที่
+  // ไม่เคยขายมาก่อนก็ยังมีค่าเทียบเสมอ — คำนวณก่อน rows เพราะป้ายกำกับด้านล่างต้องใช้ค่านี้
+  let benchGmv = 0;
+  let benchRev = 0;
+  for (const o of paidOrders) {
+    benchGmv += o.gmv;
+    benchRev += o.finalRevenue ?? 0;
+  }
+  const benchmarkPercent = benchGmv > 0 ? (benchRev / benchGmv) * 100 : 0;
+  const benchmarkOrderCount = paidOrders.length;
+
+  const rowsWithoutBadges = candidates.map((c) => ({
     id: c.id,
     name: c.name,
     price: c.price,
@@ -65,6 +80,12 @@ export async function getCandidatesData(): Promise<{
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),
+  }));
+
+  const badgeMap = pickCandidateBadges(rowsWithoutBadges, benchmarkPercent, benchmarkOrderCount);
+  const rows: CandidateRow[] = rowsWithoutBadges.map((r) => ({
+    ...r,
+    badges: badgeMap.get(r.id) ?? [],
   }));
 
   // สรุปรายหมวด — นับจำนวนและหาวันเก็บล่าสุดของแต่ละหมวด
@@ -82,17 +103,6 @@ export async function getCandidatesData(): Promise<{
   const summaries: CategorySummary[] = [...byCategory.entries()]
     .map(([label, v]) => ({ label, count: v.count, lastCapturedOn: v.last }))
     .sort((a, b) => b.lastCapturedOn.getTime() - a.lastCapturedOn.getTime());
-
-  // เกณฑ์ตัดสินสถานะเขียว/แดง — ค่าคอมจริงเฉลี่ยรวมทั้งร้าน (settled ÷ GMV) คำนวณสดทุกครั้ง
-  // ใช้ค่าเดียวรวมทุกหมวดโดยตั้งใจ: ไม่ต้องมีตารางจับคู่หมวดที่ต้องดูแล และหมวดที่
-  // ไม่เคยขายมาก่อนก็ยังมีค่าเทียบเสมอ
-  let benchGmv = 0;
-  let benchRev = 0;
-  for (const o of paidOrders) {
-    benchGmv += o.gmv;
-    benchRev += o.finalRevenue ?? 0;
-  }
-  const benchmarkPercent = benchGmv > 0 ? (benchRev / benchGmv) * 100 : 0;
 
   // แถบเตือนหมวดที่ควรโฟกัส — ต้องมีจำนวนออเดอร์กำกับเสมอ เพราะบางหมวด %สูง
   // แต่มาจากออเดอร์น้อยมาก ถ้าโชว์แต่ % จะอ่านผิดว่าหมวดนั้นดีกว่า
@@ -118,7 +128,7 @@ export async function getCandidatesData(): Promise<{
     rows,
     summaries,
     benchmarkPercent,
-    benchmarkOrderCount: paidOrders.length,
+    benchmarkOrderCount,
     focus,
   };
 }

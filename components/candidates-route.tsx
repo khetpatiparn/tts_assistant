@@ -1,7 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { ClipboardPaste, Lightbulb, Package, TriangleAlert, X } from "lucide-react";
+import {
+  ClipboardPaste,
+  Lightbulb,
+  Package,
+  Percent,
+  TrendingUp,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 import {
   createEntryFromCandidate,
@@ -293,6 +301,23 @@ export function CandidatesRoute({
                   />
                   <p className="flex-1 text-base font-medium text-foreground">{r.name}</p>
                 </div>
+
+                {r.badges.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {r.badges.includes("topSeller") && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
+                        <TrendingUp className="size-3 shrink-0" />
+                        ยอดขายดี
+                      </span>
+                    )}
+                    {r.badges.includes("topCommission") && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
+                        <Percent className="size-3 shrink-0" />
+                        ค่าคอมสูงสุด
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <p className="text-sm text-foreground/80">
                   ราคา {r.price.toLocaleString()} · ค่าคอม {r.commission.toLocaleString()} ·{" "}

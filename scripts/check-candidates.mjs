@@ -120,6 +120,26 @@ try {
   check("อาหารหมา -> ยังเข้าสัตว์เลี้ยง (lookbehind ไม่กันของจริง)", c.categorize("อาหารหมา"), "สัตว์เลี้ยง");
   check("หม้อทอดไร้น้ำมัน -> เครื่องครัว", c.categorize("หม้อทอดไร้น้ำมัน"), "เครื่องครัว");
 
+  // --- pickCandidateBadges ---
+  const badgeRows = [
+    { id: "a", status: "new", commissionPercent: 5.0, weeklySales: 1000 }, // ต่ำกว่าเกณฑ์ -> ไม่ติดป้าย
+    { id: "b", status: "new", commissionPercent: 12.0, weeklySales: 900 }, // ยอดขายสูงสุด, %ก็สูงสุดด้วย -> ติด 2 ป้าย
+    { id: "c", status: "new", commissionPercent: 8.0, weeklySales: 800 }, // ยอดขายอันดับ 2 -> ติดป้ายยอดขายดี
+    { id: "d", status: "new", commissionPercent: 10.0, weeklySales: 100 }, // %อันดับ 2 -> ติดป้ายค่าคอมสูงสุด
+    { id: "e", status: "rejected", commissionPercent: 20.0, weeklySales: 5000 }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีสุด
+    { id: "f", status: "new", commissionPercent: 7.0, weeklySales: null }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้
+  ];
+  const badges = c.pickCandidateBadges(badgeRows, 6.0, 50);
+  checkDeep("แถว b ติดทั้ง 2 ป้าย (ยอดขายสูงสุด + %สูงสุด)", badges.get("b"), ["topSeller", "topCommission"]);
+  checkDeep("แถว c ติดป้ายยอดขายดี (อันดับ 2)", badges.get("c"), ["topSeller"]);
+  checkDeep("แถว d ติดป้ายค่าคอมสูงสุด (อันดับ 2)", badges.get("d"), ["topCommission"]);
+  check("แถว a ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายเลย", badges.has("a"), false);
+  check("แถว e ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีที่สุด", badges.has("e"), false);
+  check("แถว f ไม่มียอดขาย -> ไม่ติดป้ายยอดขายดี", badges.has("f"), false);
+
+  const noBenchmark = c.pickCandidateBadges(badgeRows, 6.0, 0);
+  check("benchmarkOrderCount เป็น 0 -> ไม่ติดป้ายใครเลย", noBenchmark.size, 0);
+
   // --- คำนวณ ---
   checkClose3("%ค่าคอม 29.90/249", c.commissionPercent(249, 29.9), 12.0);
   checkClose3("%ค่าคอม 12.15/67.50", c.commissionPercent(67.5, 12.15), 18.0);
