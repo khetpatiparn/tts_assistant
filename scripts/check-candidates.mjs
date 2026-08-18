@@ -122,20 +122,38 @@ try {
 
   // --- pickCandidateBadges ---
   const badgeRows = [
-    { id: "a", status: "new", commissionPercent: 5.0, weeklySales: 1000 }, // ต่ำกว่าเกณฑ์ -> ไม่ติดป้าย
-    { id: "b", status: "new", commissionPercent: 12.0, weeklySales: 900 }, // ยอดขายสูงสุด, %ก็สูงสุดด้วย -> ติด 2 ป้าย
-    { id: "c", status: "new", commissionPercent: 8.0, weeklySales: 800 }, // ยอดขายอันดับ 2 -> ติดป้ายยอดขายดี
-    { id: "d", status: "new", commissionPercent: 10.0, weeklySales: 100 }, // %อันดับ 2 -> ติดป้ายค่าคอมสูงสุด
-    { id: "e", status: "rejected", commissionPercent: 20.0, weeklySales: 5000 }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีสุด
-    { id: "f", status: "new", commissionPercent: 7.0, weeklySales: null }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้
+    { id: "a", status: "new", commission: 50, commissionPercent: 5.0, weeklySales: 1000 }, // %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายแม้ค่าคอมบาทสูงสุด
+    { id: "b", status: "new", commission: 40, commissionPercent: 12.0, weeklySales: 900 }, // ยอดขายสูงสุด + บาทสูงสุด -> ติด 2 ป้าย
+    { id: "c", status: "new", commission: 5, commissionPercent: 8.0, weeklySales: 800 }, // ยอดขายอันดับ 2 -> ติดป้ายยอดขายดี
+    { id: "d", status: "new", commission: 24, commissionPercent: 10.0, weeklySales: 100 }, // บาทอันดับ 2 -> ติดป้ายค่าคอมสูงสุด
+    { id: "e", status: "rejected", commission: 99, commissionPercent: 20.0, weeklySales: 5000 }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีสุด
+    { id: "f", status: "new", commission: 3, commissionPercent: 7.0, weeklySales: null }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้
   ];
   const badges = c.pickCandidateBadges(badgeRows, 6.0, 50);
-  checkDeep("แถว b ติดทั้ง 2 ป้าย (ยอดขายสูงสุด + %สูงสุด)", badges.get("b"), ["topSeller", "topCommission"]);
+  checkDeep("แถว b ติดทั้ง 2 ป้าย (ยอดขายสูงสุด + ค่าคอมบาทสูงสุด)", badges.get("b"), ["topSeller", "topCommission"]);
   checkDeep("แถว c ติดป้ายยอดขายดี (อันดับ 2)", badges.get("c"), ["topSeller"]);
-  checkDeep("แถว d ติดป้ายค่าคอมสูงสุด (อันดับ 2)", badges.get("d"), ["topCommission"]);
-  check("แถว a ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายเลย", badges.has("a"), false);
+  checkDeep("แถว d ติดป้ายค่าคอมสูงสุด (บาทอันดับ 2)", badges.get("d"), ["topCommission"]);
+  check("แถว a %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายเลยแม้ค่าคอมบาทสูงสุดในชุด", badges.has("a"), false);
   check("แถว e ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีที่สุด", badges.has("e"), false);
   check("แถว f ไม่มียอดขาย -> ไม่ติดป้ายยอดขายดี", badges.has("f"), false);
+
+  // เคสจริงที่เคยเลือกผิดตอนใช้ % จัดอันดับ (2026-08-18): สินค้าถูกที่ %สูงลิ่วแต่เงินจริงน้อย
+  // ต้องแพ้สินค้าแพงที่ %ต่ำกว่าแต่เงินจริงมากกว่า 10 เท่า — % เป็นอัตราส่วน ไม่ใช่เงินที่ได้
+  const bahtVsPercent = c.pickCandidateBadges(
+    [
+      { id: "cheap", status: "new", commission: 3.64, commissionPercent: 16.2, weeklySales: 117 },
+      { id: "pricey", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: 62 },
+      { id: "mid", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: 103 },
+    ],
+    6.9,
+    582
+  );
+  checkDeep("ของแพงค่าคอมบาทสูง ติดป้ายค่าคอมสูงสุด", bahtVsPercent.get("pricey"), ["topCommission"]);
+  check(
+    "ของถูก %สูงลิ่วแต่เงินจริงน้อย ไม่ติดป้ายค่าคอมสูงสุด",
+    (bahtVsPercent.get("cheap") ?? []).includes("topCommission"),
+    false
+  );
 
   const noBenchmark = c.pickCandidateBadges(badgeRows, 6.0, 0);
   check("benchmarkOrderCount เป็น 0 -> ไม่ติดป้ายใครเลย", noBenchmark.size, 0);

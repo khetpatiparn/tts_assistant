@@ -313,7 +313,7 @@ export function CandidatesRoute({
                     {r.badges.includes("topCommission") && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
                         <Percent className="size-3 shrink-0" />
-                        ค่าคอมสูงสุด
+                        ค่าคอมต่อชิ้นสูงสุด
                       </span>
                     )}
                   </div>

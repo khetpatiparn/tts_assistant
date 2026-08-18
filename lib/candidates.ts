@@ -148,8 +148,10 @@ const TOP_BADGE_COUNT = 2;
  * ถ้ายังไม่มีข้อมูลออเดอร์พอคำนวณเกณฑ์ (benchmarkOrderCount = 0) จะไม่ติดป้ายเลย
  * เพราะเกณฑ์เขียว/แดงเองก็ยังไม่มีความหมายในสถานการณ์นั้น
  *
- * ป้ายค่าคอมสูงสุดใช้ % ไม่ใช่บาท เพราะบาทรวมมี demandTotal ให้แล้ว (ซ้ำข้อมูลเดิม)
- * ส่วน % บอกมุมที่ต่างออกไปคือ "ดีลนี้ใจดีกว่าปกติแค่ไหนเทียบกับราคาสินค้า"
+ * ป้ายค่าคอมสูงสุดจัดอันดับด้วย "เงินบาทต่อชิ้น" ไม่ใช่ % — เคยใช้ % แล้วพบว่าเลือกผิด
+ * ของจริง: สินค้าราคาถูกที่ % สูงลิ่ว (16.2%) ได้เงินจริงแค่ ฿3.64/ชิ้น ขณะที่สินค้าราคาสูง
+ * ที่ % ต่ำกว่า (8.9%) ได้ ฿38.72/ชิ้น — % เป็นแค่อัตราส่วน ไม่ผูกกับเงินที่ได้จริง
+ * ส่วน % ยังใช้เป็น "ประตูเข้า" (ต้องเกินเกณฑ์ร้านก่อน) เพื่อกันดีลที่กำไรแย่กว่ามาตรฐาน
  *
  * คืนเป็น Map<id, CandidateBadge[]> เพราะแถวเดียวอาจติดทั้ง 2 ป้ายพร้อมกันได้
  */
@@ -157,6 +159,7 @@ export function pickCandidateBadges(
   rows: {
     id: string;
     status: string;
+    commission: number;
     commissionPercent: number;
     weeklySales: number | null;
   }[],
@@ -183,7 +186,7 @@ export function pickCandidateBadges(
     .forEach((r) => addBadge(r.id, "topSeller"));
 
   [...eligible]
-    .sort((a, b) => b.commissionPercent - a.commissionPercent)
+    .sort((a, b) => b.commission - a.commission)
     .slice(0, TOP_BADGE_COUNT)
     .forEach((r) => addBadge(r.id, "topCommission"));
 
