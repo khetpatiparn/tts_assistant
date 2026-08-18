@@ -98,17 +98,24 @@ export function parseCandidateRows(raw: string): { rows: ParsedRow[]; skipped: n
 
     const [name, priceText, commissionText, salesText] = parts;
     const price = parseThaiNumber(priceText);
-    const commission = parseThaiNumber(commissionText);
+    // AI มักตอบทั้งป้ายกำกับติดตัวเลขมาด้วย ("รับ ฿2.95", "ขายได้ 3.3K ชิ้นในสัปดาห์ที่ผ่านมา")
+    // แม้พรอมต์จะสั่งห้ามแล้ว — ตัดคำเหล่านี้ทิ้งก่อน parse เป็นชั้นกันพลาดที่สอง เพราะ
+    // เจอจริงว่าตัวคำสั่งอย่างเดียวไม่พอ (ทุกแถวในการทดสอบจริงครั้งแรกมีป้ายกำกับติดมาหมด)
+    const commission = parseThaiNumber(commissionText.replace(/^รับ\s*/, ""));
     if (name === "" || price === null || commission === null) {
       skipped++;
       continue;
     }
 
+    const salesNumberText = salesText
+      .replace(/^ขายได้\s*/, "")
+      .replace(/\s*ชิ้นในสัปดาห์ที่ผ่านมา$/, "");
+
     rows.push({
       name,
       price,
       commission,
-      weeklySales: parseThaiNumber(salesText),
+      weeklySales: parseThaiNumber(salesNumberText),
       categoryLabel,
     });
   }
