@@ -156,10 +156,11 @@ export function demandTotal(commission: number, weeklySales: number | null): num
   return commission * weeklySales;
 }
 
-export type CandidateBadge = "topSeller" | "topCommission";
+/** rank เริ่มที่ 1 เสมอ (อันดับ 1 = ดีที่สุด) ใช้โชว์เป็นตัวเลขในป้าย เช่น "ยอดขายดี #1" */
+export type CandidateBadge = { type: "topSeller" | "topCommission"; rank: number };
 
 /** จำนวนแถวที่ติดป้ายต่อประเภท — ปรับได้ตรงนี้จุดเดียวถ้ารู้สึกว่าน้อย/เยอะไป */
-const TOP_BADGE_COUNT = 2;
+const TOP_BADGE_COUNT = 4;
 
 /**
  * เลือกป้าย "ยอดขายดี"/"ค่าคอมสูงสุด" ท็อป TOP_BADGE_COUNT ต่อป้าย ต่อ "ประเภทสินค้า"
@@ -227,12 +228,12 @@ export function pickCandidateBadges(
       .filter((r) => r.weeklySales !== null)
       .sort((a, b) => (b.weeklySales as number) - (a.weeklySales as number))
       .slice(0, TOP_BADGE_COUNT)
-      .forEach((r) => addBadge(r.id, "topSeller"));
+      .forEach((r, i) => addBadge(r.id, { type: "topSeller", rank: i + 1 }));
 
     [...eligible]
       .sort((a, b) => b.commission - a.commission)
       .slice(0, TOP_BADGE_COUNT)
-      .forEach((r) => addBadge(r.id, "topCommission"));
+      .forEach((r, i) => addBadge(r.id, { type: "topCommission", rank: i + 1 }));
   }
 
   return result;

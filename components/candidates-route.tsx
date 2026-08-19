@@ -307,18 +307,19 @@ export function CandidatesRoute({
 
                 {r.badges.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {r.badges.includes("topSeller") && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
-                        <TrendingUp className="size-3 shrink-0" />
-                        ยอดขายดี
+                    {r.badges.map((b) => (
+                      <span
+                        key={b.type}
+                        className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary"
+                      >
+                        {b.type === "topSeller" ? (
+                          <TrendingUp className="size-3 shrink-0" />
+                        ) : (
+                          <Coins className="size-3 shrink-0" />
+                        )}
+                        {b.type === "topSeller" ? "ยอดขายดี" : "ค่าคอมต่อชิ้นสูงสุด"} #{b.rank}
                       </span>
-                    )}
-                    {r.badges.includes("topCommission") && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
-                        <Coins className="size-3 shrink-0" />
-                        ค่าคอมต่อชิ้นสูงสุด
-                      </span>
-                    )}
+                    ))}
                   </div>
                 )}
 
