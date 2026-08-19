@@ -122,12 +122,12 @@ try {
 
   // --- pickCandidateBadges ---
   const badgeRows = [
-    { id: "a", status: "new", commission: 50, commissionPercent: 5.0, weeklySales: 1000 }, // %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายแม้ค่าคอมบาทสูงสุด
-    { id: "b", status: "new", commission: 40, commissionPercent: 12.0, weeklySales: 900 }, // ยอดขายสูงสุด + บาทสูงสุด -> ติด 2 ป้าย
-    { id: "c", status: "new", commission: 5, commissionPercent: 8.0, weeklySales: 800 }, // ยอดขายอันดับ 2 -> ติดป้ายยอดขายดี
-    { id: "d", status: "new", commission: 24, commissionPercent: 10.0, weeklySales: 100 }, // บาทอันดับ 2 -> ติดป้ายค่าคอมสูงสุด
-    { id: "e", status: "rejected", commission: 99, commissionPercent: 20.0, weeklySales: 5000 }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีสุด
-    { id: "f", status: "new", commission: 3, commissionPercent: 7.0, weeklySales: null }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้
+    { id: "a", status: "new", commission: 50, commissionPercent: 5.0, weeklySales: 1000, categoryLabel: "หมวดทดสอบ" }, // %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายแม้ค่าคอมบาทสูงสุด
+    { id: "b", status: "new", commission: 40, commissionPercent: 12.0, weeklySales: 900, categoryLabel: "หมวดทดสอบ" }, // ยอดขายสูงสุด + บาทสูงสุด -> ติด 2 ป้าย
+    { id: "c", status: "new", commission: 5, commissionPercent: 8.0, weeklySales: 800, categoryLabel: "หมวดทดสอบ" }, // ยอดขายอันดับ 2 -> ติดป้ายยอดขายดี
+    { id: "d", status: "new", commission: 24, commissionPercent: 10.0, weeklySales: 100, categoryLabel: "หมวดทดสอบ" }, // บาทอันดับ 2 -> ติดป้ายค่าคอมสูงสุด
+    { id: "e", status: "rejected", commission: 99, commissionPercent: 20.0, weeklySales: 5000, categoryLabel: "หมวดทดสอบ" }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีสุด
+    { id: "f", status: "new", commission: 3, commissionPercent: 7.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้
   ];
   const badges = c.pickCandidateBadges(badgeRows, 6.0, 50);
   checkDeep("แถว b ติดทั้ง 2 ป้าย (ยอดขายสูงสุด + ค่าคอมบาทสูงสุด)", badges.get("b"), ["topSeller", "topCommission"]);
@@ -141,9 +141,9 @@ try {
   // ต้องแพ้สินค้าแพงที่ %ต่ำกว่าแต่เงินจริงมากกว่า 10 เท่า — % เป็นอัตราส่วน ไม่ใช่เงินที่ได้
   const bahtVsPercent = c.pickCandidateBadges(
     [
-      { id: "cheap", status: "new", commission: 3.64, commissionPercent: 16.2, weeklySales: 117 },
-      { id: "pricey", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: 62 },
-      { id: "mid", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: 103 },
+      { id: "cheap", status: "new", commission: 3.64, commissionPercent: 16.2, weeklySales: 117, categoryLabel: "หมวดทดสอบ" },
+      { id: "pricey", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: 62, categoryLabel: "หมวดทดสอบ" },
+      { id: "mid", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: 103, categoryLabel: "หมวดทดสอบ" },
     ],
     6.9,
     582
@@ -165,12 +165,34 @@ try {
   check("%ค่าคอม 12.6% น่าเชื่อถือปกติ", c.isCommissionPercentPlausible(12.6), true);
 
   const junkPriceRows = [
-    { id: "junk", status: "new", commission: 0.69, commissionPercent: 6900, weeklySales: 15300 },
-    { id: "real", status: "new", commission: 12.99, commissionPercent: 12.4, weeklySales: 4600 },
+    { id: "junk", status: "new", commission: 0.69, commissionPercent: 6900, weeklySales: 15300, categoryLabel: "หมวดทดสอบ" },
+    { id: "real", status: "new", commission: 12.99, commissionPercent: 12.4, weeklySales: 4600, categoryLabel: "หมวดทดสอบ" },
   ];
   const junkBadges = c.pickCandidateBadges(junkPriceRows, 6.907, 582);
   check("ราคา 0.01 บาท (ป้ายขยะ) ไม่ติดป้ายยอดขายดี", junkBadges.has("junk"), false);
   check("สินค้าจริงที่ยอดขายรองลงมาได้ป้ายยอดขายดีแทน", junkBadges.get("real")?.includes("topSeller"), true);
+
+  // เคสจริงที่เพิ่งเจอ (2026-08-19): อัปโหลด 2 ประเภทสินค้า (การ์ดจัดอันดับคนละใบ คนละสเกล
+  // ตัวเลข) ต้องได้ป้ายแยกกันประเภทละชุด ไม่ใช่รวมเป็นกองเดียวแล้วประเภทที่ตัวเลขเล็กกว่า
+  // (เฟอร์นิเจอร์) แพ้ประเภทที่ตัวเลขใหญ่กว่าโดยธรรมชาติ (ของสิ้นเปลือง) ไปทั้งหมด
+  const twoCategoryRows = [
+    { id: "furniture-a", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: 103, categoryLabel: "เฟอร์นิเจอร์" },
+    { id: "furniture-b", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: 62, categoryLabel: "เฟอร์นิเจอร์" },
+    { id: "consumable-a", status: "new", commission: 6.88, commissionPercent: 7.7, weeklySales: 5700, categoryLabel: "ของสิ้นเปลือง" },
+    { id: "consumable-b", status: "new", commission: 12.06, commissionPercent: 9.0, weeklySales: 4900, categoryLabel: "ของสิ้นเปลือง" },
+  ];
+  const twoCategoryBadges = c.pickCandidateBadges(twoCategoryRows, 6.907, 582);
+  check("2 ประเภท -> ติดป้ายรวม 4 รายการ (ไม่ใช่แค่ 2)", twoCategoryBadges.size, 4);
+  check(
+    "เฟอร์นิเจอร์ได้ป้ายของตัวเอง แม้ตัวเลขเล็กกว่าของสิ้นเปลืองมาก",
+    twoCategoryBadges.has("furniture-a") && twoCategoryBadges.has("furniture-b"),
+    true
+  );
+  check(
+    "ของสิ้นเปลืองก็ยังได้ป้ายของตัวเองตามปกติ",
+    twoCategoryBadges.has("consumable-a") && twoCategoryBadges.has("consumable-b"),
+    true
+  );
 
   // --- คำนวณ ---
   checkClose3("%ค่าคอม 29.90/249", c.commissionPercent(249, 29.9), 12.0);

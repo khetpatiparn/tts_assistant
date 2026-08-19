@@ -154,10 +154,19 @@ export type CandidateBadge = "topSeller" | "topCommission";
 const TOP_BADGE_COUNT = 2;
 
 /**
- * เลือกป้าย "ยอดขายดี"/"ค่าคอมสูงสุด" ท็อป TOP_BADGE_COUNT ต่อป้าย
+ * เลือกป้าย "ยอดขายดี"/"ค่าคอมสูงสุด" ท็อป TOP_BADGE_COUNT ต่อป้าย ต่อ "ประเภทสินค้า"
+ * (categoryLabel) แยกกัน — แต่ละประเภทคือการ์ดจัดอันดับ 40 รายการของตัวเองใน TikTok Shop
+ * (เช่น "แผ่นและเสาลับเล็บแมว" กับ "ของใช้สำหรับสัตว์เลี้ยง" คนละการ์ด คนละสเกลตัวเลข)
+ * ถ้าคำนวณรวมทุกประเภทเป็นกองเดียว ประเภทที่ตัวเลขใหญ่กว่าโดยธรรมชาติ (เช่น ของกิน/ของใช้
+ * สิ้นเปลือง ยอดขายหลักพัน) จะยึดป้ายไปหมด ประเภทที่ตัวเลขเล็กกว่า (เช่น เฟอร์นิเจอร์
+ * ยอดขายหลักร้อย) จะไม่ได้ป้ายเลยแม้จะมีตัวเด่นในประเภทตัวเองจริง — อัปโหลด N ประเภทจึง
+ * ควรได้ป้ายรวม N × (TOP_BADGE_COUNT × 2) ไม่ใช่แค่ TOP_BADGE_COUNT × 2 คงที่
  *
  * คำนวณเฉพาะแถวที่ (1) ยังไม่ถูกปัดตก และ (2) %ค่าคอมเกินเกณฑ์ร้าน (🟢) เท่านั้น —
  * กันไม่ให้แนะนำสินค้าที่กำไรต่ำกว่ามาตรฐานร้านตัวเอง แม้ยอดขาย/ %จะดูสูงในกลุ่ม
+ * เกณฑ์ 🟢/🔴 (benchmarkPercent) ยังคงเป็นค่ารวมทั้งร้านเหมือนเดิม ไม่แยกตามประเภท —
+ * ข้อนี้คนละเรื่องกับการแบ่งป้าย: เกณฑ์ตัดสินต้องคงที่ทั้งร้านตามที่ตั้งใจไว้แต่แรก
+ * (ดูสเปกหัวข้อ "หมายเหตุความไม่สมมาตรที่ตั้งใจ") แค่ตัว "จัดอันดับใครติดป้าย" ที่แยกประเภท
  * ถ้ายังไม่มีข้อมูลออเดอร์พอคำนวณเกณฑ์ (benchmarkOrderCount = 0) จะไม่ติดป้ายเลย
  * เพราะเกณฑ์เขียว/แดงเองก็ยังไม่มีความหมายในสถานการณ์นั้น
  *
@@ -177,6 +186,7 @@ export function pickCandidateBadges(
     commission: number;
     commissionPercent: number;
     weeklySales: number | null;
+    categoryLabel: string;
   }[],
   benchmarkPercent: number,
   benchmarkOrderCount: number
@@ -184,29 +194,38 @@ export function pickCandidateBadges(
   const result = new Map<string, CandidateBadge[]>();
   if (benchmarkOrderCount === 0) return result;
 
-  const eligible = rows.filter(
-    (r) =>
-      r.status !== "rejected" &&
-      r.commissionPercent > benchmarkPercent &&
-      isCommissionPercentPlausible(r.commissionPercent)
-  );
-
   const addBadge = (id: string, badge: CandidateBadge) => {
     const existing = result.get(id);
     if (existing) existing.push(badge);
     else result.set(id, [badge]);
   };
 
-  eligible
-    .filter((r) => r.weeklySales !== null)
-    .sort((a, b) => (b.weeklySales as number) - (a.weeklySales as number))
-    .slice(0, TOP_BADGE_COUNT)
-    .forEach((r) => addBadge(r.id, "topSeller"));
+  const byCategory = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const group = byCategory.get(r.categoryLabel);
+    if (group) group.push(r);
+    else byCategory.set(r.categoryLabel, [r]);
+  }
 
-  [...eligible]
-    .sort((a, b) => b.commission - a.commission)
-    .slice(0, TOP_BADGE_COUNT)
-    .forEach((r) => addBadge(r.id, "topCommission"));
+  for (const group of byCategory.values()) {
+    const eligible = group.filter(
+      (r) =>
+        r.status !== "rejected" &&
+        r.commissionPercent > benchmarkPercent &&
+        isCommissionPercentPlausible(r.commissionPercent)
+    );
+
+    eligible
+      .filter((r) => r.weeklySales !== null)
+      .sort((a, b) => (b.weeklySales as number) - (a.weeklySales as number))
+      .slice(0, TOP_BADGE_COUNT)
+      .forEach((r) => addBadge(r.id, "topSeller"));
+
+    [...eligible]
+      .sort((a, b) => b.commission - a.commission)
+      .slice(0, TOP_BADGE_COUNT)
+      .forEach((r) => addBadge(r.id, "topCommission"));
+  }
 
   return result;
 }
