@@ -121,21 +121,26 @@ try {
   check("หม้อทอดไร้น้ำมัน -> เครื่องครัว", c.categorize("หม้อทอดไร้น้ำมัน"), "เครื่องครัว");
 
   // --- pickCandidateBadges (TOP_BADGE_COUNT = 4, badge เก็บ rank ด้วย) ---
+  // ไม่มีเกณฑ์ %ค่าคอมเทียบร้านอีกแล้ว (ถอดออก 2026-08-19) — จัดอันดับด้วยเงินจริงล้วนๆ
+  // มีแค่ 2 เกณฑ์กรอง: ไม่ถูกปัดตก และ %สมเหตุสมผล (≤100%, กันข้อมูลราคาอ่านผิด)
   const badgeRows = [
-    { id: "a", status: "new", commission: 200, commissionPercent: 5.0, weeklySales: 2000, categoryLabel: "หมวดทดสอบ" }, // %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายเลยแม้ตัวเลขดิบสูงสุดในชุด
     { id: "e", status: "rejected", commission: 500, commissionPercent: 20.0, weeklySales: 5000, categoryLabel: "หมวดทดสอบ" }, // ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีที่สุด
+    { id: "junk", status: "new", commission: 300, commissionPercent: 6901, weeklySales: 9000, categoryLabel: "หมวดทดสอบ" }, // %ไม่น่าเชื่อถือ (ราคาอ่านผิด) -> ไม่ติดป้ายแม้ตัวเลขดิบสูงสุดในชุด
     { id: "top", status: "new", commission: 100, commissionPercent: 10.0, weeklySales: 1000, categoryLabel: "หมวดทดสอบ" }, // อันดับ 1 ทั้งยอดขายและค่าคอม -> ติด 2 ป้าย rank 1 พร้อมกัน
     { id: "s2", status: "new", commission: 9, commissionPercent: 10.0, weeklySales: 900, categoryLabel: "หมวดทดสอบ" },
     { id: "s3", status: "new", commission: 8, commissionPercent: 10.0, weeklySales: 800, categoryLabel: "หมวดทดสอบ" },
     { id: "s4", status: "new", commission: 7, commissionPercent: 10.0, weeklySales: 700, categoryLabel: "หมวดทดสอบ" },
     { id: "s5", status: "new", commission: 6, commissionPercent: 10.0, weeklySales: 600, categoryLabel: "หมวดทดสอบ" }, // อันดับ 5 ยอดขาย -> เกิน TOP_BADGE_COUNT=4 ไม่ติดป้าย
-    { id: "c2", status: "new", commission: 90, commissionPercent: 10.0, weeklySales: 50, categoryLabel: "หมวดทดสอบ" },
+    // เคสจริงที่เพิ่งแก้ (2026-08-19, หมวดโซฟา): สินค้า %ต่ำมาก (2.3%) แต่ค่าคอมบาทสูง (Woodpanda
+    // ฿249.95/ชิ้น) เคยถูกกรองทิ้งเพราะ %ต่ำกว่าเกณฑ์ร้าน ทั้งที่จ่ายเงินจริงมากกว่าตัวที่เคยติดป้าย
+    // ต้องยืนยันว่าตอนนี้ยังติดป้ายค่าคอมสูงสุดได้ตามเงินจริง ไม่ถูกกรองเพราะ %
+    { id: "lowpercent", status: "new", commission: 95, commissionPercent: 2.3, weeklySales: 10, categoryLabel: "หมวดทดสอบ" },
     { id: "c3", status: "new", commission: 80, commissionPercent: 10.0, weeklySales: 40, categoryLabel: "หมวดทดสอบ" },
-    { id: "c4", status: "new", commission: 70, commissionPercent: 10.0, weeklySales: 30, categoryLabel: "หมวดทดสอบ" }, // อันดับ 5 ค่าคอม (หลัง f แทรกที่อันดับ 3) -> ไม่ติดป้าย
+    { id: "c4", status: "new", commission: 70, commissionPercent: 10.0, weeklySales: 30, categoryLabel: "หมวดทดสอบ" }, // อันดับ 5 ค่าคอม -> เกิน TOP_BADGE_COUNT ไม่ติดป้าย
     { id: "c5", status: "new", commission: 60, commissionPercent: 10.0, weeklySales: 20, categoryLabel: "หมวดทดสอบ" },
     { id: "f", status: "new", commission: 85, commissionPercent: 10.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" }, // ไม่มียอดขาย -> ชิงป้ายยอดขายดีไม่ได้ แต่ยังชิงป้ายค่าคอมสูงสุดได้ปกติ
   ];
-  const badges = c.pickCandidateBadges(badgeRows, 6.0, 50);
+  const badges = c.pickCandidateBadges(badgeRows);
   checkDeep(
     "แถว top อันดับ 1 ทั้งยอดขายและค่าคอม -> ติด 2 ป้าย rank 1 พร้อมกัน",
     badges.get("top"),
@@ -145,8 +150,12 @@ try {
   checkDeep("แถว s3 ยอดขายอันดับ 3 -> ติดป้ายยอดขายดี rank 3", badges.get("s3"), [{ type: "topSeller", rank: 3 }]);
   checkDeep("แถว s4 ยอดขายอันดับ 4 -> ติดป้ายยอดขายดี rank 4", badges.get("s4"), [{ type: "topSeller", rank: 4 }]);
   check("แถว s5 ยอดขายอันดับ 5 -> เกิน TOP_BADGE_COUNT ไม่ติดป้าย", badges.has("s5"), false);
-  checkDeep("แถว c2 ค่าคอมอันดับ 2 -> ติดป้ายค่าคอมสูงสุด rank 2", badges.get("c2"), [{ type: "topCommission", rank: 2 }]);
-  checkDeep("แถว c3 ค่าคอมอันดับ 4 (หลัง f แทรก) -> rank 4", badges.get("c3"), [{ type: "topCommission", rank: 4 }]);
+  checkDeep(
+    "แถว lowpercent %ต่ำมาก (2.3%) แต่ค่าคอมบาทอันดับ 2 -> ยังติดป้ายค่าคอมสูงสุดได้ (เคส Woodpanda)",
+    badges.get("lowpercent"),
+    [{ type: "topCommission", rank: 2 }]
+  );
+  checkDeep("แถว c3 ค่าคอมอันดับ 4 (หลัง f แทรกที่ 3) -> rank 4", badges.get("c3"), [{ type: "topCommission", rank: 4 }]);
   check("แถว c4 ค่าคอมอันดับ 5 -> เกิน TOP_BADGE_COUNT ไม่ติดป้าย", badges.has("c4"), false);
   check("แถว c5 ค่าคอมอันดับ 6 -> ไม่ติดป้าย", badges.has("c5"), false);
   checkDeep(
@@ -154,51 +163,31 @@ try {
     badges.get("f"),
     [{ type: "topCommission", rank: 3 }]
   );
-  check("แถว a %ต่ำกว่าเกณฑ์ -> ไม่ติดป้ายเลยแม้ตัวเลขดิบสูงสุดในชุด", badges.has("a"), false);
+  check("แถว junk %ไม่น่าเชื่อถือ -> ไม่ติดป้ายเลยแม้ตัวเลขดิบสูงสุดในชุด", badges.has("junk"), false);
   check("แถว e ปัดตกแล้ว -> ไม่ติดป้ายแม้ตัวเลขดีที่สุด", badges.has("e"), false);
 
-  // เคสจริงที่เคยเลือกผิดตอนใช้ % จัดอันดับ (2026-08-18): สินค้าถูกที่ %สูงลิ่วแต่เงินจริงน้อย
-  // ต้องแพ้สินค้าแพงที่ %ต่ำกว่าแต่เงินจริงมากกว่า 10 เท่า — % เป็นอัตราส่วน ไม่ใช่เงินที่ได้
-  // weeklySales เป็น null ทุกตัวตั้งใจ กันไม่ให้ป้ายยอดขายดีมาปนกับสิ่งที่ทดสอบ (ค่าคอมล้วนๆ)
-  // เติม filler อีก 2 ตัวให้ครบ 5 รายการแข่งกัน (TOP_BADGE_COUNT=4) เพื่อให้ "cheap" หลุดอันดับจริง
-  const bahtVsPercent = c.pickCandidateBadges(
-    [
-      { id: "cheap", status: "new", commission: 3.64, commissionPercent: 16.2, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
-      { id: "pricey", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
-      { id: "mid", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
-      { id: "filler1", status: "new", commission: 20, commissionPercent: 10.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
-      { id: "filler2", status: "new", commission: 15, commissionPercent: 10.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
-    ],
-    6.9,
-    582
-  );
+  // จัดอันดับด้วยเงินบาทจริงล้วนๆ (ไม่มีเกณฑ์ %อีกแล้ว) — ของถูก %สูงลิ่วแต่เงินจริงน้อย
+  // (๓.๖๔ บาท) ยังคงแพ้ของแพง %ต่ำกว่าแต่เงินจริงเยอะกว่า (๓๘.๗๒ บาท) ตามธรรมชาติของการจัด
+  // อันดับเอง โดยไม่ต้องมีเกณฑ์ %มาช่วยกรองเลย — พิสูจน์ว่าตัดเกณฑ์ %ออกได้จริงไม่กระทบผลลัพธ์นี้
+  const bahtVsPercent = c.pickCandidateBadges([
+    { id: "cheap", status: "new", commission: 3.64, commissionPercent: 16.2, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
+    { id: "pricey", status: "new", commission: 38.72, commissionPercent: 8.9, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
+    { id: "mid", status: "new", commission: 24.1, commissionPercent: 12.6, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
+    { id: "filler1", status: "new", commission: 20, commissionPercent: 10.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
+    { id: "filler2", status: "new", commission: 15, commissionPercent: 10.0, weeklySales: null, categoryLabel: "หมวดทดสอบ" },
+  ]);
   checkDeep("ของแพงค่าคอมบาทสูง ติดป้ายค่าคอมสูงสุด rank 1", bahtVsPercent.get("pricey"), [{ type: "topCommission", rank: 1 }]);
   check(
-    "ของถูก %สูงลิ่วแต่เงินจริงน้อย หลุดอันดับ 5 -> ไม่ติดป้ายค่าคอมสูงสุด",
+    "ของถูก %สูงลิ่วแต่เงินจริงน้อย หลุดอันดับ 5 ตามธรรมชาติ -> ไม่ติดป้าย (ไม่ต้องพึ่งเกณฑ์ %)",
     bahtVsPercent.has("cheap"),
     false
   );
 
-  const noBenchmark = c.pickCandidateBadges(badgeRows, 6.0, 0);
-  check("benchmarkOrderCount เป็น 0 -> ไม่ติดป้ายใครเลย", noBenchmark.size, 0);
-
   // เคสจริงที่เจอ (2026-08-19): ราคา ฿0.01 (โปรโมชั่น/อ่านผิด) ทำให้ %ค่าคอมพุ่งไป 6900%
-  // แล้วชนะป้ายยอดขายดีทั้งที่เป็นข้อมูลขยะ — isCommissionPercentPlausible ต้องกันไว้
+  // isCommissionPercentPlausible ยังต้องกันไว้ (คนละเรื่องกับเกณฑ์เทียบร้านที่ถอดออกไปแล้ว)
   check("%ค่าคอม 6900% ไม่น่าเชื่อถือ", c.isCommissionPercentPlausible(6900), false);
   check("%ค่าคอม 100% ยังน่าเชื่อถือ (ขอบเขต)", c.isCommissionPercentPlausible(100), true);
   check("%ค่าคอม 12.6% น่าเชื่อถือปกติ", c.isCommissionPercentPlausible(12.6), true);
-
-  const junkPriceRows = [
-    { id: "junk", status: "new", commission: 0.69, commissionPercent: 6900, weeklySales: 15300, categoryLabel: "หมวดทดสอบ" },
-    { id: "real", status: "new", commission: 12.99, commissionPercent: 12.4, weeklySales: 4600, categoryLabel: "หมวดทดสอบ" },
-  ];
-  const junkBadges = c.pickCandidateBadges(junkPriceRows, 6.907, 582);
-  check("ราคา 0.01 บาท (ป้ายขยะ) ไม่ติดป้ายยอดขายดี", junkBadges.has("junk"), false);
-  check(
-    "สินค้าจริงที่ยอดขายรองลงมาได้ป้ายยอดขายดีแทน",
-    (junkBadges.get("real") ?? []).some((b) => b.type === "topSeller"),
-    true
-  );
 
   // เคสจริงที่เพิ่งเจอ (2026-08-19): อัปโหลด 2 ประเภทสินค้า (การ์ดจัดอันดับคนละใบ คนละสเกล
   // ตัวเลข) ต้องได้ป้ายแยกกันประเภทละชุด ไม่ใช่รวมเป็นกองเดียวแล้วประเภทที่ตัวเลขเล็กกว่า
@@ -209,7 +198,7 @@ try {
     { id: "consumable-a", status: "new", commission: 6.88, commissionPercent: 7.7, weeklySales: 5700, categoryLabel: "ของสิ้นเปลือง" },
     { id: "consumable-b", status: "new", commission: 12.06, commissionPercent: 9.0, weeklySales: 4900, categoryLabel: "ของสิ้นเปลือง" },
   ];
-  const twoCategoryBadges = c.pickCandidateBadges(twoCategoryRows, 6.907, 582);
+  const twoCategoryBadges = c.pickCandidateBadges(twoCategoryRows);
   check("2 ประเภท -> ติดป้ายรวม 4 รายการ (ไม่ใช่แค่ 2)", twoCategoryBadges.size, 4);
   check(
     "เฟอร์นิเจอร์ได้ป้ายของตัวเอง แม้ตัวเลขเล็กกว่าของสิ้นเปลืองมาก",

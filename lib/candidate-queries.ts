@@ -82,7 +82,7 @@ export async function getCandidatesData(): Promise<{
     flags: detectFlags(c.name),
   }));
 
-  const badgeMap = pickCandidateBadges(rowsWithoutBadges, benchmarkPercent, benchmarkOrderCount);
+  const badgeMap = pickCandidateBadges(rowsWithoutBadges);
   const rows: CandidateRow[] = rowsWithoutBadges.map((r) => ({
     ...r,
     badges: badgeMap.get(r.id) ?? [],
