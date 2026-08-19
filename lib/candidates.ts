@@ -129,6 +129,19 @@ export function commissionPercent(price: number, commission: number): number {
   return (commission / price) * 100;
 }
 
+/**
+ * เพดานความน่าเชื่อถือของ %ค่าคอม — ในระบบ affiliate ของ TikTok Shop ค่าคอมเป็นไปไม่ได้
+ * ที่จะเกินราคาสินค้าเอง (ร้านไม่มีทางจ่ายมากกว่า 100% ของราคา) ค่าที่เกิน 100% แทบจะเป็น
+ * สัญญาณเดียวว่าราคาที่อ่านได้ผิดแน่ๆ (เจอจริง 2026-08-19: แคปหน้า "ของใช้สำหรับสัตว์เลี้ยง"
+ * บางแถวได้ราคา ฿0.01 ซึ่งน่าจะเป็นราคาโปรโมชั่นแฟลชเซลที่ AI อ่านตามจอจริง แต่ไม่ใช่ราคาที่
+ * ใช้เทียบค่าคอมได้ — ทำให้ %ค่าคอมพุ่งไป 6900% แล้วชนะป้าย "ยอดขายดี" ทั้งที่เป็นข้อมูลขยะ)
+ */
+export const MAX_PLAUSIBLE_COMMISSION_PERCENT = 100;
+
+export function isCommissionPercentPlausible(pct: number): boolean {
+  return pct <= MAX_PLAUSIBLE_COMMISSION_PERCENT;
+}
+
 /** ดีมานด์รวม — null เมื่อไม่มียอดขาย (แคปมาจากหน้า "คะแนนสูงสุด" ที่ไม่โชว์ตัวเลขนี้) */
 export function demandTotal(commission: number, weeklySales: number | null): number | null {
   if (weeklySales === null) return null;
@@ -152,6 +165,8 @@ const TOP_BADGE_COUNT = 2;
  * ของจริง: สินค้าราคาถูกที่ % สูงลิ่ว (16.2%) ได้เงินจริงแค่ ฿3.64/ชิ้น ขณะที่สินค้าราคาสูง
  * ที่ % ต่ำกว่า (8.9%) ได้ ฿38.72/ชิ้น — % เป็นแค่อัตราส่วน ไม่ผูกกับเงินที่ได้จริง
  * ส่วน % ยังใช้เป็น "ประตูเข้า" (ต้องเกินเกณฑ์ร้านก่อน) เพื่อกันดีลที่กำไรแย่กว่ามาตรฐาน
+ * และต้องผ่าน isCommissionPercentPlausible ด้วย กันแถวที่ราคาอ่านผิด (เช่น ฿0.01) ชนะป้าย
+ * ด้วย %ที่สูงเกินจริงทั้งที่เป็นข้อมูลขยะ ไม่ใช่ดีลที่ดีจริง
  *
  * คืนเป็น Map<id, CandidateBadge[]> เพราะแถวเดียวอาจติดทั้ง 2 ป้ายพร้อมกันได้
  */
@@ -170,7 +185,10 @@ export function pickCandidateBadges(
   if (benchmarkOrderCount === 0) return result;
 
   const eligible = rows.filter(
-    (r) => r.status !== "rejected" && r.commissionPercent > benchmarkPercent
+    (r) =>
+      r.status !== "rejected" &&
+      r.commissionPercent > benchmarkPercent &&
+      isCommissionPercentPlausible(r.commissionPercent)
   );
 
   const addBadge = (id: string, badge: CandidateBadge) => {

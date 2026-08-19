@@ -16,6 +16,7 @@ import {
   extractCandidates,
   setCandidateStatus,
 } from "@/app/actions";
+import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
   CandidateRow,
   CategorySummary,
@@ -281,7 +282,9 @@ export function CandidatesRoute({
       ) : (
         <ul className="flex flex-col gap-3">
           {visible.map((r) => {
-            const better = benchmarkOrderCount > 0 && r.commissionPercent > benchmarkPercent;
+            const plausible = isCommissionPercentPlausible(r.commissionPercent);
+            const better =
+              benchmarkOrderCount > 0 && plausible && r.commissionPercent > benchmarkPercent;
             return (
               <li
                 key={r.id}
@@ -292,7 +295,7 @@ export function CandidatesRoute({
                     aria-hidden
                     className={
                       "mt-1 size-2.5 shrink-0 rounded-full " +
-                      (benchmarkOrderCount === 0
+                      (!plausible || benchmarkOrderCount === 0
                         ? "bg-muted-foreground"
                         : better
                           ? "bg-primary"
@@ -328,12 +331,23 @@ export function CandidatesRoute({
 
                 <p className="text-sm text-foreground/80">
                   ได้ {r.commissionPercent.toFixed(1)}%
-                  {benchmarkOrderCount === 0
-                    ? " — ยังไม่มีข้อมูลยอดขายมาเทียบ"
-                    : better
-                      ? ` — ดีกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`
-                      : ` — ต่ำกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`}
+                  {!plausible
+                    ? ""
+                    : benchmarkOrderCount === 0
+                      ? " — ยังไม่มีข้อมูลยอดขายมาเทียบ"
+                      : better
+                        ? ` — ดีกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`
+                        : ` — ต่ำกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`}
                 </p>
+
+                {!plausible && (
+                  <p className="flex items-start gap-1.5 text-sm text-destructive">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                    ราคาที่อ่านได้ (฿{r.price.toLocaleString()}) ดูผิดปกติ — %ค่าคอมที่คำนวณได้
+                    เกิน 100% ซึ่งเป็นไปไม่ได้จริง น่าจะเป็นราคาโปรโมชั่นที่ AI อ่านตามจอ
+                    ไม่ใช่ราคาที่ใช้เทียบได้ ให้ตรวจสอบราคาจริงก่อนตัดสินใจ
+                  </p>
+                )}
 
                 {r.demandTotal === null ? (
                   <p className="flex items-start gap-1.5 text-sm text-destructive">

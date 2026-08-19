@@ -158,6 +158,20 @@ try {
   const noBenchmark = c.pickCandidateBadges(badgeRows, 6.0, 0);
   check("benchmarkOrderCount เป็น 0 -> ไม่ติดป้ายใครเลย", noBenchmark.size, 0);
 
+  // เคสจริงที่เจอ (2026-08-19): ราคา ฿0.01 (โปรโมชั่น/อ่านผิด) ทำให้ %ค่าคอมพุ่งไป 6900%
+  // แล้วชนะป้ายยอดขายดีทั้งที่เป็นข้อมูลขยะ — isCommissionPercentPlausible ต้องกันไว้
+  check("%ค่าคอม 6900% ไม่น่าเชื่อถือ", c.isCommissionPercentPlausible(6900), false);
+  check("%ค่าคอม 100% ยังน่าเชื่อถือ (ขอบเขต)", c.isCommissionPercentPlausible(100), true);
+  check("%ค่าคอม 12.6% น่าเชื่อถือปกติ", c.isCommissionPercentPlausible(12.6), true);
+
+  const junkPriceRows = [
+    { id: "junk", status: "new", commission: 0.69, commissionPercent: 6900, weeklySales: 15300 },
+    { id: "real", status: "new", commission: 12.99, commissionPercent: 12.4, weeklySales: 4600 },
+  ];
+  const junkBadges = c.pickCandidateBadges(junkPriceRows, 6.907, 582);
+  check("ราคา 0.01 บาท (ป้ายขยะ) ไม่ติดป้ายยอดขายดี", junkBadges.has("junk"), false);
+  check("สินค้าจริงที่ยอดขายรองลงมาได้ป้ายยอดขายดีแทน", junkBadges.get("real")?.includes("topSeller"), true);
+
   // --- คำนวณ ---
   checkClose3("%ค่าคอม 29.90/249", c.commissionPercent(249, 29.9), 12.0);
   checkClose3("%ค่าคอม 12.15/67.50", c.commissionPercent(67.5, 12.15), 18.0);
