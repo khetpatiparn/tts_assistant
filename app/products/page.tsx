@@ -14,8 +14,6 @@ export default async function ProductsPage() {
         <CandidatesRoute
           rows={data.rows}
           summaries={data.summaries}
-          benchmarkPercent={data.benchmarkPercent}
-          benchmarkOrderCount={data.benchmarkOrderCount}
           focus={data.focus}
           now={new Date()}
         />

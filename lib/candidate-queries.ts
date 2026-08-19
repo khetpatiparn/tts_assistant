@@ -42,8 +42,6 @@ export type FocusCategory = {
 export async function getCandidatesData(): Promise<{
   rows: CandidateRow[];
   summaries: CategorySummary[];
-  benchmarkPercent: number;
-  benchmarkOrderCount: number;
   focus: FocusCategory[];
 }> {
   const [candidates, paidOrders] = await Promise.all([
@@ -53,18 +51,6 @@ export async function getCandidatesData(): Promise<{
       select: { productName: true, gmv: true, finalRevenue: true },
     }),
   ]);
-
-  // เกณฑ์ตัดสินสถานะเขียว/แดง — ค่าคอมจริงเฉลี่ยรวมทั้งร้าน (settled ÷ GMV) คำนวณสดทุกครั้ง
-  // ใช้ค่าเดียวรวมทุกหมวดโดยตั้งใจ: ไม่ต้องมีตารางจับคู่หมวดที่ต้องดูแล และหมวดที่
-  // ไม่เคยขายมาก่อนก็ยังมีค่าเทียบเสมอ — คำนวณก่อน rows เพราะป้ายกำกับด้านล่างต้องใช้ค่านี้
-  let benchGmv = 0;
-  let benchRev = 0;
-  for (const o of paidOrders) {
-    benchGmv += o.gmv;
-    benchRev += o.finalRevenue ?? 0;
-  }
-  const benchmarkPercent = benchGmv > 0 ? (benchRev / benchGmv) * 100 : 0;
-  const benchmarkOrderCount = paidOrders.length;
 
   const rowsWithoutBadges = candidates.map((c) => ({
     id: c.id,
@@ -127,8 +113,6 @@ export async function getCandidatesData(): Promise<{
   return {
     rows,
     summaries,
-    benchmarkPercent,
-    benchmarkOrderCount,
     focus,
   };
 }

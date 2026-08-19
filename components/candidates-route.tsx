@@ -56,15 +56,11 @@ function daysBetween(from: Date, to: Date): number {
 export function CandidatesRoute({
   rows,
   summaries,
-  benchmarkPercent,
-  benchmarkOrderCount,
   focus,
   now,
 }: {
   rows: CandidateRow[];
   summaries: CategorySummary[];
-  benchmarkPercent: number;
-  benchmarkOrderCount: number;
   focus: FocusCategory[];
   now: Date;
 }) {
@@ -283,27 +279,12 @@ export function CandidatesRoute({
         <ul className="flex flex-col gap-3">
           {visible.map((r) => {
             const plausible = isCommissionPercentPlausible(r.commissionPercent);
-            const better =
-              benchmarkOrderCount > 0 && plausible && r.commissionPercent > benchmarkPercent;
             return (
               <li
                 key={r.id}
                 className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 leading-relaxed"
               >
-                <div className="flex flex-wrap items-start gap-2">
-                  <span
-                    aria-hidden
-                    className={
-                      "mt-1 size-2.5 shrink-0 rounded-full " +
-                      (!plausible || benchmarkOrderCount === 0
-                        ? "bg-muted-foreground"
-                        : better
-                          ? "bg-primary"
-                          : "bg-destructive")
-                    }
-                  />
-                  <p className="flex-1 text-base font-medium text-foreground">{r.name}</p>
-                </div>
+                <p className="text-base font-medium text-foreground">{r.name}</p>
 
                 {r.badges.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
@@ -330,16 +311,9 @@ export function CandidatesRoute({
                     : `ขายได้ ${r.weeklySales.toLocaleString()}/สัปดาห์`}
                 </p>
 
-                <p className="text-sm text-foreground/80">
-                  ได้ {r.commissionPercent.toFixed(1)}%
-                  {!plausible
-                    ? ""
-                    : benchmarkOrderCount === 0
-                      ? " — ยังไม่มีข้อมูลยอดขายมาเทียบ"
-                      : better
-                        ? ` — ดีกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`
-                        : ` — ต่ำกว่าค่าคอมจริงเฉลี่ยของคุณ (${benchmarkPercent.toFixed(1)}%)`}
-                </p>
+                {plausible && (
+                  <p className="text-sm text-foreground/80">ได้ {r.commissionPercent.toFixed(1)}%</p>
+                )}
 
                 {!plausible && (
                   <p className="flex items-start gap-1.5 text-sm text-destructive">
