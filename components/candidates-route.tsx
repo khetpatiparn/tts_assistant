@@ -84,7 +84,7 @@ export function CandidatesRoute({
     if (categoryFilter !== null) {
       list = list.filter((r) => (r.categoryLabel || "ไม่ระบุหมวด") === categoryFilter);
     }
-    // เรียงตามดีมานด์รวมมากไปน้อย แถวที่ไม่มีดีมานด์รวม (ขาดยอดขาย) ไปท้ายสุด
+    // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
     return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
   }, [rows, filter, categoryFilter]);
 
@@ -357,7 +357,7 @@ export function CandidatesRoute({
                   </p>
                 ) : (
                   <p className="text-sm text-foreground/80">
-                    ดีมานด์รวม {Math.round(r.demandTotal).toLocaleString()}
+                    ศักยภาพรายได้ {Math.round(r.demandTotal).toLocaleString()}
                   </p>
                 )}
 
