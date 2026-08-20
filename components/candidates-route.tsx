@@ -128,7 +128,9 @@ export function CandidatesRoute({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    // min-w-0 ที่นี่ด้วย — ตัวนี้เป็น flex item ของ layout หน้า ถ้าไม่ใส่ min-width:auto จะไต่ขึ้นไป
+    // ตามลูกที่กว้างที่สุด (ตาราง) แล้วดันหน้าเพจล้นแนวนอนเหมือนกัน ต้องใส่ให้ครบทั้งสาย
+    <div className="flex min-w-0 flex-col gap-5">
       {/* แถบเตือนหมวดที่ควรโฟกัส — ต้องมีจำนวนออเดอร์กำกับเสมอ เพราะบางหมวด %สูง
           แต่มาจากออเดอร์น้อยมาก ถ้าโชว์แต่ % จะอ่านผิดว่าหมวดนั้นดีกว่า */}
       <section className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 leading-relaxed">
@@ -270,126 +272,219 @@ export function CandidatesRoute({
         ))}
       </div>
 
-      {/* ตารางผลลัพธ์ */}
+      {/* ตารางผลลัพธ์ — เป็นตารางจริงเพราะข้อมูลเป็นตัวเลขที่ต้องเทียบข้ามแถว
+          (เดิมเป็นการ์ดใบละแถว เนื้อหากระจุกชิดซ้าย เห็นได้แค่ ~2 สินค้าต่อหน้าจอ) */}
       {visible.length === 0 ? (
         <p className="rounded-xl border border-border bg-surface p-5 text-sm leading-relaxed text-muted-foreground">
           ยังไม่มีสินค้าในรายการนี้ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม
         </p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {visible.map((r) => {
-            const plausible = isCommissionPercentPlausible(r.commissionPercent);
-            return (
-              <li
-                key={r.id}
-                className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 leading-relaxed"
-              >
-                <p className="text-base font-medium text-foreground">{r.name}</p>
+        /* คลาส 3 ตัวนี้จำเป็นทั้งหมด ไม่ใช่ของประดับ (วัดจริงที่จอ 900px ทีละตัว):
+           · min-w-0 — flex item มี min-width:auto โดยดีฟอลต์ จึงไม่ยอมหดต่ำกว่า min-content
+             ของตารางข้างใน แล้วดันทั้งหน้าให้กว้างเกินจอแทนที่จะให้กล่องนี้สกรอลเอง
+           · overflow-x-auto — ให้ตารางสกรอลแนวนอนในกล่องตัวเอง จอแคบจึงไม่พังทั้งหน้า
+           · relative — sr-only ของ Tailwind คือ position:absolute ถ้าไม่มี ancestor ที่ positioned
+             containing block จะไปตกที่ initial containing block แปลว่ามันหลุดการ clip ของกล่องนี้
+             แล้วไปยืด scrollWidth ของหน้าเพจตามตำแหน่ง static ที่อยู่นอกจอ (วัดได้ล้น 209px
+             จาก sr-only 21 ตัว) ใส่ relative แล้วเหลือ 0px โดยยังเก็บ sr-only ไว้ครบ */
+        <div className="relative min-w-0 overflow-x-auto rounded-xl border border-border bg-surface">
+          <table className="w-full min-w-[64rem] border-collapse text-sm leading-relaxed">
+            {/* หัวตารางไม่ sticky โดยตั้งใจ — overflow-x-auto ของ div ครอบทำให้ overflow-y
+                คำนวณเป็น auto ตามสเปก CSS กล่องนั้นจึงเป็น scroll container ของตัวเองที่ไม่เคย
+                สกรอล (scrollHeight === clientHeight) sticky เลยถูกขังไว้ข้างในและไม่ทำงาน
+                ถ้าจะเอาหัวตารางติดบนจริง ต้องให้กล่องนี้มีความสูงจำกัดแล้วสกรอลเองทั้งสองแกน */}
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-muted-foreground">
+                <th scope="col" className="px-3 py-2 font-medium">ชื่อสินค้า</th>
+                <th scope="col" className="px-3 py-2 font-medium">หมวด</th>
+                <th scope="col" className="px-3 py-2 font-medium">ป้าย</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">ราคา</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">ค่าคอม</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">ขาย/สัปดาห์</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">%</th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">ศักยภาพรายได้</th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  <span className="sr-only">คำเตือน</span>
+                </th>
+                <th scope="col" className="px-3 py-2 font-medium">
+                  <span className="sr-only">จัดการ</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => {
+                const plausible = isCommissionPercentPlausible(r.commissionPercent);
 
-                {r.badges.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {r.badges.map((b) => (
-                      <span
-                        key={b.type}
-                        className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary"
+                // คำเตือนทุกอันยุบเป็นไอคอน — ข้อความเต็มอยู่ใน title (เอาเมาส์ชี้)
+                // และใน sr-only ให้ screen reader อ่านครบ ไม่มีข้อความไหนหายไปจากเดิม
+                const warnings: { key: string; text: string; danger: boolean }[] = [];
+                if (!plausible) {
+                  warnings.push({
+                    key: "price",
+                    danger: true,
+                    text:
+                      `ราคาที่อ่านได้ (฿${r.price.toLocaleString()}) ดูผิดปกติ — ` +
+                      "%ค่าคอมที่คำนวณได้เกิน 100% ซึ่งเป็นไปไม่ได้จริง น่าจะเป็นราคาโปรโมชั่น" +
+                      "ที่ AI อ่านตามจอ ไม่ใช่ราคาที่ใช้เทียบได้ ให้ตรวจสอบราคาจริงก่อนตัดสินใจ",
+                  });
+                }
+                if (r.demandTotal === null) {
+                  warnings.push({
+                    key: "nosales",
+                    danger: true,
+                    text:
+                      'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
+                      'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
+                  });
+                }
+                if (r.flags.includes("mechanism")) {
+                  warnings.push({
+                    key: "mechanism",
+                    danger: false,
+                    text: "ชื่อบ่งบอกว่าอาจมีกลไก (พับ/หมุน/ปรับระดับ) — ตรวจรูปสินค้าก่อนทำ",
+                  });
+                }
+                if (r.flags.includes("heavyText")) {
+                  warnings.push({
+                    key: "heavyText",
+                    danger: false,
+                    text: "อาจมีฉลาก/ข้อความบนตัวสินค้าเยอะ — AI สร้างวิดีโอมักทำตัวหนังสือเพี้ยน",
+                  });
+                }
+
+                return (
+                  <tr
+                    key={r.id}
+                    className="border-b border-border transition-colors last:border-0 hover:bg-foreground/5"
+                  >
+                    <td className="px-3 py-2">
+                      <div
+                        className="max-w-[22rem] truncate font-medium text-foreground"
+                        title={r.name}
                       >
-                        {b.type === "topSeller" ? (
-                          <TrendingUp className="size-3 shrink-0" />
+                        {r.name}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-2">
+                      <div
+                        className="max-w-[10rem] truncate text-muted-foreground"
+                        title={`เก็บ ${formatThaiDate(r.capturedOn)}`}
+                      >
+                        {r.categoryLabel || "ไม่ระบุหมวด"}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-2">
+                      {r.badges.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {r.badges.map((b) => (
+                            <span
+                              key={b.type}
+                              title={
+                                (b.type === "topSeller"
+                                  ? "ยอดขายดี"
+                                  : "ค่าคอมต่อชิ้นสูงสุด") +
+                                ` อันดับ ${b.rank} ในหมวด ${r.categoryLabel || "ไม่ระบุหมวด"}`
+                              }
+                              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium whitespace-nowrap text-primary"
+                            >
+                              {b.type === "topSeller" ? (
+                                <TrendingUp className="size-3 shrink-0" />
+                              ) : (
+                                <Coins className="size-3 shrink-0" />
+                              )}
+                              {b.type === "topSeller" ? "ขายดี" : "ค่าคอม/ชิ้น"} #{b.rank}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* ตัวเลขใช้ JetBrains Mono ให้หลักตรงกันทุกแถว (กฎ: mono เฉพาะตัวเลขที่เรียงเป็นคอลัมน์) */}
+                    <td className="px-3 py-2 text-right font-mono text-foreground/80">
+                      {r.price.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-foreground/80">
+                      {r.commission.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-foreground/80">
+                      {r.weeklySales === null ? "—" : r.weeklySales.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-foreground/80">
+                      {plausible ? `${r.commissionPercent.toFixed(1)}%` : "—"}
+                    </td>
+                    {/* ศักยภาพรายได้เป็นคอลัมน์ที่ใช้เรียงลำดับ จึงเน้นให้ชัดกว่าตัวเลขอื่น */}
+                    <td className="px-3 py-2 text-right font-mono font-medium text-foreground">
+                      {r.demandTotal === null
+                        ? "—"
+                        : Math.round(r.demandTotal).toLocaleString()}
+                    </td>
+
+                    <td className="px-3 py-2">
+                      {warnings.length > 0 && (
+                        <div className="flex items-center gap-0.5">
+                          {warnings.map((w) => (
+                            <span
+                              key={w.key}
+                              title={w.text}
+                              className="inline-flex size-6 items-center justify-center"
+                            >
+                              <TriangleAlert
+                                className={
+                                  "size-4 shrink-0 " +
+                                  (w.danger ? "text-destructive" : "text-primary")
+                                }
+                              />
+                              <span className="sr-only">{w.text}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5 whitespace-nowrap">
+                        {r.status === "done" ? (
+                          <span className="text-muted-foreground">สร้างรายการแล้ว</span>
                         ) : (
-                          <Coins className="size-3 shrink-0" />
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStatus(r.id, "interested")}
+                              disabled={isUpdating || r.status === "interested"}
+                            >
+                              {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleStatus(r.id, "rejected")}
+                              disabled={isUpdating || r.status === "rejected"}
+                            >
+                              {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => handleCreate(r.id)}
+                              disabled={isUpdating}
+                            >
+                              สร้างงานเลย
+                            </Button>
+                          </>
                         )}
-                        {b.type === "topSeller" ? "ยอดขายดี" : "ค่าคอมต่อชิ้นสูงสุด"} #{b.rank}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <p className="text-sm text-foreground/80">
-                  ราคา {r.price.toLocaleString()} · ค่าคอม {r.commission.toLocaleString()} ·{" "}
-                  {r.weeklySales === null
-                    ? "ไม่มีข้อมูลยอดขาย"
-                    : `ขายได้ ${r.weeklySales.toLocaleString()}/สัปดาห์`}
-                </p>
-
-                {plausible && (
-                  <p className="text-sm text-foreground/80">ได้ {r.commissionPercent.toFixed(1)}%</p>
-                )}
-
-                {!plausible && (
-                  <p className="flex items-start gap-1.5 text-sm text-destructive">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                    ราคาที่อ่านได้ (฿{r.price.toLocaleString()}) ดูผิดปกติ — %ค่าคอมที่คำนวณได้
-                    เกิน 100% ซึ่งเป็นไปไม่ได้จริง น่าจะเป็นราคาโปรโมชั่นที่ AI อ่านตามจอ
-                    ไม่ใช่ราคาที่ใช้เทียบได้ ให้ตรวจสอบราคาจริงก่อนตัดสินใจ
-                  </p>
-                )}
-
-                {r.demandTotal === null ? (
-                  <p className="flex items-start gap-1.5 text-sm text-destructive">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                    แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า &quot;คะแนนสูงสุด&quot;) จัดอันดับให้ไม่ได้ —
-                    ลองแคปจากหน้า &quot;ขายดีที่สุด&quot; แทน
-                  </p>
-                ) : (
-                  <p className="text-sm text-foreground/80">
-                    ศักยภาพรายได้ {Math.round(r.demandTotal).toLocaleString()}
-                  </p>
-                )}
-
-                {r.flags.includes("mechanism") && (
-                  <p className="flex items-start gap-1.5 text-sm text-foreground/80">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-primary" />
-                    ชื่อบ่งบอกว่าอาจมีกลไก (พับ/หมุน/ปรับระดับ) — ตรวจรูปสินค้าก่อนทำ
-                  </p>
-                )}
-                {r.flags.includes("heavyText") && (
-                  <p className="flex items-start gap-1.5 text-sm text-foreground/80">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0 text-primary" />
-                    อาจมีฉลาก/ข้อความบนตัวสินค้าเยอะ — AI สร้างวิดีโอมักทำตัวหนังสือเพี้ยน
-                  </p>
-                )}
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {r.status === "done" ? (
-                    <span className="text-sm text-muted-foreground">สร้างรายการแล้ว</span>
-                  ) : (
-                    <>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleStatus(r.id, "interested")}
-                        disabled={isUpdating || r.status === "interested"}
-                      >
-                        {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleStatus(r.id, "rejected")}
-                        disabled={isUpdating || r.status === "rejected"}
-                      >
-                        {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => handleCreate(r.id)}
-                        disabled={isUpdating}
-                      >
-                        สร้างงานเลย
-                      </Button>
-                    </>
-                  )}
-                  <span className="text-xs text-muted-foreground">
-                    {r.categoryLabel || "ไม่ระบุหมวด"} · เก็บ {formatThaiDate(r.capturedOn)}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
