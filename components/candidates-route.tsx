@@ -24,7 +24,13 @@ import type {
 } from "@/lib/candidate-queries";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
 
@@ -51,6 +57,49 @@ function daysBetween(from: Date, to: Date): number {
   const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
   return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+// ใช้ร่วมกันทั้งการ์ด (ต่ำกว่า md) และตาราง (md ขึ้นไป) — ต้องประกอบคำเตือน
+// จากเงื่อนไขชุดเดียวกันทุกครั้ง ไม่ใช่ก๊อปมาสองที่แล้วเสี่ยงหลุดตรงกันภายหลัง
+function buildCandidateWarnings(
+  r: CandidateRow,
+  plausible: boolean
+): { key: string; text: string; danger: boolean }[] {
+  const warnings: { key: string; text: string; danger: boolean }[] = [];
+  if (!plausible) {
+    warnings.push({
+      key: "price",
+      danger: true,
+      text:
+        `ราคาที่อ่านได้ (฿${r.price.toLocaleString()}) ดูผิดปกติ — ` +
+        "%ค่าคอมที่คำนวณได้เกิน 100% ซึ่งเป็นไปไม่ได้จริง น่าจะเป็นราคาโปรโมชั่น" +
+        "ที่ AI อ่านตามจอ ไม่ใช่ราคาที่ใช้เทียบได้ ให้ตรวจสอบราคาจริงก่อนตัดสินใจ",
+    });
+  }
+  if (r.demandTotal === null) {
+    warnings.push({
+      key: "nosales",
+      danger: true,
+      text:
+        'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
+        'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
+    });
+  }
+  if (r.flags.includes("mechanism")) {
+    warnings.push({
+      key: "mechanism",
+      danger: false,
+      text: "ชื่อบ่งบอกว่าอาจมีกลไก (พับ/หมุน/ปรับระดับ) — ตรวจรูปสินค้าก่อนทำ",
+    });
+  }
+  if (r.flags.includes("heavyText")) {
+    warnings.push({
+      key: "heavyText",
+      danger: false,
+      text: "อาจมีฉลาก/ข้อความบนตัวสินค้าเยอะ — AI สร้างวิดีโอมักทำตัวหนังสือเพี้ยน",
+    });
+  }
+  return warnings;
 }
 
 export function CandidatesRoute({
@@ -279,15 +328,137 @@ export function CandidatesRoute({
           ยังไม่มีสินค้าในรายการนี้ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม
         </p>
       ) : (
-        /* คลาส 3 ตัวนี้จำเป็นทั้งหมด ไม่ใช่ของประดับ (วัดจริงที่จอ 900px ทีละตัว):
+        <>
+          {/* ต่ำกว่า md: เป็นการ์ด — ตาราง 10 คอลัมน์กว้าง 1024px บนจอ 390px คือการเลื่อน
+              ซ้ายขวาหาข้อมูลตลอดเวลา · เลือกเฉพาะสิ่งที่ใช้ตัดสินใจ: ชื่อ+ป้ายเป็นหัว
+              ศักยภาพรายได้เด่นสุด (เป็นตัวจัดอันดับอยู่แล้ว) ที่เหลือเป็นแถวรอง */}
+          <ul className="flex flex-col gap-2 md:hidden">
+            {visible.map((r) => {
+              const plausible = isCommissionPercentPlausible(r.commissionPercent);
+              const warnings = buildCandidateWarnings(r, plausible);
+
+              return (
+                <li
+                  key={r.id}
+                  className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 flex-1 text-base leading-relaxed font-medium text-foreground">
+                      {r.name}
+                    </p>
+                    <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                      {r.status === "done" ? (
+                        <span className="text-xs text-muted-foreground">สร้างรายการแล้ว</span>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleStatus(r.id, "interested")}
+                            disabled={isUpdating || r.status === "interested"}
+                          >
+                            {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleStatus(r.id, "rejected")}
+                            disabled={isUpdating || r.status === "rejected"}
+                          >
+                            {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleCreate(r.id)}
+                            disabled={isUpdating}
+                          >
+                            สร้างงานเลย
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {r.badges.map((b) => (
+                      <span
+                        key={b.type}
+                        className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium whitespace-nowrap text-primary"
+                      >
+                        {b.type === "topSeller" ? (
+                          <TrendingUp className="size-3 shrink-0" />
+                        ) : (
+                          <Coins className="size-3 shrink-0" />
+                        )}
+                        {b.type === "topSeller" ? "ขายดี" : "ค่าคอม/ชิ้น"} #{b.rank}
+                      </span>
+                    ))}
+                    <span className="text-xs leading-relaxed text-muted-foreground">
+                      {r.categoryLabel || "ไม่ระบุหมวด"}
+                    </span>
+                  </div>
+
+                  <p className="font-mono text-lg font-bold text-foreground">
+                    {r.demandTotal === null
+                      ? "—"
+                      : Math.round(r.demandTotal).toLocaleString()}
+                  </p>
+
+                  <dl className="grid grid-cols-3 gap-2 text-xs leading-relaxed">
+                    <div>
+                      <dt className="text-muted-foreground">ราคา</dt>
+                      <dd className="font-mono text-foreground">
+                        {r.price.toLocaleString()}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">ค่าคอม</dt>
+                      <dd className="font-mono text-foreground">
+                        {r.commission.toLocaleString()}
+                        {plausible ? ` (${r.commissionPercent.toFixed(1)}%)` : ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">ขาย/สัปดาห์</dt>
+                      <dd className="font-mono text-foreground">
+                        {r.weeklySales === null ? "—" : r.weeklySales.toLocaleString()}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {/* คำเตือนเป็นข้อความจริง ไม่ใช่ title= ที่จอสัมผัสไม่มีทางเห็น */}
+                  {warnings.length > 0 && (
+                    <ul className="flex flex-col gap-1">
+                      {warnings.map((w) => (
+                        <li
+                          key={w.key}
+                          className={cn(
+                            "text-xs leading-relaxed",
+                            w.danger ? "text-destructive" : "text-muted-foreground"
+                          )}
+                        >
+                          {w.text}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {/* คลาส 3 ตัวนี้จำเป็นทั้งหมด ไม่ใช่ของประดับ (วัดจริงที่จอ 900px ทีละตัว):
            · min-w-0 — flex item มี min-width:auto โดยดีฟอลต์ จึงไม่ยอมหดต่ำกว่า min-content
              ของตารางข้างใน แล้วดันทั้งหน้าให้กว้างเกินจอแทนที่จะให้กล่องนี้สกรอลเอง
            · overflow-x-auto — ให้ตารางสกรอลแนวนอนในกล่องตัวเอง จอแคบจึงไม่พังทั้งหน้า
            · relative — sr-only ของ Tailwind คือ position:absolute ถ้าไม่มี ancestor ที่ positioned
              containing block จะไปตกที่ initial containing block แปลว่ามันหลุดการ clip ของกล่องนี้
              แล้วไปยืด scrollWidth ของหน้าเพจตามตำแหน่ง static ที่อยู่นอกจอ (วัดได้ล้น 209px
-             จาก sr-only 21 ตัว) ใส่ relative แล้วเหลือ 0px โดยยังเก็บ sr-only ไว้ครบ */
-        <div className="relative min-w-0 overflow-x-auto rounded-xl border border-border bg-surface">
+             จาก sr-only 21 ตัว) ใส่ relative แล้วเหลือ 0px โดยยังเก็บ sr-only ไว้ครบ */}
+        <div className="relative hidden min-w-0 overflow-x-auto rounded-xl border border-border bg-surface md:block">
           <table className="w-full min-w-[64rem] border-collapse text-sm leading-relaxed">
             {/* หัวตารางไม่ sticky โดยตั้งใจ — overflow-x-auto ของ div ครอบทำให้ overflow-y
                 คำนวณเป็น auto ตามสเปก CSS กล่องนั้นจึงเป็น scroll container ของตัวเองที่ไม่เคย
@@ -314,43 +485,7 @@ export function CandidatesRoute({
             <tbody>
               {visible.map((r) => {
                 const plausible = isCommissionPercentPlausible(r.commissionPercent);
-
-                // คำเตือนทุกอันยุบเป็นไอคอน — ข้อความเต็มอยู่ใน title (เอาเมาส์ชี้)
-                // และใน sr-only ให้ screen reader อ่านครบ ไม่มีข้อความไหนหายไปจากเดิม
-                const warnings: { key: string; text: string; danger: boolean }[] = [];
-                if (!plausible) {
-                  warnings.push({
-                    key: "price",
-                    danger: true,
-                    text:
-                      `ราคาที่อ่านได้ (฿${r.price.toLocaleString()}) ดูผิดปกติ — ` +
-                      "%ค่าคอมที่คำนวณได้เกิน 100% ซึ่งเป็นไปไม่ได้จริง น่าจะเป็นราคาโปรโมชั่น" +
-                      "ที่ AI อ่านตามจอ ไม่ใช่ราคาที่ใช้เทียบได้ ให้ตรวจสอบราคาจริงก่อนตัดสินใจ",
-                  });
-                }
-                if (r.demandTotal === null) {
-                  warnings.push({
-                    key: "nosales",
-                    danger: true,
-                    text:
-                      'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
-                      'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
-                  });
-                }
-                if (r.flags.includes("mechanism")) {
-                  warnings.push({
-                    key: "mechanism",
-                    danger: false,
-                    text: "ชื่อบ่งบอกว่าอาจมีกลไก (พับ/หมุน/ปรับระดับ) — ตรวจรูปสินค้าก่อนทำ",
-                  });
-                }
-                if (r.flags.includes("heavyText")) {
-                  warnings.push({
-                    key: "heavyText",
-                    danger: false,
-                    text: "อาจมีฉลาก/ข้อความบนตัวสินค้าเยอะ — AI สร้างวิดีโอมักทำตัวหนังสือเพี้ยน",
-                  });
-                }
+                const warnings = buildCandidateWarnings(r, plausible);
 
                 return (
                   <tr
@@ -424,20 +559,36 @@ export function CandidatesRoute({
                     <td className="px-3 py-2">
                       {warnings.length > 0 && (
                         <div className="flex items-center gap-0.5">
+                          {/* ไอคอนอย่างเดียวพึ่ง title (hover) ซึ่งแท็บเล็ต/มือถือที่จอ md–lg
+                              ก็เป็นจอสัมผัสเหมือนกันไม่มีทาง hover ได้ — ใช้ Popover ที่กดแล้ว
+                              เห็นข้อความจริงแทน title ยังคงไว้เป็นตัวช่วยสำหรับเมาส์ */}
                           {warnings.map((w) => (
-                            <span
-                              key={w.key}
-                              title={w.text}
-                              className="inline-flex size-6 items-center justify-center"
-                            >
-                              <TriangleAlert
-                                className={
-                                  "size-4 shrink-0 " +
-                                  (w.danger ? "text-destructive" : "text-primary")
+                            <Popover key={w.key}>
+                              <PopoverTrigger
+                                render={
+                                  <button
+                                    type="button"
+                                    title={w.text}
+                                    aria-label={w.text}
+                                    className="inline-flex size-6 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                                  />
                                 }
-                              />
-                              <span className="sr-only">{w.text}</span>
-                            </span>
+                              >
+                                <TriangleAlert
+                                  className={
+                                    "size-4 shrink-0 " +
+                                    (w.danger ? "text-destructive" : "text-primary")
+                                  }
+                                />
+                                <span className="sr-only">{w.text}</span>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="start"
+                                className="w-64 text-xs leading-relaxed text-foreground"
+                              >
+                                {w.text}
+                              </PopoverContent>
+                            </Popover>
                           ))}
                         </div>
                       )}
@@ -485,6 +636,7 @@ export function CandidatesRoute({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
