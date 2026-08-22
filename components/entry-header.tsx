@@ -23,22 +23,23 @@ export function EntryHeader({
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 px-4 pt-2 pb-4 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-2 pb-3 sm:px-6 sm:pb-4">
         <div className="flex items-center gap-2.5">
           <Compass className="size-6 shrink-0 text-header-active" strokeWidth={1.75} />
           <div>
-            <h1 className="text-xl leading-none font-extrabold text-header-foreground sm:text-2xl">
+            <h1 className="text-lg leading-none font-extrabold text-header-foreground sm:text-xl lg:text-2xl">
               Angle <span className="text-sm font-normal text-header-muted">by LAGR</span>
             </h1>
-            <p className="mt-1 text-xs text-header-muted">
+            <p className="mt-1 hidden text-xs leading-relaxed text-header-muted sm:block">
               ประกอบ Core Prompt สำหรับวิดีโอ TikTok Shop
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg border border-header-muted/40 bg-header-foreground/5 px-4 py-2">
-            <p className="max-w-[14rem] truncate text-sm text-header-foreground">
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* ชื่อสินค้าต้องได้ความกว้างที่เหลือทั้งหมดบนจอแคบ ไม่ใช่ถูกล็อกที่ 14rem */}
+          <div className="min-w-0 flex-1 rounded-lg border border-header-muted/40 bg-header-foreground/5 px-3 py-2 sm:flex-none sm:px-4">
+            <p className="truncate text-sm text-header-foreground sm:max-w-[14rem]">
               {productName || "ยังไม่ตั้งชื่อสินค้า"}
             </p>
           </div>
