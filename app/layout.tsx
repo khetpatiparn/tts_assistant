@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,22 @@ export const metadata: Metadata = {
   description: "by LAGR — ประกอบ Core Prompt สำหรับสร้างวิดีโอ TikTok Shop ด้วย Gemini Flow",
 };
 
+/**
+ * ยืนยันตาม node_modules/next/dist/docs/01-app/03-api-reference/04-functions/generate-viewport.md
+ * และ node_modules/next/dist/lib/metadata/types/extra-types.d.ts (viewportFit, interactiveWidget)
+ *
+ * ห้ามใส่ maximumScale/userScalable เพื่อปิดการซูม — เป็นปัญหา accessibility
+ * viewportFit: "cover" ทำให้เนื้อหากินพื้นที่ใต้รอยบากได้ จึงต้องคู่กับ padding
+ * safe-area ใน globals.css ไม่งั้นปุ่มล่างสุดจะถูกแถบ home indicator ทับ
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  // แป้นพิมพ์มือถือย่อ visual viewport แทนที่จะดันเลย์เอาต์ — กันฟอร์มกระโดด
+  interactiveWidget: "resizes-visual",
+};
+
 // สคริปต์นี้ทำงานตอนเบราว์เซอร์ parse HTML คือก่อนหน้าจอวาดครั้งแรก จึงไม่มีอาการกระพริบ
 // วิธีนี้มาจากเอกสารทางการของ Next.js เวอร์ชันนี้:
 // node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md
@@ -45,7 +61,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
-      <body className="min-h-full flex flex-col lg:h-full lg:overflow-hidden">
+      <body className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
         {children}
       </body>
     </html>

@@ -8,7 +8,7 @@ export default async function DashboardPage() {
   const [data, rows] = await Promise.all([getDashboardData(), getEntryRows()]);
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
       <AppHeader active="dashboard" />
       <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
         <DashboardRoute

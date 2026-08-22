@@ -194,3 +194,9 @@
     background-image: linear-gradient(90deg, var(--navy-accent), var(--brass-500));
   }
 }
+
+/* viewportFit: "cover" ใน app/layout.tsx ทำให้เนื้อหากินพื้นที่ใต้ home indicator
+   ของไอโฟนได้ — ปุ่มหรือแถบที่อยู่ล่างสุดจึงต้องเว้นระยะคืนด้วยตัวเอง */
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
