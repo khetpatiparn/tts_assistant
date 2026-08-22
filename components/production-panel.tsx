@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { updateProduction } from "@/app/actions";
+import { copyInBrowser } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +46,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
   const [hashtags, setHashtags] = useState(entry.hashtags);
   const [copied, setCopied] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   // "สร้างด้วย AI" rewrites this entry's output on the server. The id does not
   // change, so nothing remounts — without this the textarea would keep showing
@@ -71,13 +73,23 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
 
   async function copyForPost() {
     // ผู้ใช้โพสต์แบบ caption แล้วขึ้นบรรทัดใหม่ตบด้วย hashtag — คัดลอกให้ตรงแบบนั้นเลย
-    await navigator.clipboard.writeText(`${caption}\n${hashtags}`.trim());
+    const outcome = await copyInBrowser(`${caption}\n${hashtags}`.trim());
+    if (outcome === "manual") {
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 6000);
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(chatgptOutput);
+    const outcome = await copyInBrowser(chatgptOutput);
+    if (outcome === "manual") {
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 6000);
+      return;
+    }
     setPromptCopied(true);
     setTimeout(() => setPromptCopied(false), 1500);
   }
@@ -98,6 +110,13 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
           Production · ผลลัพธ์ &amp; คลิป
         </h2>
       </div>
+
+      {copyFailed && (
+        <p className="rounded-md border border-border bg-muted px-3 py-2 text-sm leading-relaxed text-foreground">
+          เบราว์เซอร์นี้คัดลอกให้อัตโนมัติไม่ได้ (เปิดผ่าน HTTP) — กดค้างที่กล่องข้อความแล้วเลือก
+          &quot;เลือกทั้งหมด&quot; เพื่อคัดลอกเอง
+        </p>
+      )}
 
       <form action={action} className="flex flex-1 flex-col gap-5">
         <input type="hidden" name="id" value={entry.id} />

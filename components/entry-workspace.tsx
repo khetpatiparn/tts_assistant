@@ -13,6 +13,7 @@ import {
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import { playCompletionSound } from "@/lib/completion-sound";
+import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail } from "@/components/history-rail";
@@ -90,6 +91,7 @@ export function EntryWorkspace({
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [form, setForm] = useState<FormState>(entry ? entryToForm(entry) : emptyForm);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [, startDeleteTransition] = useTransition();
   const [, startDuplicateTransition] = useTransition();
   const [isGenerating, startGenerating] = useTransition();
@@ -201,7 +203,13 @@ export function EntryWorkspace({
   }, [form, entry, pendingImages]);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(output);
+    const outcome = await copyInBrowser(output);
+    if (outcome === "manual") {
+      // คัดลอกให้ไม่ได้จริง ๆ — ต้องบอก ไม่ใช่แกล้งว่าสำเร็จเหมือนเดิม
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 6000);
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -239,6 +247,13 @@ export function EntryWorkspace({
       {genError && (
         <p className="mx-4 mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6">
           {genError}
+        </p>
+      )}
+
+      {copyFailed && (
+        <p className="mx-4 mt-3 rounded-md border border-border bg-muted px-3 py-2 text-sm leading-relaxed text-foreground sm:mx-6">
+          เบราว์เซอร์นี้คัดลอกให้อัตโนมัติไม่ได้ (เปิดผ่าน HTTP) — กดค้างที่กล่องข้อความแล้วเลือก
+          &quot;เลือกทั้งหมด&quot; เพื่อคัดลอกเอง
         </p>
       )}
 
