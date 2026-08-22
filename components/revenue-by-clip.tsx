@@ -73,7 +73,7 @@ export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }
         ))}
       </div>
 
-      <div className="flex gap-4 text-xs text-muted-foreground">
+      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground sm:flex-row sm:gap-4">
         <span className="flex items-center gap-1">
           <span className="inline-block size-2 rounded-full bg-primary" /> จ่ายแล้ว
         </span>
