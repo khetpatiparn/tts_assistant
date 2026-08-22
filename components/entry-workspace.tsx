@@ -16,7 +16,7 @@ import { playCompletionSound } from "@/lib/completion-sound";
 import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { EntryHeader } from "@/components/entry-header";
-import { HistoryRail } from "@/components/history-rail";
+import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductSpecPanel } from "@/components/product-spec-panel";
@@ -237,11 +237,19 @@ export function EntryWorkspace({
   return (
     <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
       <EntryHeader productName={form.productName}>
-        <WorkspaceTabs
-          active={tab}
-          onChange={setTab}
-          productionDisabled={entry === null}
-        />
+        <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 sm:mx-6">
+          <HistoryRailDrawer
+            rows={rows}
+            selectedId={entry?.id ?? null}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+          />
+          <WorkspaceTabs
+            active={tab}
+            onChange={setTab}
+            productionDisabled={entry === null}
+          />
+        </div>
       </EntryHeader>
 
       {genError && (

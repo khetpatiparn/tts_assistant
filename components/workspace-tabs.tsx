@@ -20,7 +20,7 @@ export function WorkspaceTabs({
 }) {
   return (
     <nav
-      className="mx-4 mb-3 inline-flex flex-wrap gap-1 rounded-lg border border-header-muted/40 p-1 sm:mx-6"
+      className="inline-flex flex-wrap gap-1 rounded-lg border border-header-muted/40 p-1"
       aria-label="มุมมองงาน"
     >
       {TABS.map((tab) => {
