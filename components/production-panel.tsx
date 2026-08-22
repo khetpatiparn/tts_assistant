@@ -142,7 +142,7 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
             value={chatgptOutput}
             onChange={(e) => setChatgptOutput(e.target.value)}
             placeholder="วาง 10-part prompt ที่ได้จาก ChatGPT ที่นี่"
-            className="min-h-80 flex-1 font-sans text-sm leading-[1.6em]"
+            className="min-h-80 max-h-[60dvh] flex-1 font-sans text-sm leading-[1.6em] sm:max-h-none"
           />
         </div>
 

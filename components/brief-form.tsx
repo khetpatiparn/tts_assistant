@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Image from "next/image";
-import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
+import { ImagePlus, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import { AnglePanel, type UsedAngleWithOutcome } from "@/components/angle-panel";
@@ -19,13 +19,13 @@ export type FormState = {
   extraNotes: string;
 };
 
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Same rules the Server Action enforces — checked here only to fail fast. */
 function rejectionReason(files: File[]): string | null {
   if (files.some((file) => !ALLOWED_IMAGE_TYPES.includes(file.type))) {
-    return "รองรับเฉพาะไฟล์ JPEG, PNG, WebP";
+    return "รองรับเฉพาะไฟล์ JPEG, PNG, WebP, HEIC";
   }
   if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
     return "ไฟล์ใหญ่เกิน 10MB";
@@ -278,16 +278,33 @@ export function BriefForm({
                 </div>
               )}
 
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <ClipboardPaste className="size-3.5 shrink-0" />
-                กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    extractInputRef.current?.click();
+                  }}
+                >
+                  <ImagePlus className="size-4" />
+                  เลือกรูปจากเครื่อง
+                </Button>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
+                  <span className="hidden sm:inline">
+                    {" "}
+                    · หรือกด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด)
+                  </span>
+                </p>
+              </div>
 
               <input
                 ref={extractInputRef}
                 type="file"
                 multiple
-                accept="image/jpeg,image/png,image/webp"
+                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                 hidden
                 onChange={(e) => {
                   acceptExtractFiles(imageFilesFrom(e.target.files));
@@ -508,18 +525,35 @@ export function BriefForm({
             </div>
           )}
 
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <ClipboardPaste className="size-3.5 shrink-0" />
-            {isUploading
-              ? "กำลังอัปโหลด..."
-              : "กด Ctrl+V เพื่อวางรูปที่แคปไว้ · หรือลากไฟล์มาวาง"}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+            >
+              <ImagePlus className="size-4" />
+              เลือกรูปจากเครื่อง
+            </Button>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {isUploading
+                ? "กำลังอัปโหลด..."
+                : /* Ctrl+V กับการลากไฟล์ไม่มีอยู่บนมือถือ — เอ่ยถึงเฉพาะบนจอที่ทำได้จริง */
+                  ""}
+              <span className="hidden sm:inline">
+                {isUploading ? "" : "หรือกด Ctrl+V เพื่อวางรูปที่แคปไว้ · หรือลากไฟล์มาวาง"}
+              </span>
+            </p>
+          </div>
 
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
             hidden
             onChange={(e) => {
               acceptFiles(imageFilesFrom(e.target.files));

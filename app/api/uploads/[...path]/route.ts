@@ -7,6 +7,8 @@ const MIME_BY_EXT: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
+  ".heic": "image/heic",
+  ".heif": "image/heif",
 };
 
 export async function GET(

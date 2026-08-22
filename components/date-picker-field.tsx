@@ -83,6 +83,10 @@ export function DatePickerField({
             onChange(date ? toISODate(date) : "");
             setOpen(false);
           }}
+          // ปุ่มวันที่/เดือนใช้ --cell-size กำหนดทั้งขนาด — ค่าเดิม (spacing(7) = 28px) เล็กกว่า
+          // เป้าสัมผัส 44px ที่ควรได้บนมือถือ ขยายเฉพาะ base แล้วคืนค่าเดิมตั้งแต่ sm: ขึ้นไป
+          // (ไม่แตะ lg:/xl: ตามกฎ — sm: ก็ครอบคลุมเดสก์ท็อปอยู่แล้วเพราะกว้างกว่า 640px เสมอ)
+          className="[--cell-size:--spacing(11)] sm:[--cell-size:--spacing(7)]"
         />
       </PopoverContent>
     </Popover>

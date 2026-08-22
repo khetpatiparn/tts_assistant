@@ -32,7 +32,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-const ALLOWED = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
 type StatusFilter = "active" | "all" | "new" | "interested" | "rejected";
 
@@ -274,7 +274,7 @@ export function CandidatesRoute({
             ref={inputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
             hidden
             onChange={(e) => {
               setFiles((prev) => [...prev, ...imageFilesFrom(e.target.files)]);

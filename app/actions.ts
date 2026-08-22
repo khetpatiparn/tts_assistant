@@ -106,7 +106,15 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
       continue;
     }
     const ext =
-      image.mimeType === "image/png" ? "png" : image.mimeType === "image/webp" ? "webp" : "jpg";
+      image.mimeType === "image/png"
+        ? "png"
+        : image.mimeType === "image/webp"
+          ? "webp"
+          : image.mimeType === "image/heic"
+            ? "heic"
+            : image.mimeType === "image/heif"
+              ? "heif"
+              : "jpg";
     const filename = `${crypto.randomUUID()}.${ext}`;
     await writeFile(path.join(UPLOAD_ROOT, created.id, filename), data);
     await prisma.productImage.create({
@@ -244,7 +252,7 @@ export async function setActiveCorePrompt(id: string) {
 }
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export async function uploadProductImages(formData: FormData) {
@@ -275,7 +283,7 @@ export async function uploadProductImages(formData: FormData) {
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP");
+      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP, HEIC");
     }
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error("ไฟล์ใหญ่เกิน 10MB");
@@ -287,7 +295,15 @@ export async function uploadProductImages(formData: FormData) {
 
   for (const [index, file] of files.entries()) {
     const ext =
-      file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      file.type === "image/png"
+        ? "png"
+        : file.type === "image/webp"
+          ? "webp"
+          : file.type === "image/heic"
+            ? "heic"
+            : file.type === "image/heif"
+              ? "heif"
+              : "jpg";
     // A generated name, never the uploaded one — "../../evil.js" would escape UPLOAD_ROOT.
     const filename = `${crypto.randomUUID()}.${ext}`;
 
@@ -436,7 +452,7 @@ export async function extractProductInfo(
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP");
+      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP, HEIC");
     }
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error("ไฟล์ใหญ่เกิน 10MB");
@@ -939,7 +955,7 @@ export async function extractCandidates(
 
   for (const file of files) {
     if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP");
+      throw new Error("รองรับเฉพาะไฟล์ JPEG, PNG, WebP, HEIC");
     }
     if (file.size > MAX_IMAGE_BYTES) {
       throw new Error("ไฟล์ใหญ่เกิน 10MB");
