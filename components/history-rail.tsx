@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Copy, EllipsisVertical, PanelLeft, Plus, Trash2 } from "lucide-react";
 import { Menu } from "@base-ui/react/menu";
 import { Drawer } from "@base-ui/react/drawer";
@@ -85,11 +86,12 @@ function RailBody({
                   className="flex min-w-0 flex-1 items-start gap-2 py-2 pl-2.5 text-left"
                 >
                   {row.thumbnailFilename ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    // 72 = 36px (size-9) × DPR 2
+                    <Image
                       src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
                       alt=""
-                      loading="lazy"
+                      width={72}
+                      height={72}
                       className="size-9 shrink-0 rounded border border-header-foreground/10 object-cover"
                     />
                   ) : (

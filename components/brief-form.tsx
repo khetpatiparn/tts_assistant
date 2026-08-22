@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Image from "next/image";
 import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
@@ -439,10 +440,13 @@ export function BriefForm({
               {productImages.map((image) => (
                 <div key={image.id} className="flex w-24 flex-col gap-1">
                   <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    {/* 400 ไม่ใช่ 192 (96×2) เพราะผู้ใช้ต้องอ่านรายละเอียดสินค้าจากรูปนี้
+                        เพื่อเขียน caption ย่อมากจะเห็นกลไก/ตัวหนังสือบนสินค้าไม่ชัด */}
+                    <Image
                       src={`/api/uploads/${image.entryId}/${image.filename}`}
                       alt="รูปสินค้า"
+                      width={400}
+                      height={400}
                       className="size-24 rounded-md border border-border object-cover"
                     />
                     <Button

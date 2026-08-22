@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Plus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -141,11 +142,13 @@ export function EntryList({
                     className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:border-border-interactive md:gap-4"
                   >
                     {row.thumbnailFilename ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      // width/height คือขนาด intrinsic ที่ขอจาก optimizer ไม่ใช่ขนาดที่แสดง
+                      // 160 = 80px (md:size-20) × DPR 2 · object-cover จัดการอัตราส่วนเอง
+                      <Image
                         src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
                         alt=""
-                        loading="lazy"
+                        width={160}
+                        height={160}
                         className="size-16 shrink-0 rounded-lg border border-border object-cover md:size-20"
                       />
                     ) : (

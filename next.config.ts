@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "32mb",
     },
   },
+  // จำกัดให้ optimizer ย่อได้เฉพาะรูปสินค้า — ถ้าไม่ตั้ง จะยอมทุก local path ซึ่งเปิดช่อง
+  // ให้ถูกใช้เป็น proxy ย่อรูปอะไรก็ได้ในเว็บ (ดู image.md หัวข้อ localPatterns)
+  // URL ของเราไม่มี query string จึงตั้ง search เป็นค่าว่างได้
+  images: {
+    localPatterns: [{ pathname: "/api/uploads/**", search: "" }],
+  },
 };
 
 export default nextConfig;
