@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
   Area,
@@ -24,6 +24,27 @@ function baht(n: number): string {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Recharts รับค่าผ่าน props (width ของแกน, ความถี่ของ tick) ไม่ใช่ CSS
+ * จึงใช้ breakpoint ของ Tailwind ไม่ได้ ต้องอ่านความกว้างจริงจาก matchMedia
+ *
+ * ค่าเริ่มต้นเป็น false เพื่อให้ตรงกับฝั่งเซิร์ฟเวอร์ (ไม่มี window) แล้ว effect
+ * ค่อยแก้ให้ถูกหลัง mount — ป้องกัน hydration mismatch
+ */
+function useIsNarrow(): boolean {
+  const [isNarrow, setIsNarrow] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsNarrow(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  return isNarrow;
+}
 
 type RangeKey = "7d" | "30d" | "all";
 
@@ -89,6 +110,7 @@ function WeeklyTooltip({
 
 /** ยอดขาย (GMV) รายสัปดาห์ 8 สัปดาห์ล่าสุด — ภาพรวมยาว ต่างจาก TimeChart ที่เป็นรายวัน */
 function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+  const isNarrow = useIsNarrow();
   const data = weeklyGmvTrend(orders, 8);
   if (data.length < 2) return null;
 
@@ -111,13 +133,16 @@ function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
               tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
               tickLine={false}
               axisLine={{ stroke: "var(--color-border)" }}
+              // จอแคบแสดง tick เว้นระยะ ไม่งั้นวันที่ทับกันจนอ่านไม่ออก
+              interval={isNarrow ? "preserveStartEnd" : "preserveEnd"}
+              minTickGap={isNarrow ? 32 : 8}
             />
             <YAxis
               tickFormatter={(v: number) => baht(v)}
               tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
               tickLine={false}
               axisLine={false}
-              width={64}
+              width={isNarrow ? 40 : 64}
             />
             <Tooltip
               content={<WeeklyTooltip />}
@@ -142,6 +167,7 @@ function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
 
 /** กราฟ GMV ตามวัน — Recharts, hover ดูรายวันได้ + เลือกช่วงเวลา */
 function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+  const isNarrow = useIsNarrow();
   const [range, setRange] = useState<RangeKey>("all");
   const days = RANGES.find((r) => r.key === range)!.days;
   const data = ordersByDay(filterByRange(orders, days));
@@ -184,13 +210,16 @@ function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
                 tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
                 tickLine={false}
                 axisLine={{ stroke: "var(--color-border)" }}
+                // จอแคบแสดง tick เว้นระยะ ไม่งั้นวันที่ทับกันจนอ่านไม่ออก
+                interval={isNarrow ? "preserveStartEnd" : "preserveEnd"}
+                minTickGap={isNarrow ? 32 : 8}
               />
               <YAxis
                 tickFormatter={(v: number) => baht(v)}
                 tick={{ fontSize: 10, fill: "var(--color-muted-foreground)" }}
                 tickLine={false}
                 axisLine={false}
-                width={64}
+                width={isNarrow ? 40 : 64}
               />
               <Tooltip
                 content={<ChartTooltip />}
