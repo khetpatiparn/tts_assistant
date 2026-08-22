@@ -115,9 +115,10 @@ export function EntryList({
       ) : (
         <div className="flex flex-col">
           {/* หัวคอลัมน์ไม่ใช่แถวที่กดได้ — ไม่มีการเรียงลำดับตามคอลัมน์
-              การเรียงยังเป็นแบบเดิมจาก lib/entry-sort.ts (ยังไม่ลงคลิปอยู่บนสุด แล้วใหม่ไปเก่า) */}
+              การเรียงยังเป็นแบบเดิมจาก lib/entry-sort.ts (ยังไม่ลงคลิปอยู่บนสุด แล้วใหม่ไปเก่า)
+              ซ่อนที่ base เพราะต่ำกว่า md: ไม่มีคอลัมน์ให้หัวแล้ว */}
           <div
-            className="flex items-center gap-4 border-b border-border px-4 pb-2 text-xs text-muted-foreground"
+            className="hidden items-center gap-4 border-b border-border px-4 pb-2 text-xs text-muted-foreground md:flex"
             aria-hidden="true"
           >
             <span className="w-20 shrink-0">รูป</span>
@@ -127,49 +128,63 @@ export function EntryList({
           </div>
 
           <ul className="flex flex-col gap-2 pt-2">
-            {rows.map((row) => (
-              <li key={row.id}>
-                <Link
-                  href={`/entry/${row.id}`}
-                  className="flex items-center gap-4 rounded-lg border border-border bg-surface p-3 transition-colors hover:border-border-interactive"
-                >
-                  {row.thumbnailFilename ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
-                      alt=""
-                      loading="lazy"
-                      className="size-20 shrink-0 rounded-lg border border-border object-cover"
-                    />
-                  ) : (
-                    <span className="size-20 shrink-0 rounded-lg border border-dashed border-border" />
-                  )}
+            {rows.map((row) => {
+              const dateText =
+                by === "created"
+                  ? createdLabel(row.createdAt)
+                  : (postedLabel(row.postedAt) ?? "-");
 
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className="truncate text-lg font-bold">{row.productName}</p>
-                    {row.angle !== "" && (
-                      <p className="line-clamp-1 text-sm text-muted-foreground">
-                        angle: {row.angle}
-                      </p>
+              return (
+                <li key={row.id}>
+                  <Link
+                    href={`/entry/${row.id}`}
+                    className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3 transition-colors hover:border-border-interactive md:gap-4"
+                  >
+                    {row.thumbnailFilename ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/uploads/${row.id}/${row.thumbnailFilename}`}
+                        alt=""
+                        loading="lazy"
+                        className="size-16 shrink-0 rounded-lg border border-border object-cover md:size-20"
+                      />
+                    ) : (
+                      <span className="size-16 shrink-0 rounded-lg border border-dashed border-border md:size-20" />
                     )}
-                  </div>
 
-                  <div className="w-32 shrink-0">
-                    <Badge variant={STATUS_BADGE_VARIANT[row.status]}>
-                      {STATUS_LABEL[row.status]}
-                    </Badge>
-                  </div>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <p className="truncate text-base font-bold md:text-lg">{row.productName}</p>
+                      {row.angle !== "" && (
+                        <p className="line-clamp-1 text-sm text-muted-foreground">
+                          angle: {row.angle}
+                        </p>
+                      )}
 
-                  <div className="w-28 shrink-0 text-right">
-                    <span className="text-sm whitespace-nowrap">
-                      {by === "created"
-                        ? createdLabel(row.createdAt)
-                        : (postedLabel(row.postedAt) ?? "-")}
-                    </span>
-                  </div>
-                </Link>
-              </li>
-            ))}
+                      {/* ต่ำกว่า md: สถานะกับวันที่ย้ายลงมาอยู่ใต้ชื่อแทนที่จะเป็นคอลัมน์ตายตัว
+                          ที่กินความกว้าง 240px จนชื่อสินค้าไม่เหลือที่บนจอ 390px */}
+                      <div className="flex flex-wrap items-center gap-2 md:hidden">
+                        <Badge variant={STATUS_BADGE_VARIANT[row.status]}>
+                          {STATUS_LABEL[row.status]}
+                        </Badge>
+                        <span className="text-xs whitespace-nowrap text-muted-foreground">
+                          {dateText}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="hidden w-32 shrink-0 md:block">
+                      <Badge variant={STATUS_BADGE_VARIANT[row.status]}>
+                        {STATUS_LABEL[row.status]}
+                      </Badge>
+                    </div>
+
+                    <div className="hidden w-28 shrink-0 text-right md:block">
+                      <span className="text-sm whitespace-nowrap">{dateText}</span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
