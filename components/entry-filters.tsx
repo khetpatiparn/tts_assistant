@@ -129,13 +129,13 @@ export function EntryFilters({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <form
-          className="flex flex-wrap items-center gap-2"
+          className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
           onSubmit={(event) => {
             event.preventDefault();
             pushWith({});
           }}
         >
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-initial">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               key={query}
@@ -144,7 +144,7 @@ export function EntryFilters({
               defaultValue={query}
               placeholder="ค้นหาสินค้า"
               aria-label="ค้นหาสินค้า"
-              className="w-64 pl-9"
+              className="w-full pl-9 sm:w-64"
             />
           </div>
           <Button type="submit" variant="outline">
@@ -152,7 +152,11 @@ export function EntryFilters({
           </Button>
         </form>
 
-        <Button render={<Link href="/entry/new" />} nativeButton={false}>
+        <Button
+          render={<Link href="/entry/new" />}
+          nativeButton={false}
+          className="flex-1 sm:flex-none"
+        >
           <Plus className="size-4" />
           สินค้าใหม่
         </Button>

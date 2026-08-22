@@ -196,7 +196,7 @@ export function DashboardPanel({
 
         {importsOpen && (
           <>
-            <form action={action} className="flex flex-wrap items-center gap-2">
+            <form action={action} className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <Input
                 type="file"
                 name="file"
@@ -225,7 +225,7 @@ export function DashboardPanel({
               </div>
             )}
 
-            <form action={metricAction} className="flex flex-wrap items-center gap-2">
+            <form action={metricAction} className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center">
               <Input
                 type="file"
                 name="files"
