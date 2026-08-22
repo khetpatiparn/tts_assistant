@@ -173,7 +173,7 @@ export function EntryFilters({
               aria-current={status === filter.value ? "true" : undefined}
               onClick={() => pushWith({ status: filter.value })}
               className={cn(
-                "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors",
+                "inline-flex h-11 items-center rounded-md px-3 text-sm font-medium transition-colors lg:h-9",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 status === filter.value
                   ? "bg-primary text-primary-foreground"
@@ -206,7 +206,7 @@ export function EntryFilters({
                 type="button"
                 onClick={() => applyQuickRange("all")}
                 className={cn(
-                  "inline-flex h-9 items-center rounded-md px-3 text-sm transition-colors",
+                  "inline-flex h-11 items-center rounded-md px-3 text-sm transition-colors lg:h-9",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                   selected === "all"
                     ? "bg-primary text-primary-foreground"
@@ -221,7 +221,7 @@ export function EntryFilters({
                   type="button"
                   onClick={() => applyQuickRange(range.id)}
                   className={cn(
-                    "inline-flex h-9 items-center rounded-md px-3 text-sm transition-colors",
+                    "inline-flex h-11 items-center rounded-md px-3 text-sm transition-colors lg:h-9",
                     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     selected === range.id
                       ? "bg-primary text-primary-foreground"
@@ -236,7 +236,7 @@ export function EntryFilters({
                 onClick={() => applyQuickRange("custom")}
                 aria-expanded={showCustom}
                 className={cn(
-                  "inline-flex h-9 items-center rounded-md px-3 text-sm transition-colors",
+                  "inline-flex h-11 items-center rounded-md px-3 text-sm transition-colors lg:h-9",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                   selected === "custom" && !showCustom
                     ? "bg-primary text-primary-foreground"
@@ -290,7 +290,7 @@ export function EntryFilters({
                     pushWith({ by: "posted" });
                   }}
                   className={cn(
-                    "inline-flex h-9 items-center rounded-md px-3 text-sm transition-colors",
+                    "inline-flex h-11 items-center rounded-md px-3 text-sm transition-colors lg:h-9",
                     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     by === "posted"
                       ? "bg-primary text-primary-foreground"
@@ -307,7 +307,7 @@ export function EntryFilters({
                     pushWith({ by: "created" });
                   }}
                   className={cn(
-                    "inline-flex h-9 items-center rounded-md px-3 text-sm transition-colors",
+                    "inline-flex h-11 items-center rounded-md px-3 text-sm transition-colors lg:h-9",
                     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                     by === "created"
                       ? "bg-primary text-primary-foreground"

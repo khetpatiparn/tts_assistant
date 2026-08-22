@@ -188,7 +188,7 @@ export function Recommendations({
               type="button"
               key={task.entryId}
               onClick={() => onOpenEntry(task.entryId)}
-              className="flex min-h-9 flex-col gap-1 rounded-md border-t border-border px-1 py-2 text-left transition-colors first:border-t-0 hover:bg-muted"
+              className="flex min-h-11 flex-col gap-1 rounded-md border-t border-border px-1 py-2 text-left transition-colors first:border-t-0 hover:bg-muted lg:min-h-9"
             >
               <div className="flex flex-wrap items-center gap-2">
                 {task.kinds.map((kind) => (

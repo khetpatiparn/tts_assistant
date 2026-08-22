@@ -16,7 +16,7 @@ export function EntryHeader({
       <div className="px-4 pt-3 sm:px-6">
         <Link
           href="/"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm text-header-muted transition-colors hover:bg-header-foreground/10 hover:text-header-foreground focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none"
+          className="inline-flex h-11 items-center gap-1.5 rounded-md px-2 text-sm text-header-muted transition-colors hover:bg-header-foreground/10 hover:text-header-foreground focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none lg:h-9"
         >
           <ArrowLeft className="size-4" />
           กลับไปรายการ

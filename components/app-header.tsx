@@ -58,7 +58,7 @@ export function AppHeader({
             href={item.href}
             aria-current={active === item.key ? "page" : undefined}
             className={cn(
-              "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors",
+              "inline-flex h-11 items-center rounded-md px-3 text-sm font-medium transition-colors lg:h-9",
               "focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none",
               active === item.key
                 ? "bg-header-active text-header-active-foreground"

@@ -177,7 +177,7 @@ export function CandidatesRoute({
                   onClick={() => setCategoryFilter(selected ? null : s.label)}
                   aria-pressed={selected}
                   className={
-                    "inline-flex h-9 items-center gap-1.5 rounded-lg border border-border-interactive px-3 text-sm transition-colors " +
+                    "inline-flex h-11 items-center gap-1.5 rounded-lg border border-border-interactive px-3 text-sm transition-colors lg:h-9 " +
                     (selected
                       ? "bg-primary text-primary-foreground"
                       : "text-foreground hover:bg-foreground/5")
@@ -261,7 +261,7 @@ export function CandidatesRoute({
             onClick={() => setFilter(f.key)}
             aria-pressed={filter === f.key}
             className={
-              "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium transition-colors " +
+              "inline-flex h-11 items-center rounded-md px-3 text-sm font-medium transition-colors lg:h-9 " +
               (filter === f.key
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground")
