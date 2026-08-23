@@ -470,10 +470,10 @@ export function pickCandidateBadges(
     else result.set(id, [badge]);
   };
 
-  //   เป็นตัวคั่นเพราะเป็นอักขระเดียวที่ชื่อหมวดจาก AI เป็นไปไม่ได้ที่จะมี
+  // \u0000 เป็นตัวคั่นเพราะเป็นอักขระเดียวที่ชื่อหมวดจาก AI เป็นไปไม่ได้ที่จะมี
   const byGroup = new Map<string, typeof rows>();
   for (const r of rows) {
-    const key = `${r.batchId} ${r.categoryLabel}`;
+    const key = `${r.batchId}\u0000${r.categoryLabel}`;
     const group = byGroup.get(key);
     if (group) group.push(r);
     else byGroup.set(key, [r]);
