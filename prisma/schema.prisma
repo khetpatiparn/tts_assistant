@@ -157,7 +157,11 @@ model ProductCandidate {
   weeklySales   Int?
   /// ชื่อหมวดที่ AI อ่านจากหัวข้อบนสุดของภาพ
   categoryLabel String
-  /// เท่ากับ capturedOn ของชุดเสมอ เก็บซ้ำไว้เพื่อให้คิวรีรายแถวไม่ต้อง join
+  /// อัปโหลดใหม่เขียนค่านี้เท่ากับ capturedOn ของชุดเสมอ (เก็บซ้ำไว้เพื่อให้คิวรีรายแถวไม่ต้อง
+  /// join) แต่แถวที่ migrate มาจากข้อมูลเก่า (Task 1 ของฟีเจอร์ชุด) ยังเก็บ timestamp เดิมของ
+  /// แถวไว้ต่างหาก — ยืนยันแล้วว่า 83 จาก 162 แถว legacy ต่างจาก capturedOn ของชุดตัวเอง
+  /// โค้ดที่ตัดสินใจว่า "ชุดไหนใหม่กว่า" (เช่น latestBatchPerCategory) จึงควรอิง capturedOn
+  /// ของ CandidateBatch เป็นหลัก ไม่ใช่ของแถวนี้
   capturedOn    DateTime
   note          String         @default("")
   /// เซ็ตโดยระบบตอนกด "สร้างงานเลย" ไม่ใช่ป้ายที่ผู้ใช้ติดเอง

@@ -138,6 +138,18 @@ export function CandidatesRoute({
     return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
   }, [rows, filter, batchView]);
 
+  // จำนวนแถวของแต่ละชุดที่กำลังโชว์อยู่ในมุมมองดีฟอลต์ (ไม่ใช่ทั้งหมด batchView) — ใช้เตือน
+  // ตอนกดลบว่ากำลังจะทำหน้าจอปัจจุบันของผู้ใช้ว่างไปกี่รายการ (Finding 1: ชุดที่ดูเหมือน "เก่า"
+  // เพราะเก็บมาก่อนอาจยังมีแถวเป็นส่วนใหญ่ของสิ่งที่ผู้ใช้เห็นอยู่ตอนนี้จริงๆ)
+  const currentViewCountByBatch = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.isLatestForCategory) continue;
+      map.set(r.batchId, (map.get(r.batchId) ?? 0) + 1);
+    }
+    return map;
+  }, [rows]);
+
   function handleExtract() {
     if (files.length === 0) return;
     setError(null);
@@ -153,6 +165,9 @@ export function CandidatesRoute({
           `เพิ่มชุดใหม่ ${r.added} รายการ` +
             (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "")
         );
+        // กลับมามุมมองดีฟอลต์เสมอ — ถ้ายังค้าง batchView ของชุดเก่าอยู่ ผู้ใช้จะไม่เห็นชุดที่
+        // เพิ่งอัปโหลดเลย ทั้งที่ banner บอกว่าเพิ่มสำเร็จแล้ว (ดูเหมือนอัปโหลดไม่ทำอะไร)
+        setBatchView(null);
       } catch (e) {
         outcome = "error";
         setError(e instanceof Error ? e.message : "อ่านข้อมูลจากรูปไม่สำเร็จ");
@@ -282,11 +297,28 @@ export function CandidatesRoute({
                     {confirmDelete === b.id ? (
                       <>
                         <span className="text-sm text-destructive">
-                          ลบ {b.rowCount} รายการถาวร? (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)
+                          {(() => {
+                            const currentCount = currentViewCountByBatch.get(b.id) ?? 0;
+                            // ถ้ามีแถวของชุดนี้อยู่ในมุมมองดีฟอลต์ (ที่ผู้ใช้กำลังดูอยู่ตอนนี้)
+                            // ต้องเน้นให้เห็นชัดว่าลบแล้วหน้าจอปัจจุบันจะว่างไปกี่รายการ — ชุดที่
+                            // ดูเหมือน "เก่า" เพราะเก็บมาก่อนอาจยังเป็นส่วนใหญ่ของสิ่งที่เห็นอยู่จริง
+                            return currentCount > 0 ? (
+                              <>
+                                ลบ {b.rowCount} รายการถาวร?{" "}
+                                <span className="font-semibold">
+                                  รวม {currentCount} รายการที่กำลังแสดงอยู่ในหน้านี้ตอนนี้
+                                </span>{" "}
+                                (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)
+                              </>
+                            ) : (
+                              <>ลบ {b.rowCount} รายการถาวร? (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)</>
+                            );
+                          })()}
                         </span>
                         <Button
                           type="button"
                           size="sm"
+                          variant="destructive"
                           onClick={() => handleDeleteBatch(b.id)}
                           disabled={isUpdating}
                         >
@@ -378,7 +410,8 @@ export function CandidatesRoute({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </section>
 
-      {/* ตัวกรองสถานะ */}
+      {/* ตัวกรองสร้างงานแล้ว/ยังไม่ได้สร้าง — ไม่ใช่ตัวกรองสถานะ triage แล้ว (ระบบปัดตก/สนใจ
+          ถูกถอดออกทั้งหมดเมื่อ 2026-08-23) เหลือแค่แยกว่าแถวไหนกด "สร้างงานเลย" ไปแล้วหรือยัง */}
       <div className="inline-flex flex-wrap gap-1 self-start rounded-lg border border-border-interactive p-1">
         {FILTERS.map((f) => (
           <button
@@ -441,7 +474,7 @@ export function CandidatesRoute({
                     ) : (
                       <Link
                         href={`/entry/${r.linkedEntryId}`}
-                        className="text-primary underline underline-offset-2"
+                        className="inline-flex h-11 items-center text-primary underline underline-offset-2 lg:h-9"
                       >
                         สร้างแล้ว →
                       </Link>

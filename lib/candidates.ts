@@ -57,6 +57,23 @@ export function normalizeName(name: string): string {
   return name.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/**
+ * ทำให้ categoryLabel ใช้เป็น "คีย์จัดกลุ่ม" ได้เชื่อถือได้ — categoryLabel เป็นข้อความดิบจาก
+ * AI อ่านหัวข้อบนภาพ เดิม trim() อย่างเดียว ถ้า AI เผลอใส่ช่องว่างภายในต่างจากรอบก่อนหน้า
+ * (เช่น "ที่เก็บของ  และชั้นวาง" 2 ช่องแทน 1 ช่อง) หรือแคปที่ครอปไม่เห็นหัวข้อเลยจนได้ label ว่าง
+ * ตัวคีย์จะไม่ตรงกับของเดิม แล้ว latestBatchPerCategory/pickCandidateBadges จะมองว่าเป็นคนละ
+ * หมวดทั้งที่ควรเป็นหมวดเดียวกัน — ชุดเก่าจะค้างเป็น "ล่าสุด" ของคีย์เดิมตลอดไปเงียบๆ
+ *
+ * ยุบช่องว่างภายในเหลือช่องเดียวและแมปค่าว่างไปที่ bucket เดียวกันเสมอ ("ไม่ระบุหมวด")
+ * **ไม่ทำ fuzzy/ทนตัวสะกดผิด** — ตัวสะกดที่ต่างกันจริงๆ (ไม่ใช่แค่ช่องว่าง) ยังคงถูกมองเป็น
+ * คนละหมวดโดยตั้งใจ ผู้ใช้จะเห็นเป็น 2 ชุดที่ติดป้าย "ล่าสุด" พร้อมกันซึ่งเป็นสัญญาณเตือนที่
+ * มองเห็นได้เอง — ใช้เป็นคีย์จัดกลุ่มเท่านั้น ห้ามใช้ค่าที่คืนจากฟังก์ชันนี้ไปแสดงผลแทนค่าดิบเดิม
+ */
+export function normalizeCategoryLabel(label: string): string {
+  const collapsed = label.trim().replace(/\s+/g, " ");
+  return collapsed === "" ? "ไม่ระบุหมวด" : collapsed;
+}
+
 /** ตรวจธงเตือนจากชื่อสินค้าด้วยคำ ไม่ใช้ AI — ถูกกว่า เร็วกว่า และทดสอบได้ */
 export function detectFlags(name: string): CandidateFlag[] {
   const flags: CandidateFlag[] = [];
@@ -220,7 +237,7 @@ export function pickCandidateBadges(
   // \u0000 เป็นตัวคั่นเพราะเป็นอักขระเดียวที่ชื่อหมวดจาก AI เป็นไปไม่ได้ที่จะมี
   const byGroup = new Map<string, typeof rows>();
   for (const r of rows) {
-    const key = `${r.batchId}\u0000${r.categoryLabel}`;
+    const key = `${r.batchId}\u0000${normalizeCategoryLabel(r.categoryLabel)}`;
     const group = byGroup.get(key);
     if (group) group.push(r);
     else byGroup.set(key, [r]);
@@ -245,11 +262,15 @@ export function pickCandidateBadges(
 }
 
 /**
- * หา "ชุดล่าสุด" ของแต่ละหมวด — คืน Map<categoryLabel, batchId>
+ * หา "ชุดล่าสุด" ของแต่ละหมวด — คืน Map<normalizeCategoryLabel(categoryLabel), batchId>
  *
  * ต้องคิดแยกทีละหมวด ไม่ใช่หาชุดที่ใหม่สุดทั้งหมดแล้วใช้ร่วมกัน เพราะ 1 ชุดมีได้หลายหมวด
  * และผู้ใช้ไม่ได้รีเฟรชทุกหมวดพร้อมกัน — ชุดที่ใหม่สุดของ "โซฟา" อาจเป็นคนละชุดกับชุดที่
  * ใหม่สุดของ "ชั้นวาง" ถ้าใช้ชุดใหม่สุดตัวเดียวร่วมกัน หมวดที่ไม่ได้รีเฟรชรอบนี้จะหายไปทั้งหมด
+ *
+ * จัดกลุ่มด้วย normalizeCategoryLabel เสมอ ไม่ใช่ categoryLabel ดิบ — ผู้เรียก (เช่น
+ * getCandidatesData) ต้อง normalize categoryLabel ของแถวตัวเองก่อน lookup ผลลัพธ์นี้ด้วย
+ * ไม่งั้นคีย์จะไม่ตรงกัน
  */
 export function latestBatchPerCategory(
   rows: { batchId: string; categoryLabel: string; capturedOn: Date }[]
@@ -257,9 +278,10 @@ export function latestBatchPerCategory(
   const best = new Map<string, { batchId: string; at: number }>();
   for (const r of rows) {
     const at = r.capturedOn.getTime();
-    const prev = best.get(r.categoryLabel);
+    const category = normalizeCategoryLabel(r.categoryLabel);
+    const prev = best.get(category);
     if (prev === undefined || at > prev.at) {
-      best.set(r.categoryLabel, { batchId: r.batchId, at });
+      best.set(category, { batchId: r.batchId, at });
     }
   }
   const result = new Map<string, string>();

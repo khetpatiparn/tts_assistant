@@ -6,6 +6,7 @@ import {
   demandTotal,
   detectFlags,
   latestBatchPerCategory,
+  normalizeCategoryLabel,
   pickCandidateBadges,
   type CandidateBadge,
   type CandidateFlag,
@@ -76,7 +77,9 @@ export async function getCandidatesData(): Promise<{
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),
-    isLatestForCategory: latest.get(c.categoryLabel) === c.batchId,
+    // latest คีย์ด้วย normalizeCategoryLabel เสมอ (ดูคอมเมนต์ที่ latestBatchPerCategory) —
+    // lookup ต้อง normalize categoryLabel ของแถวนี้ก่อนด้วย ไม่งั้นคีย์ไม่ตรงกัน
+    isLatestForCategory: latest.get(normalizeCategoryLabel(c.categoryLabel)) === c.batchId,
   }));
 
   const badgeMap = pickCandidateBadges(rowsWithoutBadges);
@@ -86,9 +89,13 @@ export async function getCandidatesData(): Promise<{
   }));
 
   // สรุปรายชุด — นับแถวและหมวดที่อยู่ในชุดนั้น
+  // ใช้ normalizeCategoryLabel เป็นทั้งคีย์และป้ายที่แสดง — ต่างจากตารางรายแถวที่โชว์
+  // categoryLabel ดิบ เพราะที่นี่เป็นก้อนสรุปรวมหลายแถว ไม่มี "ค่าดิบตัวเดียว" ให้แสดงต่อกลุ่ม
+  // อยู่แล้ว (นี่คือจุดเดียวกับที่เคยแมปค่าว่างเป็น "ไม่ระบุหมวด" แบบ trim() อย่างเดียว —
+  // ตอนนี้ยุบช่องว่างภายในที่ต่างกันเล็กน้อยให้เข้ากลุ่มเดียวกันด้วย ดูเหตุผลที่ normalizeCategoryLabel)
   const countsByBatch = new Map<string, Map<string, number>>();
   for (const c of candidates) {
-    const label = c.categoryLabel.trim() === "" ? "ไม่ระบุหมวด" : c.categoryLabel;
+    const label = normalizeCategoryLabel(c.categoryLabel);
     let perCategory = countsByBatch.get(c.batchId);
     if (perCategory === undefined) {
       perCategory = new Map();

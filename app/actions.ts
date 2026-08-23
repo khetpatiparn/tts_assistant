@@ -979,38 +979,50 @@ export async function extractCandidates(
   }
 
   const capturedOn = new Date();
-  const batch = await prisma.candidateBatch.create({ data: { capturedOn } });
 
-  // ชุดใหม่ไม่แตะชุดเก่าเลย — สินค้าชื่อเดิมอยู่คนละชุดได้ แต่ในชุดเดียวกันยังกันซ้ำอยู่
-  // เพราะแคปแบบเลื่อนจอมักมีสินค้าซ้ำตรงรอยต่อระหว่างภาพ
-  const seen = new Set<string>();
-  for (const row of rows) {
-    const nameKey = normalizeName(row.name);
-    await prisma.productCandidate.upsert({
-      where: { batchId_nameKey: { batchId: batch.id, nameKey } },
-      create: {
-        batchId: batch.id,
-        name: row.name,
-        nameKey,
-        price: row.price,
-        commission: row.commission,
-        weeklySales: row.weeklySales,
-        categoryLabel: row.categoryLabel,
-        capturedOn,
-      },
-      update: {
-        name: row.name,
-        price: row.price,
-        commission: row.commission,
-        weeklySales: row.weeklySales,
-        categoryLabel: row.categoryLabel,
-      },
-    });
-    seen.add(nameKey);
-  }
+  // สร้างชุด + upsert ทุกแถวในทรานแซกชันเดียว — ก่อนหน้านี้ไม่มีทรานแซกชันคลุม ถ้า DB ล้ม
+  // กลางลูป (เช่น แถวที่ 20 จาก 40) จะเหลือ "ชุดครึ่งๆ กลางๆ" ค้างอยู่จริงในตาราง ซึ่งมี
+  // capturedOn ใหม่กว่าชุดเดิมจึงถูกนับเป็น "ชุดล่าสุด" ทันทีและบังชุดที่ครบถ้วนกว่าไปเงียบๆ
+  // ทั้งที่ผู้ใช้เห็นแค่ error banner ซึ่งอ่านได้ว่า "ไม่มีอะไรถูกบันทึกเลย" ห่อด้วย
+  // $transaction แบบ callback (ไม่ใช่ array แบบจุดอื่นในไฟล์นี้) เพราะจำนวนแถว/เนื้อหาแต่ละ
+  // แถวรู้ได้ตอนรันไทม์เท่านั้น (ผลจาก parseCandidateRows) และต้องใช้ batch.id ที่เพิ่งสร้าง
+  // ในทุก upsert ถัดไป ล้มตรงไหนก็ rollback ทั้งก้อน ไม่เหลือชุดเปล่าหรือชุดครึ่งๆ กลางๆ ค้าง
+  const seenKeys = new Set<string>();
+  const batch = await prisma.$transaction(async (tx) => {
+    const created = await tx.candidateBatch.create({ data: { capturedOn } });
+
+    // ชุดใหม่ไม่แตะชุดเก่าเลย — สินค้าชื่อเดิมอยู่คนละชุดได้ แต่ในชุดเดียวกันยังกันซ้ำอยู่
+    // เพราะแคปแบบเลื่อนจอมักมีสินค้าซ้ำตรงรอยต่อระหว่างภาพ
+    for (const row of rows) {
+      const nameKey = normalizeName(row.name);
+      await tx.productCandidate.upsert({
+        where: { batchId_nameKey: { batchId: created.id, nameKey } },
+        create: {
+          batchId: created.id,
+          name: row.name,
+          nameKey,
+          price: row.price,
+          commission: row.commission,
+          weeklySales: row.weeklySales,
+          categoryLabel: row.categoryLabel,
+          capturedOn,
+        },
+        update: {
+          name: row.name,
+          price: row.price,
+          commission: row.commission,
+          weeklySales: row.weeklySales,
+          categoryLabel: row.categoryLabel,
+        },
+      });
+      seenKeys.add(nameKey);
+    }
+
+    return created;
+  });
 
   revalidatePath("/products");
-  return { batchId: batch.id, added: seen.size, skipped };
+  return { batchId: batch.id, added: seenKeys.size, skipped };
 }
 
 /**

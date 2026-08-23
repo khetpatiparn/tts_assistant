@@ -57,6 +57,23 @@ try {
   );
   check("ตัดช่องว่างหัวท้าย", c.normalizeName(" ก ข "), "ก ข");
 
+  // --- normalizeCategoryLabel (Finding 2: ช่องว่างภายในที่ต่างกัน/label ว่าง ไม่ควรแยกหมวด) ---
+  check(
+    "ช่องว่างภายในต่างกัน (1 ช่อง vs 2 ช่อง) ได้คีย์เดียวกัน",
+    c.normalizeCategoryLabel("ที่เก็บของ และชั้นวาง"),
+    c.normalizeCategoryLabel("ที่เก็บของ  และชั้นวาง")
+  );
+  check(
+    "label ว่างสนิท กับ label ที่มีแต่ช่องว่าง ได้คีย์เดียวกัน (bucket 'ไม่ระบุหมวด')",
+    c.normalizeCategoryLabel(""),
+    c.normalizeCategoryLabel("   ")
+  );
+  check(
+    "label ที่สะอาดอยู่แล้วไม่ถูกเปลี่ยนแปลง",
+    c.normalizeCategoryLabel("เฟอร์นิเจอร์"),
+    "เฟอร์นิเจอร์"
+  );
+
   // --- detectFlags ---
   checkDeep("ชื่อมี 'พับได้' ติดธงกลไก", c.detectFlags("ตู้เก็บของพับได้ 49CM"), ["mechanism"]);
   checkDeep("ชื่อมี 'หมุน 360' ติดธงกลไก", c.detectFlags("ชั้นวางเครื่องสำอางหมุนได้ 360 องศา"), ["mechanism"]);
@@ -245,6 +262,30 @@ try {
   check("โซฟา -> ชุด 23 ส.ค. (ใหม่สุดของหมวดนี้)", latest.get("โซฟา"), "b-aug23");
   check("ชั้นวาง -> ชุด 20 ส.ค. (มีชุดเดียว ไม่ถูกชุดใหม่ของหมวดอื่นแย่ง)", latest.get("ชั้นวาง"), "b-aug20");
   check("หมวดที่ไม่มีข้อมูล -> undefined", latest.get("ไม่มีจริง"), undefined);
+
+  // Finding 2: ช่องว่างภายใน label ต่างกันเล็กน้อยระหว่างชุด ต้องยังจัดกลุ่มเป็นหมวดเดียวกัน
+  // ไม่งั้นชุดเก่าจะค้างเป็น "ล่าสุด" ของคีย์เดิมตลอดไปเงียบๆ เพราะชุดใหม่ไปลงคีย์อื่น
+  const latestWhitespace = c.latestBatchPerCategory([
+    { batchId: "b-old", categoryLabel: "ที่เก็บของ และชั้นวาง", capturedOn: new Date("2026-08-20T05:00:00Z") },
+    { batchId: "b-new", categoryLabel: "ที่เก็บของ  และชั้นวาง", capturedOn: new Date("2026-08-23T05:00:00Z") },
+  ]);
+  check(
+    "ช่องว่างภายในต่างกัน (1 vs 2 ช่อง) ยังจัดเป็นหมวดเดียวกัน -> ชุดใหม่ชนะ",
+    latestWhitespace.get(c.normalizeCategoryLabel("ที่เก็บของ และชั้นวาง")),
+    "b-new"
+  );
+
+  // Finding 2: label ว่างสนิทกับ label ที่มีแต่ช่องว่าง ต้องรวม bucket เดียวกัน (ไม่ใช่ยึด
+  // "ล่าสุด" แยกกันคนละคีย์ ทำให้ของเก่าไม่เคยถูกแทนที่)
+  const latestEmpty = c.latestBatchPerCategory([
+    { batchId: "b-old", categoryLabel: "   ", capturedOn: new Date("2026-08-18T05:00:00Z") },
+    { batchId: "b-new", categoryLabel: "", capturedOn: new Date("2026-08-23T05:00:00Z") },
+  ]);
+  check(
+    "label ว่างสนิท กับ label ที่มีแต่ช่องว่าง รวม bucket เดียวกัน -> ชุดใหม่ชนะ",
+    latestEmpty.get("ไม่ระบุหมวด"),
+    "b-new"
+  );
 
   // --- คำนวณ ---
   checkClose3("%ค่าคอม 29.90/249", c.commissionPercent(249, 29.9), 12.0);
