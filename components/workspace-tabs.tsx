@@ -53,7 +53,7 @@ export function WorkspaceTabs({
       {/* เหตุผลที่แท็บนี้กดไม่ได้ต้องเป็นข้อความจริง ไม่ใช่แค่ title= — จอสัมผัสไม่มีทาง
           hover เห็น title ของปุ่มที่ disabled อยู่แล้ว (pointer-events ถูกปิดไปพร้อมกัน) */}
       {productionDisabled && (
-        <p className="text-xs leading-relaxed text-header-muted">
+        <p className="text-xs leading-relaxed text-header-muted lg:hidden">
           ยังไม่ได้บันทึกสินค้านี้ — บันทึกก่อนถึงจะเข้าแท็บนี้ได้
         </p>
       )}

@@ -27,7 +27,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label="สลับธีมสว่างและมืด"
       title="สลับธีมสว่างและมืด"
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-header-muted/50 text-header-foreground transition-colors hover:bg-header-foreground/10 focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none"
+      className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-header-muted/50 text-header-foreground transition-colors hover:bg-header-foreground/10 focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none lg:size-9"
     >
       <Moon className="size-4 dark:hidden" />
       <Sun className="hidden size-4 dark:block" />

@@ -274,7 +274,7 @@ export function CandidatesRoute({
             ref={inputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            accept="image/jpeg,image/png,image/webp"
             hidden
             onChange={(e) => {
               setFiles((prev) => [...prev, ...imageFilesFrom(e.target.files)]);
@@ -342,44 +342,46 @@ export function CandidatesRoute({
                   key={r.id}
                   className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-3"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 flex-1 text-base leading-relaxed font-medium text-foreground">
-                      {r.name}
-                    </p>
-                    <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                      {r.status === "done" ? (
-                        <span className="text-xs text-muted-foreground">สร้างรายการแล้ว</span>
-                      ) : (
-                        <>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatus(r.id, "interested")}
-                            disabled={isUpdating || r.status === "interested"}
-                          >
-                            {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStatus(r.id, "rejected")}
-                            disabled={isUpdating || r.status === "rejected"}
-                          >
-                            {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => handleCreate(r.id)}
-                            disabled={isUpdating}
-                          >
-                            สร้างงานเลย
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                  {/* ชื่อสินค้าต้องได้แถวเต็มความกว้างของตัวเองก่อน แล้วปุ่ม action ค่อยขึ้น
+                      แถวใหม่ด้านล่าง — เดิมทั้งสองอยู่แถวเดียวกันแบบ shrink-0 whitespace-nowrap
+                      ทำให้ปุ่ม 3 ปุ่มแย่งพื้นที่ ~220px จาก 390px เหลือชื่อแค่ ~110px จนตัดคำ
+                      3-4 บรรทัด (บั๊กเดียวกับที่ entry-list.tsx เคยแก้ไปแล้ว) */}
+                  <p className="text-base leading-relaxed font-medium text-foreground">
+                    {r.name}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {r.status === "done" ? (
+                      <span className="text-xs text-muted-foreground">สร้างรายการแล้ว</span>
+                    ) : (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleStatus(r.id, "interested")}
+                          disabled={isUpdating || r.status === "interested"}
+                        >
+                          {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleStatus(r.id, "rejected")}
+                          disabled={isUpdating || r.status === "rejected"}
+                        >
+                          {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleCreate(r.id)}
+                          disabled={isUpdating}
+                        >
+                          สร้างงานเลย
+                        </Button>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-1.5">

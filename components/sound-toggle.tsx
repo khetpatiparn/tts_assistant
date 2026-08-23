@@ -26,7 +26,7 @@ export function SoundToggle() {
       onClick={() => setSoundMuted(!muted)}
       aria-label={muted ? "เปิดเสียงแจ้งเตือน AI" : "ปิดเสียงแจ้งเตือน AI"}
       title={muted ? "เปิดเสียงแจ้งเตือน AI" : "ปิดเสียงแจ้งเตือน AI"}
-      className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg border border-header-muted/50 text-header-foreground transition-colors hover:bg-header-foreground/10 focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none"
+      className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-header-muted/50 text-header-foreground transition-colors hover:bg-header-foreground/10 focus-visible:ring-2 focus-visible:ring-header-active focus-visible:outline-none lg:size-9"
     >
       {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
     </button>

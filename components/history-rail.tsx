@@ -204,7 +204,10 @@ export function HistoryRailDrawer({ rows, selectedId, onDuplicate, onDelete }: R
 
       <Drawer.Portal>
         <Drawer.Backdrop className="fixed inset-0 z-40 min-h-dvh bg-black/50 opacity-[calc(1-var(--drawer-swipe-progress))] transition-opacity duration-300 data-ending-style:opacity-0 data-starting-style:opacity-0 data-swiping:duration-0" />
-        <Drawer.Viewport className="fixed inset-0 z-50 flex items-stretch justify-start">
+        {/* pb-safe อยู่ที่นี่ (ไม่ใช่ Popup) เพราะ Popup มี py-4 ของตัวเองอยู่แล้ว — ใส่ตรงนี้
+            กันไม่ให้ทับกับ padding-bottom เดิม แค่หด flex box ให้ Popup (h-full) ลอยพ้น
+            home indicator ของ iOS ตาม viewportFit: "cover" ใน app/layout.tsx */}
+        <Drawer.Viewport className="fixed inset-0 z-50 flex items-stretch justify-start pb-safe">
           <Drawer.Popup className="flex h-full w-72 max-w-[85vw] flex-col gap-3 overflow-y-auto overscroll-contain border-r border-header-muted/40 bg-header px-3 py-4 text-header-foreground outline-none [transform:translateX(var(--drawer-swipe-movement-x))] transition-transform duration-300 ease-out data-ending-style:[transform:translateX(-100%)] data-starting-style:[transform:translateX(-100%)]">
             <Drawer.Title className="px-1 text-sm font-semibold text-header-foreground">
               รายการล่าสุด

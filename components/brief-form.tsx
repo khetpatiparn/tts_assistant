@@ -304,7 +304,7 @@ export function BriefForm({
                 ref={extractInputRef}
                 type="file"
                 multiple
-                accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                accept="image/jpeg,image/png,image/webp"
                 hidden
                 onChange={(e) => {
                   acceptExtractFiles(imageFilesFrom(e.target.files));
@@ -553,7 +553,7 @@ export function BriefForm({
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            accept="image/jpeg,image/png,image/webp"
             hidden
             onChange={(e) => {
               acceptFiles(imageFilesFrom(e.target.files));

@@ -73,7 +73,7 @@ export function ScriptOutput({
       {/* เหตุผลที่ปุ่มกดไม่ได้ต้องเป็นข้อความจริง ไม่ใช่แค่ title= — จอสัมผัสไม่มีทาง hover
           เห็น title ของปุ่มที่ disabled อยู่แล้ว (pointer-events ถูกปิดไปพร้อมกัน) */}
       {!canGenerate && (
-        <p className="text-xs leading-relaxed text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground lg:hidden">
           แนบรูปสินค้าจริงก่อนถึงจะกด &quot;สร้างด้วย AI&quot; ได้
         </p>
       )}
