@@ -189,10 +189,30 @@ try {
     { id: "consumable-b", batchId: B, commission: 12.06, commissionPercent: 9.0, weeklySales: 4900, categoryLabel: "ของสิ้นเปลือง" },
   ]);
   check("2 ประเภทในชุดเดียว -> ติดป้ายรวม 4 รายการ (ไม่ใช่แค่ 2)", twoCategoryBadges.size, 4);
-  check(
-    "เฟอร์นิเจอร์ได้ป้ายของตัวเอง แม้ตัวเลขเล็กกว่าของสิ้นเปลืองมาก",
-    twoCategoryBadges.has("furniture-a") && twoCategoryBadges.has("furniture-b"),
-    true
+  // เช็ก rank เป๊ะๆ ไม่ใช่แค่ has() -- has() อย่างเดียวพิสูจน์แค่ว่าแยก batch ได้ ไม่พิสูจน์ว่า
+  // แยกหมวดได้จริง (ถ้า group key ดันเหลือแค่ batchId เฉยๆ ทั้ง 4 แถวจะรวมกองเดียว แต่ union
+  // ของป้ายที่ได้บังเอิญยังครบ 4 ชื่อเหมือนเดิม has() เลยตรวจไม่เจอ) เฟอร์นิเจอร์มีแค่ 2 แถว
+  // จึงติดทั้ง topSeller และ topCommission ครบทั้งคู่ (rank 1-2) ถ้าเผลอไปแย่งอันดับกับของ
+  // สิ้นเปลืองซึ่งยอดขาย/ค่าคอมสูงกว่ามาก furniture-a จะหล่นจาก topSeller rank 1 ไปอยู่ rank 3
+  checkDeep(
+    "furniture-a ในหมวดตัวเอง -> ขายดี rank 1 (103>62) และค่าคอม rank 2 (24.1<38.72)",
+    twoCategoryBadges.get("furniture-a"),
+    [{ type: "topSeller", rank: 1 }, { type: "topCommission", rank: 2 }]
+  );
+  checkDeep(
+    "furniture-b ในหมวดตัวเอง -> ขายดี rank 2 และค่าคอม rank 1 (38.72 สูงสุดในหมวด)",
+    twoCategoryBadges.get("furniture-b"),
+    [{ type: "topSeller", rank: 2 }, { type: "topCommission", rank: 1 }]
+  );
+  checkDeep(
+    "consumable-a ในหมวดตัวเอง -> ขายดี rank 1 (5700>4900) และค่าคอม rank 2 (6.88<12.06)",
+    twoCategoryBadges.get("consumable-a"),
+    [{ type: "topSeller", rank: 1 }, { type: "topCommission", rank: 2 }]
+  );
+  checkDeep(
+    "consumable-b ในหมวดตัวเอง -> ขายดี rank 2 และค่าคอม rank 1 (12.06 สูงสุดในหมวด)",
+    twoCategoryBadges.get("consumable-b"),
+    [{ type: "topSeller", rank: 2 }, { type: "topCommission", rank: 1 }]
   );
 
   // หัวใจของฟีเจอร์ชุด (2026-08-23): หมวดเดียวกันแต่คนละชุด ต้องคิดอันดับแยกขาดจากกัน
