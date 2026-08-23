@@ -124,29 +124,51 @@ model ImportLog {
   @@index([fileHash])
 }
 
+/// 1 ชุด = 1 ครั้งที่กด "อ่านข้อมูลจากรูป" — เป็นภาพนิ่งของลิสต์จัดอันดับ ณ เวลานั้น
+///
+/// ไม่เก็บ categoryLabel ที่ระดับชุด เพราะ 1 ชุดมีได้หลายหมวด (ผู้ใช้แปะแคปหลายหมวดพร้อมกันได้)
+/// หมวดอยู่ที่ระดับแถว การสรุปว่าชุดนี้มีหมวดอะไรบ้างจึงคำนวณจากแถวเอา
+model CandidateBatch {
+  id         String             @id @default(cuid())
+  /// เวลาที่กดอ่านข้อมูลจากรูป — ใช้ตัดสินว่าชุดไหนใหม่กว่าของหมวดเดียวกัน
+  capturedOn DateTime
+  createdAt  DateTime           @default(now())
+  rows       ProductCandidate[]
+
+  @@index([capturedOn])
+}
+
 /// สินค้าที่กำลังพิจารณาว่าจะทำคลิปไหม — มาจากแคปหน้าจัดอันดับ TikTok Shop
 ///
 /// ไม่ผูก relation กับ PromptEntry โดยตั้งใจ (เก็บ linkedEntryId เป็น String เปล่า)
-/// เพราะประวัติการตัดสินใจไม่ควรหายตามเมื่อ entry ถูกลบ
+/// เพราะงานที่ทำไปแล้วไม่ควรหายตามเมื่อลบชุด — ลบชุดแล้วเสียแค่ "ลิงก์" ไม่ใช่ตัว entry
 model ProductCandidate {
-  id            String   @id @default(cuid())
+  id            String         @id @default(cuid())
+  batchId       String
+  batch         CandidateBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
   /// ชื่อเต็มตามภาพ ไม่ย่อ
   name          String
-  /// normalizeName(name) — ใช้จับคู่ตอน upsert กันข้อมูลซ้ำเมื่อแคปสินค้าเดิมอีกรอบ
-  nameKey       String   @unique
+  /// normalizeName(name) — unique ต่อชุด ไม่ใช่ทั้งตาราง: สินค้าเดิมอยู่คนละชุดได้
+  /// แต่ในชุดเดียวกันยังกันซ้ำอยู่ เพราะแคปแบบเลื่อนจอมักมีสินค้าซ้ำตรงรอยต่อภาพ
+  nameKey       String
   price         Float
   commission    Float
   /// null = แคปมาจากหน้าที่ไม่มีตัวเลขยอดขาย (แถบ "คะแนนสูงสุด")
   weeklySales   Int?
   /// ชื่อหมวดที่ AI อ่านจากหัวข้อบนสุดของภาพ
   categoryLabel String
+  /// อัปโหลดใหม่เขียนค่านี้เท่ากับ capturedOn ของชุดเสมอ (เก็บซ้ำไว้เพื่อให้คิวรีรายแถวไม่ต้อง
+  /// join) แต่แถวที่ migrate มาจากข้อมูลเก่า (Task 1 ของฟีเจอร์ชุด) ยังเก็บ timestamp เดิมของ
+  /// แถวไว้ต่างหาก — ยืนยันแล้วว่า 83 จาก 162 แถว legacy ต่างจาก capturedOn ของชุดตัวเอง
+  /// โค้ดที่ตัดสินใจว่า "ชุดไหนใหม่กว่า" (เช่น latestBatchPerCategory) จึงควรอิง capturedOn
+  /// ของ CandidateBatch เป็นหลัก ไม่ใช่ของแถวนี้
   capturedOn    DateTime
-  /// "new" | "interested" | "rejected" | "done"
-  status        String   @default("new")
-  note          String   @default("")
+  note          String         @default("")
+  /// เซ็ตโดยระบบตอนกด "สร้างงานเลย" ไม่ใช่ป้ายที่ผู้ใช้ติดเอง
   linkedEntryId String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime       @default(now())
 
-  @@index([status])
+  @@unique([batchId, nameKey])
   @@index([categoryLabel])
+  @@index([batchId])
 }

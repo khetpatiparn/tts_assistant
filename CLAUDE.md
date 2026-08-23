@@ -56,6 +56,7 @@ No test runner is configured in this project.
 - generated client (`lib/generated/prisma/`, ถูก gitignore) **ไม่มี index barrel** — ต้อง import จาก `@/lib/generated/prisma/client` โดยตรง ไม่ใช่ import จาก directory เฉยๆ
 - ตัว adapter class ชื่อ export คือ `PrismaBetterSqlite3` (สังเกตตัวพิมพ์เล็ก-ใหญ่ให้ดี) จาก `@prisma/adapter-better-sqlite3`
 - หลังแก้ `prisma/schema.prisma` ให้รัน `npx prisma migrate dev --name <name>` แล้วตามด้วย `npx prisma generate`
+- **หลัง merge branch ที่แก้ schema เข้า `master` ต้องรัน `npx prisma migrate deploy` แล้วตามด้วย `npx prisma generate` ที่ root ของ repo ก่อนแอปจะ build/รันได้** — `dev.db` ตัวจริงและ generated client (`lib/generated/prisma/`) ทั้งคู่ถูก gitignore ไว้ จึงไม่ได้เดินทางไปกับ merge ด้วย ถ้าข้ามขั้นนี้ `dev.db` จะยังเป็นสคีมาก่อน merge และ client ที่ generate ไว้ก่อนหน้าจะไม่รู้จักโมเดล/ฟิลด์ใหม่ ทำให้ `start.bat` build ไม่ผ่าน
 - เช็ก/เคลียร์ข้อมูล local: `npx prisma db execute --stdin <<< "SELECT/DELETE ..."` กับ `dev.db`
 - **ห้ามรัน `DELETE FROM <table>;` แบบไม่มี `WHERE`** ตอนเคลียร์ข้อมูลทดสอบ — `dev.db` ไม่มี backup/WAL และถูก gitignore ไว้ ลบไปแล้วกู้คืนไม่ได้ ให้ระบุ `WHERE` เจาะจงแถวที่ตัวเองสร้างทดสอบเท่านั้น (เช่น `WHERE productName = '...'`)
 - `CorePrompt` เก็บ core prompt แบบมีเวอร์ชัน มี `isActive` ได้ทีละอันเดียว (บังคับผ่าน transaction ใน `app/actions.ts`) — ตอนสร้าง `PromptEntry` ใหม่ระบบจะผูกเวอร์ชันที่ active อยู่ให้อัตโนมัติ

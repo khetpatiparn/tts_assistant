@@ -943,7 +943,7 @@ export async function createEntryFromOrder(contentId: string, productName: strin
  */
 export async function extractCandidates(
   formData: FormData
-): Promise<{ added: number; updated: number; skipped: number }> {
+): Promise<{ batchId: string; added: number; skipped: number }> {
   const rawFiles = formData.getAll("files");
   const files: File[] = [];
   for (const value of rawFiles) {
@@ -973,30 +973,32 @@ export async function extractCandidates(
   const raw = await extractCandidateRows({ images });
   const { rows, skipped } = parseCandidateRows(raw);
 
-  const capturedOn = new Date();
-  let added = 0;
-  let updated = 0;
+  // ต้องเช็คก่อนสร้างชุด ไม่งั้นจะเหลือชุดเปล่าค้างในรายการให้ผู้ใช้มางงว่าคืออะไร
+  if (rows.length === 0) {
+    throw new Error("อ่านข้อมูลจากรูปไม่ได้เลยสักแถว ลองแคปใหม่ให้เห็นตัวเลขชัดขึ้น");
+  }
 
-  for (const row of rows) {
-    const nameKey = normalizeName(row.name);
-    const existing = await prisma.productCandidate.findUnique({ where: { nameKey } });
-    if (existing) {
-      // อัปเดตตัวเลขล่าสุด แต่คง status/note/linkedEntryId เดิม — ปัดตกแล้วต้องไม่กลับมา
-      await prisma.productCandidate.update({
-        where: { nameKey },
-        data: {
-          name: row.name,
-          price: row.price,
-          commission: row.commission,
-          weeklySales: row.weeklySales,
-          categoryLabel: row.categoryLabel,
-          capturedOn,
-        },
-      });
-      updated++;
-    } else {
-      await prisma.productCandidate.create({
-        data: {
+  const capturedOn = new Date();
+
+  // สร้างชุด + upsert ทุกแถวในทรานแซกชันเดียว — ก่อนหน้านี้ไม่มีทรานแซกชันคลุม ถ้า DB ล้ม
+  // กลางลูป (เช่น แถวที่ 20 จาก 40) จะเหลือ "ชุดครึ่งๆ กลางๆ" ค้างอยู่จริงในตาราง ซึ่งมี
+  // capturedOn ใหม่กว่าชุดเดิมจึงถูกนับเป็น "ชุดล่าสุด" ทันทีและบังชุดที่ครบถ้วนกว่าไปเงียบๆ
+  // ทั้งที่ผู้ใช้เห็นแค่ error banner ซึ่งอ่านได้ว่า "ไม่มีอะไรถูกบันทึกเลย" ห่อด้วย
+  // $transaction แบบ callback (ไม่ใช่ array แบบจุดอื่นในไฟล์นี้) เพราะจำนวนแถว/เนื้อหาแต่ละ
+  // แถวรู้ได้ตอนรันไทม์เท่านั้น (ผลจาก parseCandidateRows) และต้องใช้ batch.id ที่เพิ่งสร้าง
+  // ในทุก upsert ถัดไป ล้มตรงไหนก็ rollback ทั้งก้อน ไม่เหลือชุดเปล่าหรือชุดครึ่งๆ กลางๆ ค้าง
+  const seenKeys = new Set<string>();
+  const batch = await prisma.$transaction(async (tx) => {
+    const created = await tx.candidateBatch.create({ data: { capturedOn } });
+
+    // ชุดใหม่ไม่แตะชุดเก่าเลย — สินค้าชื่อเดิมอยู่คนละชุดได้ แต่ในชุดเดียวกันยังกันซ้ำอยู่
+    // เพราะแคปแบบเลื่อนจอมักมีสินค้าซ้ำตรงรอยต่อระหว่างภาพ
+    for (const row of rows) {
+      const nameKey = normalizeName(row.name);
+      await tx.productCandidate.upsert({
+        where: { batchId_nameKey: { batchId: created.id, nameKey } },
+        create: {
+          batchId: created.id,
           name: row.name,
           nameKey,
           price: row.price,
@@ -1005,24 +1007,32 @@ export async function extractCandidates(
           categoryLabel: row.categoryLabel,
           capturedOn,
         },
+        update: {
+          name: row.name,
+          price: row.price,
+          commission: row.commission,
+          weeklySales: row.weeklySales,
+          categoryLabel: row.categoryLabel,
+        },
       });
-      added++;
+      seenKeys.add(nameKey);
     }
-  }
+
+    return created;
+  });
 
   revalidatePath("/products");
-  return { added, updated, skipped };
+  return { batchId: batch.id, added: seenKeys.size, skipped };
 }
 
-export async function setCandidateStatus(
-  id: string,
-  status: string,
-  note?: string
-): Promise<void> {
-  await prisma.productCandidate.update({
-    where: { id },
-    data: { status, ...(note === undefined ? {} : { note }) },
-  });
+/**
+ * ลบทั้งชุด — แถวในชุดหายตามด้วย FK cascade
+ *
+ * ตัว PromptEntry ที่เคยสร้างจากแถวในชุดนี้ไม่ถูกลบ (ไม่มี relation ผูกกัน linkedEntryId
+ * เป็น String เปล่าโดยตั้งใจ) ลบชุดจึงเสียแค่ "ลิงก์" ไม่ใช่ตัวงาน
+ */
+export async function deleteCandidateBatch(batchId: string): Promise<void> {
+  await prisma.candidateBatch.delete({ where: { id: batchId } });
   revalidatePath("/products");
 }
 
@@ -1054,7 +1064,7 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
 
   await prisma.productCandidate.update({
     where: { id },
-    data: { status: "done", linkedEntryId: created.id },
+    data: { linkedEntryId: created.id },
   });
 
   revalidatePath("/products");

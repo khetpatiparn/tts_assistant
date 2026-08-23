@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   ClipboardPaste,
   Coins,
+  Layers,
   Lightbulb,
-  Package,
+  Trash2,
   TrendingUp,
   TriangleAlert,
   X,
@@ -13,13 +15,13 @@ import {
 
 import {
   createEntryFromCandidate,
+  deleteCandidateBatch,
   extractCandidates,
-  setCandidateStatus,
 } from "@/app/actions";
 import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
+  BatchSummary,
   CandidateRow,
-  CategorySummary,
   FocusCategory,
 } from "@/lib/candidate-queries";
 import { playCompletionSound } from "@/lib/completion-sound";
@@ -34,14 +36,12 @@ import {
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-type StatusFilter = "active" | "all" | "new" | "interested" | "rejected";
+type CreatedFilter = "all" | "todo" | "created";
 
-const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: "active", label: "ยังไม่ปัดตก" },
-  { key: "new", label: "ยังไม่ตัดสิน" },
-  { key: "interested", label: "สนใจ" },
-  { key: "rejected", label: "ปัดตกแล้ว" },
+const FILTERS: { key: CreatedFilter; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
+  { key: "todo", label: "ยังไม่ได้สร้าง" },
+  { key: "created", label: "สร้างแล้ว" },
 ];
 
 function imageFilesFrom(list: FileList | null | undefined): File[] {
@@ -53,6 +53,8 @@ function formatThaiDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
 }
 
+// เทียบที่ระดับวันตามปฏิทินท้องถิ่น ไม่ใช่ชั่วโมง — กันกรณีเก็บข้อมูลตอนดึกแล้วนับเป็น
+// "เกินกำหนดไปแล้ว" ทั้งที่ยังไม่ครบวันจริง (บั๊กคลาสเดียวกับ toDateInputValue)
 function daysBetween(from: Date, to: Date): number {
   const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
   const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
@@ -104,34 +106,49 @@ function buildCandidateWarnings(
 
 export function CandidatesRoute({
   rows,
-  summaries,
+  batches,
   focus,
   now,
 }: {
   rows: CandidateRow[];
-  summaries: CategorySummary[];
+  batches: BatchSummary[];
   focus: FocusCategory[];
   now: Date;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
-  const [filter, setFilter] = useState<StatusFilter>("active");
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CreatedFilter>("all");
+  // null = มุมมองดีฟอลต์ (ชุดล่าสุดของแต่ละหมวด) · ไม่ null = ดูชุดเดียวเจาะจง
+  const [batchView, setBatchView] = useState<string | null>(null);
+  // เก็บ id ของชุดที่กดลบไว้รอยืนยัน — ยืนยันในที่เดิมแทนการเปิด dialog
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isExtracting, startExtracting] = useTransition();
   const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => {
-    let list = rows;
-    if (filter === "active") list = list.filter((r) => r.status !== "rejected");
-    else if (filter !== "all") list = list.filter((r) => r.status === filter);
-    if (categoryFilter !== null) {
-      list = list.filter((r) => (r.categoryLabel || "ไม่ระบุหมวด") === categoryFilter);
-    }
+    let list =
+      batchView === null
+        ? rows.filter((r) => r.isLatestForCategory)
+        : rows.filter((r) => r.batchId === batchView);
+    if (filter === "todo") list = list.filter((r) => r.linkedEntryId === null);
+    else if (filter === "created") list = list.filter((r) => r.linkedEntryId !== null);
     // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
     return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
-  }, [rows, filter, categoryFilter]);
+  }, [rows, filter, batchView]);
+
+  // จำนวนแถวของแต่ละชุดที่กำลังโชว์อยู่ในมุมมองดีฟอลต์ (ไม่ใช่ทั้งหมด batchView) — ใช้เตือน
+  // ตอนกดลบว่ากำลังจะทำหน้าจอปัจจุบันของผู้ใช้ว่างไปกี่รายการ (Finding 1: ชุดที่ดูเหมือน "เก่า"
+  // เพราะเก็บมาก่อนอาจยังมีแถวเป็นส่วนใหญ่ของสิ่งที่ผู้ใช้เห็นอยู่ตอนนี้จริงๆ)
+  const currentViewCountByBatch = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.isLatestForCategory) continue;
+      map.set(r.batchId, (map.get(r.batchId) ?? 0) + 1);
+    }
+    return map;
+  }, [rows]);
 
   function handleExtract() {
     if (files.length === 0) return;
@@ -145,24 +162,17 @@ export function CandidatesRoute({
         const r = await extractCandidates(formData);
         setFiles([]);
         setResult(
-          `เพิ่มใหม่ ${r.added} รายการ · อัปเดต ${r.updated} รายการ` +
+          `เพิ่มชุดใหม่ ${r.added} รายการ` +
             (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "")
         );
+        // กลับมามุมมองดีฟอลต์เสมอ — ถ้ายังค้าง batchView ของชุดเก่าอยู่ ผู้ใช้จะไม่เห็นชุดที่
+        // เพิ่งอัปโหลดเลย ทั้งที่ banner บอกว่าเพิ่มสำเร็จแล้ว (ดูเหมือนอัปโหลดไม่ทำอะไร)
+        setBatchView(null);
       } catch (e) {
         outcome = "error";
         setError(e instanceof Error ? e.message : "อ่านข้อมูลจากรูปไม่สำเร็จ");
       }
       playCompletionSound(outcome);
-    });
-  }
-
-  function handleStatus(id: string, status: string) {
-    startUpdating(async () => {
-      try {
-        await setCandidateStatus(id, status);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "อัปเดตสถานะไม่สำเร็จ");
-      }
     });
   }
 
@@ -172,6 +182,19 @@ export function CandidatesRoute({
         await createEntryFromCandidate(id);
       } catch (e) {
         setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
+      }
+    });
+  }
+
+  function handleDeleteBatch(batchId: string) {
+    startUpdating(async () => {
+      try {
+        await deleteCandidateBatch(batchId);
+        setConfirmDelete(null);
+        // ถ้ากำลังดูชุดที่เพิ่งลบอยู่ ต้องเด้งกลับมุมมองดีฟอลต์ ไม่งั้นหน้าจะว่างเปล่าแบบงงๆ
+        setBatchView((current) => (current === batchId ? null : current));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "ลบชุดไม่สำเร็จ");
       }
     });
   }
@@ -207,40 +230,126 @@ export function CandidatesRoute({
         </p>
       </section>
 
-      {/* สรุปหมวดที่เก็บมาแล้ว */}
-      {summaries.length > 0 && (
-        <section className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 leading-relaxed">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <Package className="size-4 shrink-0 text-primary" />
-            เก็บมาแล้วในระบบ
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {summaries.map((s) => {
-              const age = daysBetween(s.lastCapturedOn, now);
-              const stale = age > IMPORT_STALE_DAYS;
-              const selected = categoryFilter === s.label;
+      {/* รายการชุด — 1 ชุด = 1 ครั้งที่อ่านข้อมูลจากรูป ดูเจาะจงหรือลบทั้งชุดได้จากตรงนี้ */}
+      {batches.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 leading-relaxed">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <Layers className="size-4 shrink-0 text-primary" />
+              ชุดที่เก็บมาแล้ว
+            </p>
+            <button
+              type="button"
+              onClick={() => setBatchView(null)}
+              aria-pressed={batchView === null}
+              className={
+                "inline-flex h-11 items-center rounded-lg border border-border-interactive px-3 text-sm transition-colors lg:h-9 " +
+                (batchView === null
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground hover:bg-foreground/5")
+              }
+            >
+              ดูชุดล่าสุดของทุกหมวด
+            </button>
+          </div>
+
+          <ul className="flex flex-col gap-2">
+            {batches.map((b) => {
+              const selected = batchView === b.id;
+              // เตือนเฉพาะชุดที่ยังเป็นชุดล่าสุดของอย่างน้อยหนึ่งหมวด — ชุดเก่าที่ถูก
+              // แทนที่ไปแล้วจะเก่าแค่ไหนก็ไม่ใช่ข่าว ไม่ต้องเตือนซ้ำ
+              const age = daysBetween(b.capturedOn, now);
+              const stale = b.isLatestForAnyCategory && age > IMPORT_STALE_DAYS;
               return (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => setCategoryFilter(selected ? null : s.label)}
-                  aria-pressed={selected}
-                  className={
-                    "inline-flex h-11 items-center gap-1.5 rounded-lg border border-border-interactive px-3 text-sm transition-colors lg:h-9 " +
-                    (selected
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground hover:bg-foreground/5")
-                  }
+                <li
+                  key={b.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3"
                 >
-                  {s.label} {s.count} รายการ
-                  <span className={selected ? "text-primary-foreground/80" : "text-muted-foreground"}>
-                    · {formatThaiDate(s.lastCapturedOn)}
+                  <span className="text-sm text-foreground">
+                    {b.categories.map((c) => `${c.label} ${c.count}`).join(" · ")}
                   </span>
-                  {stale && <TriangleAlert className="size-3.5 shrink-0 text-destructive" />}
-                </button>
+                  <span className="text-sm text-muted-foreground">
+                    เก็บ {formatThaiDate(b.capturedOn)}
+                  </span>
+                  {b.isLatestForAnyCategory && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
+                      ล่าสุด
+                    </span>
+                  )}
+                  {stale && (
+                    <span className="flex items-center gap-1 text-xs leading-relaxed text-destructive">
+                      <TriangleAlert className="size-3.5 shrink-0" />
+                      ข้อมูลเก่าเกินกำหนดมา {age - IMPORT_STALE_DAYS} วัน — ควรแคปหน้าจัดอันดับใหม่
+                    </span>
+                  )}
+
+                  <span className="ml-auto flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={selected ? "default" : "outline"}
+                      onClick={() => setBatchView(selected ? null : b.id)}
+                      aria-pressed={selected}
+                    >
+                      {selected ? "กำลังดูชุดนี้" : "ดูชุดนี้"}
+                    </Button>
+
+                    {confirmDelete === b.id ? (
+                      <>
+                        <span className="text-sm text-destructive">
+                          {(() => {
+                            const currentCount = currentViewCountByBatch.get(b.id) ?? 0;
+                            // ถ้ามีแถวของชุดนี้อยู่ในมุมมองดีฟอลต์ (ที่ผู้ใช้กำลังดูอยู่ตอนนี้)
+                            // ต้องเน้นให้เห็นชัดว่าลบแล้วหน้าจอปัจจุบันจะว่างไปกี่รายการ — ชุดที่
+                            // ดูเหมือน "เก่า" เพราะเก็บมาก่อนอาจยังเป็นส่วนใหญ่ของสิ่งที่เห็นอยู่จริง
+                            return currentCount > 0 ? (
+                              <>
+                                ลบ {b.rowCount} รายการถาวร?{" "}
+                                <span className="font-semibold">
+                                  รวม {currentCount} รายการที่กำลังแสดงอยู่ในหน้านี้ตอนนี้
+                                </span>{" "}
+                                (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)
+                              </>
+                            ) : (
+                              <>ลบ {b.rowCount} รายการถาวร? (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)</>
+                            );
+                          })()}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDeleteBatch(b.id)}
+                          disabled={isUpdating}
+                        >
+                          ยืนยันลบ
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          ยกเลิก
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDelete(b.id)}
+                        disabled={isUpdating}
+                      >
+                        <Trash2 className="size-4" />
+                        ลบชุดนี้
+                      </Button>
+                    )}
+                  </span>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </section>
       )}
 
@@ -301,7 +410,8 @@ export function CandidatesRoute({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </section>
 
-      {/* ตัวกรองสถานะ */}
+      {/* ตัวกรองสร้างงานแล้ว/ยังไม่ได้สร้าง — ไม่ใช่ตัวกรองสถานะ triage แล้ว (ระบบปัดตก/สนใจ
+          ถูกถอดออกทั้งหมดเมื่อ 2026-08-23) เหลือแค่แยกว่าแถวไหนกด "สร้างงานเลย" ไปแล้วหรือยัง */}
       <div className="inline-flex flex-wrap gap-1 self-start rounded-lg border border-border-interactive p-1">
         {FILTERS.map((f) => (
           <button
@@ -325,7 +435,9 @@ export function CandidatesRoute({
           (เดิมเป็นการ์ดใบละแถว เนื้อหากระจุกชิดซ้าย เห็นได้แค่ ~2 สินค้าต่อหน้าจอ) */}
       {visible.length === 0 ? (
         <p className="rounded-xl border border-border bg-surface p-5 text-sm leading-relaxed text-muted-foreground">
-          ยังไม่มีสินค้าในรายการนี้ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม
+          {rows.length === 0
+            ? "ยังไม่มีสินค้าในระบบ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม"
+            : "ไม่มีสินค้าที่ตรงกับตัวกรองนี้"}
         </p>
       ) : (
         <>
@@ -350,37 +462,22 @@ export function CandidatesRoute({
                     {r.name}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {r.status === "done" ? (
-                      <span className="text-xs text-muted-foreground">สร้างรายการแล้ว</span>
+                    {r.linkedEntryId === null ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleCreate(r.id)}
+                        disabled={isUpdating}
+                      >
+                        สร้างงานเลย
+                      </Button>
                     ) : (
-                      <>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatus(r.id, "interested")}
-                          disabled={isUpdating || r.status === "interested"}
-                        >
-                          {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatus(r.id, "rejected")}
-                          disabled={isUpdating || r.status === "rejected"}
-                        >
-                          {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => handleCreate(r.id)}
-                          disabled={isUpdating}
-                        >
-                          สร้างงานเลย
-                        </Button>
-                      </>
+                      <Link
+                        href={`/entry/${r.linkedEntryId}`}
+                        className="inline-flex h-11 items-center text-primary underline underline-offset-2 lg:h-9"
+                      >
+                        สร้างแล้ว →
+                      </Link>
                     )}
                   </div>
 
@@ -598,37 +695,22 @@ export function CandidatesRoute({
 
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5 whitespace-nowrap">
-                        {r.status === "done" ? (
-                          <span className="text-muted-foreground">สร้างรายการแล้ว</span>
+                        {r.linkedEntryId === null ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleCreate(r.id)}
+                            disabled={isUpdating}
+                          >
+                            สร้างงานเลย
+                          </Button>
                         ) : (
-                          <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatus(r.id, "interested")}
-                              disabled={isUpdating || r.status === "interested"}
-                            >
-                              {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatus(r.id, "rejected")}
-                              disabled={isUpdating || r.status === "rejected"}
-                            >
-                              {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => handleCreate(r.id)}
-                              disabled={isUpdating}
-                            >
-                              สร้างงานเลย
-                            </Button>
-                          </>
+                          <Link
+                            href={`/entry/${r.linkedEntryId}`}
+                            className="inline-flex h-11 items-center text-primary underline underline-offset-2 lg:h-9"
+                          >
+                            สร้างแล้ว →
+                          </Link>
                         )}
                       </div>
                     </td>
