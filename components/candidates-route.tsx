@@ -1,29 +1,24 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import {
   ClipboardPaste,
   Coins,
   Lightbulb,
-  Package,
   TrendingUp,
   TriangleAlert,
   X,
 } from "lucide-react";
 
-import {
-  createEntryFromCandidate,
-  extractCandidates,
-  setCandidateStatus,
-} from "@/app/actions";
+import { createEntryFromCandidate, extractCandidates } from "@/app/actions";
 import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
+  BatchSummary,
   CandidateRow,
-  CategorySummary,
   FocusCategory,
 } from "@/lib/candidate-queries";
 import { playCompletionSound } from "@/lib/completion-sound";
-import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,14 +29,12 @@ import {
 
 const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-type StatusFilter = "active" | "all" | "new" | "interested" | "rejected";
+type CreatedFilter = "all" | "todo" | "created";
 
-const FILTERS: { key: StatusFilter; label: string }[] = [
-  { key: "active", label: "ยังไม่ปัดตก" },
-  { key: "new", label: "ยังไม่ตัดสิน" },
-  { key: "interested", label: "สนใจ" },
-  { key: "rejected", label: "ปัดตกแล้ว" },
+const FILTERS: { key: CreatedFilter; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
+  { key: "todo", label: "ยังไม่ได้สร้าง" },
+  { key: "created", label: "สร้างแล้ว" },
 ];
 
 function imageFilesFrom(list: FileList | null | undefined): File[] {
@@ -51,12 +44,6 @@ function imageFilesFrom(list: FileList | null | undefined): File[] {
 
 function formatThaiDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
-}
-
-function daysBetween(from: Date, to: Date): number {
-  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
 // ใช้ร่วมกันทั้งการ์ด (ต่ำกว่า md) และตาราง (md ขึ้นไป) — ต้องประกอบคำเตือน
@@ -104,34 +91,30 @@ function buildCandidateWarnings(
 
 export function CandidatesRoute({
   rows,
-  summaries,
+  batches,
   focus,
   now,
 }: {
   rows: CandidateRow[];
-  summaries: CategorySummary[];
+  batches: BatchSummary[];
   focus: FocusCategory[];
   now: Date;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
-  const [filter, setFilter] = useState<StatusFilter>("active");
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const [filter, setFilter] = useState<CreatedFilter>("all");
   const [isExtracting, startExtracting] = useTransition();
   const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => {
-    let list = rows;
-    if (filter === "active") list = list.filter((r) => r.status !== "rejected");
-    else if (filter !== "all") list = list.filter((r) => r.status === filter);
-    if (categoryFilter !== null) {
-      list = list.filter((r) => (r.categoryLabel || "ไม่ระบุหมวด") === categoryFilter);
-    }
+    let list = rows.filter((r) => r.isLatestForCategory);
+    if (filter === "todo") list = list.filter((r) => r.linkedEntryId === null);
+    else if (filter === "created") list = list.filter((r) => r.linkedEntryId !== null);
     // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
     return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
-  }, [rows, filter, categoryFilter]);
+  }, [rows, filter]);
 
   function handleExtract() {
     if (files.length === 0) return;
@@ -145,7 +128,7 @@ export function CandidatesRoute({
         const r = await extractCandidates(formData);
         setFiles([]);
         setResult(
-          `เพิ่มใหม่ ${r.added} รายการ · อัปเดต ${r.updated} รายการ` +
+          `เพิ่มใหม่ ${r.added} รายการ` +
             (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "")
         );
       } catch (e) {
@@ -153,16 +136,6 @@ export function CandidatesRoute({
         setError(e instanceof Error ? e.message : "อ่านข้อมูลจากรูปไม่สำเร็จ");
       }
       playCompletionSound(outcome);
-    });
-  }
-
-  function handleStatus(id: string, status: string) {
-    startUpdating(async () => {
-      try {
-        await setCandidateStatus(id, status);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "อัปเดตสถานะไม่สำเร็จ");
-      }
     });
   }
 
@@ -206,43 +179,6 @@ export function CandidatesRoute({
           แคปจากหน้า &quot;ขายดีที่สุด&quot; (รายการเต็ม 15 อันดับ) เท่านั้น — หมวดอื่นก็แคปได้ ระบบไม่ได้จำกัด
         </p>
       </section>
-
-      {/* สรุปหมวดที่เก็บมาแล้ว */}
-      {summaries.length > 0 && (
-        <section className="flex flex-col gap-2 rounded-xl border border-border bg-surface p-5 leading-relaxed">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
-            <Package className="size-4 shrink-0 text-primary" />
-            เก็บมาแล้วในระบบ
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {summaries.map((s) => {
-              const age = daysBetween(s.lastCapturedOn, now);
-              const stale = age > IMPORT_STALE_DAYS;
-              const selected = categoryFilter === s.label;
-              return (
-                <button
-                  key={s.label}
-                  type="button"
-                  onClick={() => setCategoryFilter(selected ? null : s.label)}
-                  aria-pressed={selected}
-                  className={
-                    "inline-flex h-11 items-center gap-1.5 rounded-lg border border-border-interactive px-3 text-sm transition-colors lg:h-9 " +
-                    (selected
-                      ? "bg-primary text-primary-foreground"
-                      : "text-foreground hover:bg-foreground/5")
-                  }
-                >
-                  {s.label} {s.count} รายการ
-                  <span className={selected ? "text-primary-foreground/80" : "text-muted-foreground"}>
-                    · {formatThaiDate(s.lastCapturedOn)}
-                  </span>
-                  {stale && <TriangleAlert className="size-3.5 shrink-0 text-destructive" />}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* กล่องแปะรูป */}
       <section className="flex flex-col gap-3 rounded-xl border border-dashed border-border-interactive bg-surface p-5">
@@ -350,37 +286,22 @@ export function CandidatesRoute({
                     {r.name}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {r.status === "done" ? (
-                      <span className="text-xs text-muted-foreground">สร้างรายการแล้ว</span>
+                    {r.linkedEntryId === null ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleCreate(r.id)}
+                        disabled={isUpdating}
+                      >
+                        สร้างงานเลย
+                      </Button>
                     ) : (
-                      <>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatus(r.id, "interested")}
-                          disabled={isUpdating || r.status === "interested"}
-                        >
-                          {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleStatus(r.id, "rejected")}
-                          disabled={isUpdating || r.status === "rejected"}
-                        >
-                          {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => handleCreate(r.id)}
-                          disabled={isUpdating}
-                        >
-                          สร้างงานเลย
-                        </Button>
-                      </>
+                      <Link
+                        href={`/entry/${r.linkedEntryId}`}
+                        className="text-primary underline underline-offset-2"
+                      >
+                        สร้างแล้ว →
+                      </Link>
                     )}
                   </div>
 
@@ -598,37 +519,22 @@ export function CandidatesRoute({
 
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5 whitespace-nowrap">
-                        {r.status === "done" ? (
-                          <span className="text-muted-foreground">สร้างรายการแล้ว</span>
+                        {r.linkedEntryId === null ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleCreate(r.id)}
+                            disabled={isUpdating}
+                          >
+                            สร้างงานเลย
+                          </Button>
                         ) : (
-                          <>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatus(r.id, "interested")}
-                              disabled={isUpdating || r.status === "interested"}
-                            >
-                              {r.status === "interested" ? "สนใจอยู่" : "สนใจ"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatus(r.id, "rejected")}
-                              disabled={isUpdating || r.status === "rejected"}
-                            >
-                              {r.status === "rejected" ? "ปัดตกแล้ว" : "ปัดตก"}
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => handleCreate(r.id)}
-                              disabled={isUpdating}
-                            >
-                              สร้างงานเลย
-                            </Button>
-                          </>
+                          <Link
+                            href={`/entry/${r.linkedEntryId}`}
+                            className="text-primary underline underline-offset-2"
+                          >
+                            สร้างแล้ว →
+                          </Link>
                         )}
                       </div>
                     </td>

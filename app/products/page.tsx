@@ -13,7 +13,7 @@ export default async function ProductsPage() {
       <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
         <CandidatesRoute
           rows={data.rows}
-          summaries={data.summaries}
+          batches={data.batches}
           focus={data.focus}
           now={new Date()}
         />

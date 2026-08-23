@@ -160,7 +160,7 @@ export function demandTotal(commission: number, weeklySales: number | null): num
 export type CandidateBadge = { type: "topSeller" | "topCommission"; rank: number };
 
 /** จำนวนแถวที่ติดป้ายต่อประเภท — ปรับได้ตรงนี้จุดเดียวถ้ารู้สึกว่าน้อย/เยอะไป */
-const TOP_BADGE_COUNT = 4;
+const TOP_BADGE_COUNT = 3;
 
 /**
  * เลือกป้าย "ยอดขายดี"/"ค่าคอมสูงสุด" ท็อป TOP_BADGE_COUNT ต่อป้าย ต่อ "ประเภทสินค้า"
@@ -171,9 +171,13 @@ const TOP_BADGE_COUNT = 4;
  * ยอดขายหลักร้อย) จะไม่ได้ป้ายเลยแม้จะมีตัวเด่นในประเภทตัวเองจริง — อัปโหลด N ประเภทจึง
  * ควรได้ป้ายรวม N × (TOP_BADGE_COUNT × 2) ไม่ใช่แค่ TOP_BADGE_COUNT × 2 คงที่
  *
- * คำนวณเฉพาะแถวที่ (1) ยังไม่ถูกปัดตก และ (2) %ค่าคอมสมเหตุสมผล (≤100%) เท่านั้น — ข้อ 2
- * กันแค่แถวที่ราคาอ่านผิด (เช่น ฿0.01 จากราคาโปรโมชั่น) ไม่ให้ % ที่สูงเกินจริงมาปนข้อมูล
- * ไม่ใช่การกรองคุณภาพดีล
+ * คำนวณเฉพาะแถวที่ %ค่าคอมสมเหตุสมผล (≤100%) — กันแค่แถวที่ราคาอ่านผิด (เช่น ฿0.01 จากราคา
+ * โปรโมชั่น) ไม่ให้ % ที่สูงเกินจริงมาปนข้อมูล ไม่ใช่การกรองคุณภาพดีล (เดิมมีเกณฑ์ "ไม่ถูกปัดตก"
+ * ด้วย ถอดออกพร้อมระบบ triage ทั้งหมดเมื่อ 2026-08-23)
+ *
+ * **จัดกลุ่มด้วย batchId + categoryLabel ไม่ใช่ categoryLabel อย่างเดียว** — ป้ายคือ "อันดับใน
+ * ลิสต์นี้" ซึ่งลิสต์คือ 1 ชุด = 1 ครั้งที่แคปมา ถ้าปล่อยให้ข้ามชุด ของที่หลุดอันดับไปแล้วจะมา
+ * แย่งอันดับกับของรอบปัจจุบัน ซึ่งไม่มีความหมายและเป็นบั๊กที่ทำให้ต้องมีฟีเจอร์ชุดตั้งแต่ต้น
  *
  * **เคยกรองด้วย "commissionPercent > benchmarkPercent ทั้งร้าน" ด้วย (2026-08-19) แล้วถอดออก**
  * เพราะพิสูจน์แล้วด้วยข้อมูลจริงว่าเกณฑ์นั้นบังของที่ทำเงินได้มากที่สุดในหมวดทิ้งไปเอง —
@@ -198,7 +202,7 @@ const TOP_BADGE_COUNT = 4;
 export function pickCandidateBadges(
   rows: {
     id: string;
-    status: string;
+    batchId: string;
     commission: number;
     commissionPercent: number;
     weeklySales: number | null;
@@ -213,17 +217,17 @@ export function pickCandidateBadges(
     else result.set(id, [badge]);
   };
 
-  const byCategory = new Map<string, typeof rows>();
+  // \u0000 เป็นตัวคั่นเพราะเป็นอักขระเดียวที่ชื่อหมวดจาก AI เป็นไปไม่ได้ที่จะมี
+  const byGroup = new Map<string, typeof rows>();
   for (const r of rows) {
-    const group = byCategory.get(r.categoryLabel);
+    const key = `${r.batchId}\u0000${r.categoryLabel}`;
+    const group = byGroup.get(key);
     if (group) group.push(r);
-    else byCategory.set(r.categoryLabel, [r]);
+    else byGroup.set(key, [r]);
   }
 
-  for (const group of byCategory.values()) {
-    const eligible = group.filter(
-      (r) => r.status !== "rejected" && isCommissionPercentPlausible(r.commissionPercent)
-    );
+  for (const group of byGroup.values()) {
+    const eligible = group.filter((r) => isCommissionPercentPlausible(r.commissionPercent));
 
     eligible
       .filter((r) => r.weeklySales !== null)
@@ -237,6 +241,29 @@ export function pickCandidateBadges(
       .forEach((r, i) => addBadge(r.id, { type: "topCommission", rank: i + 1 }));
   }
 
+  return result;
+}
+
+/**
+ * หา "ชุดล่าสุด" ของแต่ละหมวด — คืน Map<categoryLabel, batchId>
+ *
+ * ต้องคิดแยกทีละหมวด ไม่ใช่หาชุดที่ใหม่สุดทั้งหมดแล้วใช้ร่วมกัน เพราะ 1 ชุดมีได้หลายหมวด
+ * และผู้ใช้ไม่ได้รีเฟรชทุกหมวดพร้อมกัน — ชุดที่ใหม่สุดของ "โซฟา" อาจเป็นคนละชุดกับชุดที่
+ * ใหม่สุดของ "ชั้นวาง" ถ้าใช้ชุดใหม่สุดตัวเดียวร่วมกัน หมวดที่ไม่ได้รีเฟรชรอบนี้จะหายไปทั้งหมด
+ */
+export function latestBatchPerCategory(
+  rows: { batchId: string; categoryLabel: string; capturedOn: Date }[]
+): Map<string, string> {
+  const best = new Map<string, { batchId: string; at: number }>();
+  for (const r of rows) {
+    const at = r.capturedOn.getTime();
+    const prev = best.get(r.categoryLabel);
+    if (prev === undefined || at > prev.at) {
+      best.set(r.categoryLabel, { batchId: r.batchId, at });
+    }
+  }
+  const result = new Map<string, string>();
+  for (const [category, v] of best) result.set(category, v.batchId);
   return result;
 }
 
