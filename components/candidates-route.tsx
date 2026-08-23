@@ -707,7 +707,7 @@ export function CandidatesRoute({
                         ) : (
                           <Link
                             href={`/entry/${r.linkedEntryId}`}
-                            className="text-primary underline underline-offset-2"
+                            className="inline-flex h-11 items-center text-primary underline underline-offset-2 lg:h-9"
                           >
                             สร้างแล้ว →
                           </Link>
