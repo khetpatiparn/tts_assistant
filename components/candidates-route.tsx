@@ -5,13 +5,19 @@ import Link from "next/link";
 import {
   ClipboardPaste,
   Coins,
+  Layers,
   Lightbulb,
+  Trash2,
   TrendingUp,
   TriangleAlert,
   X,
 } from "lucide-react";
 
-import { createEntryFromCandidate, extractCandidates } from "@/app/actions";
+import {
+  createEntryFromCandidate,
+  deleteCandidateBatch,
+  extractCandidates,
+} from "@/app/actions";
 import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
   BatchSummary,
@@ -19,6 +25,7 @@ import type {
   FocusCategory,
 } from "@/lib/candidate-queries";
 import { playCompletionSound } from "@/lib/completion-sound";
+import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +51,14 @@ function imageFilesFrom(list: FileList | null | undefined): File[] {
 
 function formatThaiDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+
+// เทียบที่ระดับวันตามปฏิทินท้องถิ่น ไม่ใช่ชั่วโมง — กันกรณีเก็บข้อมูลตอนดึกแล้วนับเป็น
+// "เกินกำหนดไปแล้ว" ทั้งที่ยังไม่ครบวันจริง (บั๊กคลาสเดียวกับ toDateInputValue)
+function daysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
 // ใช้ร่วมกันทั้งการ์ด (ต่ำกว่า md) และตาราง (md ขึ้นไป) — ต้องประกอบคำเตือน
@@ -104,17 +119,24 @@ export function CandidatesRoute({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [filter, setFilter] = useState<CreatedFilter>("all");
+  // null = มุมมองดีฟอลต์ (ชุดล่าสุดของแต่ละหมวด) · ไม่ null = ดูชุดเดียวเจาะจง
+  const [batchView, setBatchView] = useState<string | null>(null);
+  // เก็บ id ของชุดที่กดลบไว้รอยืนยัน — ยืนยันในที่เดิมแทนการเปิด dialog
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isExtracting, startExtracting] = useTransition();
   const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
 
   const visible = useMemo(() => {
-    let list = rows.filter((r) => r.isLatestForCategory);
+    let list =
+      batchView === null
+        ? rows.filter((r) => r.isLatestForCategory)
+        : rows.filter((r) => r.batchId === batchView);
     if (filter === "todo") list = list.filter((r) => r.linkedEntryId === null);
     else if (filter === "created") list = list.filter((r) => r.linkedEntryId !== null);
     // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
     return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
-  }, [rows, filter]);
+  }, [rows, filter, batchView]);
 
   function handleExtract() {
     if (files.length === 0) return;
@@ -128,7 +150,7 @@ export function CandidatesRoute({
         const r = await extractCandidates(formData);
         setFiles([]);
         setResult(
-          `เพิ่มใหม่ ${r.added} รายการ` +
+          `เพิ่มชุดใหม่ ${r.added} รายการ` +
             (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "")
         );
       } catch (e) {
@@ -145,6 +167,19 @@ export function CandidatesRoute({
         await createEntryFromCandidate(id);
       } catch (e) {
         setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
+      }
+    });
+  }
+
+  function handleDeleteBatch(batchId: string) {
+    startUpdating(async () => {
+      try {
+        await deleteCandidateBatch(batchId);
+        setConfirmDelete(null);
+        // ถ้ากำลังดูชุดที่เพิ่งลบอยู่ ต้องเด้งกลับมุมมองดีฟอลต์ ไม่งั้นหน้าจะว่างเปล่าแบบงงๆ
+        setBatchView((current) => (current === batchId ? null : current));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "ลบชุดไม่สำเร็จ");
       }
     });
   }
@@ -179,6 +214,112 @@ export function CandidatesRoute({
           แคปจากหน้า &quot;ขายดีที่สุด&quot; (รายการเต็ม 15 อันดับ) เท่านั้น — หมวดอื่นก็แคปได้ ระบบไม่ได้จำกัด
         </p>
       </section>
+
+      {/* รายการชุด — 1 ชุด = 1 ครั้งที่อ่านข้อมูลจากรูป ดูเจาะจงหรือลบทั้งชุดได้จากตรงนี้ */}
+      {batches.length > 0 && (
+        <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 leading-relaxed">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+              <Layers className="size-4 shrink-0 text-primary" />
+              ชุดที่เก็บมาแล้ว
+            </p>
+            <button
+              type="button"
+              onClick={() => setBatchView(null)}
+              aria-pressed={batchView === null}
+              className={
+                "inline-flex h-11 items-center rounded-lg border border-border-interactive px-3 text-sm transition-colors lg:h-9 " +
+                (batchView === null
+                  ? "bg-primary text-primary-foreground"
+                  : "text-foreground hover:bg-foreground/5")
+              }
+            >
+              ดูชุดล่าสุดของทุกหมวด
+            </button>
+          </div>
+
+          <ul className="flex flex-col gap-2">
+            {batches.map((b) => {
+              const selected = batchView === b.id;
+              // เตือนเฉพาะชุดที่ยังเป็นชุดล่าสุดของอย่างน้อยหนึ่งหมวด — ชุดเก่าที่ถูก
+              // แทนที่ไปแล้วจะเก่าแค่ไหนก็ไม่ใช่ข่าว ไม่ต้องเตือนซ้ำ
+              const age = daysBetween(b.capturedOn, now);
+              const stale = b.isLatestForAnyCategory && age > IMPORT_STALE_DAYS;
+              return (
+                <li
+                  key={b.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3"
+                >
+                  <span className="text-sm text-foreground">
+                    {b.categories.map((c) => `${c.label} ${c.count}`).join(" · ")}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    เก็บ {formatThaiDate(b.capturedOn)}
+                  </span>
+                  {b.isLatestForAnyCategory && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs leading-relaxed font-medium text-primary">
+                      ล่าสุด
+                    </span>
+                  )}
+                  {stale && (
+                    <span className="flex items-center gap-1 text-xs leading-relaxed text-destructive">
+                      <TriangleAlert className="size-3.5 shrink-0" />
+                      ข้อมูลเก่าเกินกำหนดมา {age - IMPORT_STALE_DAYS} วัน — ควรแคปหน้าจัดอันดับใหม่
+                    </span>
+                  )}
+
+                  <span className="ml-auto flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={selected ? "default" : "outline"}
+                      onClick={() => setBatchView(selected ? null : b.id)}
+                      aria-pressed={selected}
+                    >
+                      {selected ? "กำลังดูชุดนี้" : "ดูชุดนี้"}
+                    </Button>
+
+                    {confirmDelete === b.id ? (
+                      <>
+                        <span className="text-sm text-destructive">
+                          ลบ {b.rowCount} รายการถาวร? (งานที่สร้างไปแล้วไม่หาย เสียแค่ลิงก์)
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => handleDeleteBatch(b.id)}
+                          disabled={isUpdating}
+                        >
+                          ยืนยันลบ
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setConfirmDelete(null)}
+                        >
+                          ยกเลิก
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDelete(b.id)}
+                        disabled={isUpdating}
+                      >
+                        <Trash2 className="size-4" />
+                        ลบชุดนี้
+                      </Button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* กล่องแปะรูป */}
       <section className="flex flex-col gap-3 rounded-xl border border-dashed border-border-interactive bg-surface p-5">
@@ -261,7 +402,9 @@ export function CandidatesRoute({
           (เดิมเป็นการ์ดใบละแถว เนื้อหากระจุกชิดซ้าย เห็นได้แค่ ~2 สินค้าต่อหน้าจอ) */}
       {visible.length === 0 ? (
         <p className="rounded-xl border border-border bg-surface p-5 text-sm leading-relaxed text-muted-foreground">
-          ยังไม่มีสินค้าในรายการนี้ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม
+          {rows.length === 0
+            ? "ยังไม่มีสินค้าในระบบ — แปะแคปหน้าจัดอันดับสินค้าด้านบนเพื่อเริ่ม"
+            : "ไม่มีสินค้าที่ตรงกับตัวกรองนี้"}
         </p>
       ) : (
         <>
