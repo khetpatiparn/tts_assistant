@@ -50,6 +50,7 @@ export type PromptEntry = {
   extraNotes: string;
   angle: string;
   productSpec: string;
+  safeMode: boolean;
   duplicatedFromId: string | null;
   images: string;
   corePromptId: string | null;
@@ -199,6 +200,7 @@ export function EntryWorkspace({
       imageCaptions,
       angle: entry?.angle ?? "",
       productSpec: entry?.productSpec ?? "",
+      safeMode: entry?.safeMode ?? false,
     });
   }, [form, entry, pendingImages]);
 
@@ -315,6 +317,8 @@ export function EntryWorkspace({
                   canGenerate={(entry?.productImages.length ?? 0) > 0}
                   model={model}
                   onModelChange={setModel}
+                  safeModeEntryId={entry?.id ?? null}
+                  safeMode={entry?.safeMode ?? false}
                 />
               </div>
             </div>

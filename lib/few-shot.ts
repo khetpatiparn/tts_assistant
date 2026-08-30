@@ -37,6 +37,9 @@ export async function getFewShotExamples(
       extraNotes: ex.extraNotes,
       imageCaptions: ex.images,
       angle: "",
+      // golden examples เป็นคลิปสาธิตปกติทั้งหมด ต้องส่ง false เสมอ เหตุผลเดียวกับ angle: ""
+      // ถ้าส่ง true ตัวอย่างที่ป้อนให้โมเดลจะไม่ตรงกับกฎที่มันได้รับ
+      safeMode: false,
       productSpec: "",
     }),
     output: ex.output,

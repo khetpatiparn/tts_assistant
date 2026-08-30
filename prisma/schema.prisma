@@ -30,6 +30,10 @@ model PromptEntry {
   extraNotes  String
   angle       String   @default("")
   productSpec String   @default("")
+  /// โหมดปลอดภัย — สินค้านิ่ง กล้องเคลื่อน ไม่มีคนในเฟรม ใช้กู้คลิปที่เรนเดอร์เพี้ยนซ้ำๆ
+  /// จนใกล้จะต้องทิ้งสินค้า เก็บลง DB ไม่ใช่ state ชั่วคราวเพราะ (1) regenerate ต้องได้โหมดเดิม
+  /// (2) ต้องย้อนวัดได้ว่าคลิปโหมดนี้ขายต่างจากคลิปปกติไหม ซึ่งเป็นการทดลองฟอร์แมตที่ยังไม่เคยทำ
+  safeMode    Boolean  @default(false)
   images      String
   createdAt   DateTime @default(now())
   duplicatedFromId String?

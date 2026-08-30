@@ -354,6 +354,20 @@ export async function saveAngle(entryId: string, angle: string) {
  * อ่านค่าจาก DB ไม่ใช่จากฟอร์ม (ถ้าเก็บใน form state โมเดลจะไม่เห็นสเปกเลย)
  * แนวเดียวกับ saveAngle และ updateProductImageCaption
  */
+/**
+ * เปิด/ปิดโหมดปลอดภัย — action แยกเหมือน saveAngle เพราะ generateWithAI อ่านจาก DB ไม่ใช่ form state
+ *
+ * ใช้ตอนเรนเดอร์เพี้ยนซ้ำจนใกล้ต้องทิ้งสินค้า: เปิดแล้วพรอมต์จะสั่งให้สินค้าอยู่นิ่ง
+ * ให้กล้องเป็นตัวเคลื่อน และห้ามมีคนในเฟรม ซึ่งตัดแหล่งความเพี้ยนที่ใหญ่ที่สุดออกทั้งหมด
+ */
+export async function saveSafeMode(entryId: string, safeMode: boolean) {
+  await prisma.promptEntry.update({
+    where: { id: entryId },
+    data: { safeMode },
+  });
+  revalidatePath(`/entry/${entryId}`);
+}
+
 export async function saveProductSpec(entryId: string, spec: string) {
   await prisma.promptEntry.update({
     where: { id: entryId },
@@ -538,6 +552,7 @@ export async function generateWithAI(
     imageCaptions: photos.map((p) => p.caption),
     angle: entry.angle,
     productSpec,
+    safeMode: entry.safeMode,
   });
 
   const geminiImages = await loadGeminiImages(photos);
