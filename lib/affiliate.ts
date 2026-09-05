@@ -18,21 +18,52 @@ export type AffiliateOrderInput = {
   orderDate: Date;
 };
 
-// ตำแหน่งคอลัมน์ (0-based) ในไฟล์ affiliate export ของ TikTok Studio
-const COL = {
-  orderId: 0,
-  productName: 2,
-  productId: 3,
-  itemsSold: 5,
-  itemsRefunded: 6,
-  currency: 11,
-  status: 13,
-  contentId: 17,
-  gmv: 23,
-  actualCommission: 34,
-  finalRevenue: 44,
-  orderDate: 45,
+/**
+ * ชื่อคอลัมน์ (แถวหัวตาราง) ที่ต้องใช้ — หาโดยชื่อ ไม่ใช่ตำแหน่งตายตัว
+ *
+ * เคยผูกกับตำแหน่ง (0-based) ตรงๆ มาก่อน แล้วพังจริงเมื่อ TikTok Studio แทรกคอลัมน์ใหม่
+ * "รูปภาพแบบเลื่อน" เข้ามาระหว่าง "ประเภทเนื้อหา" กับ "รหัสเนื้อหา" (พบ 5 ก.ย. 2569) ทำให้
+ * ทุกคอลัมน์ตั้งแต่ "รหัสเนื้อหา" เป็นต้นไปเลื่อนไป +1 ตำแหน่งทั้งหมด — orderDate (เดิม index 45)
+ * ไปตกที่คอลัมน์ว่าง ทำให้ parseThaiDate คืน null ทุกแถว แล้ว parser ข้ามทุกแถวจนไฟล์อ่านได้ 0
+ * ออเดอร์ (throw "ไม่พบออเดอร์ในไฟล์") ทั้งที่ไฟล์มีข้อมูลจริงเกือบ 2,000 แถว
+ *
+ * ชื่อหัวตารางเองไม่เคยเปลี่ยนระหว่างสองไฟล์จริงที่เจอปัญหานี้ (15 ก.ค. vs 5 ก.ย. 2569)
+ * แม้ตำแหน่งจะเลื่อน — หาด้วยชื่อจึงทนทานต่อ TikTok แทรก/สลับคอลัมน์แบบนี้ได้ในอนาคตด้วย
+ */
+const HEADER = {
+  orderId: "หมายเลขคำสั่งซื้อ",
+  productName: "ชื่อสินค้า",
+  productId: "รหัสสินค้า",
+  itemsSold: "สินค้าที่ขายได้",
+  itemsRefunded: "สินค้าที่มีการคืนเงิน",
+  currency: "สกุลเงิน",
+  status: "สถานะการชำระคำสั่งซื้อ",
+  contentId: "รหัสเนื้อหา",
+  gmv: "GMV",
+  actualCommission: "ฐานค่าคอมมิชชั่นตามจริง",
+  finalRevenue: "ยอดรายได้รวมสุดท้าย",
+  orderDate: "วันที่สั่งซื้อ",
 } as const;
+
+/**
+ * แปลงแถวหัวตาราง (rows[0]) เป็นตำแหน่งคอลัมน์จริงของไฟล์นี้ — เรียกครั้งเดียวต่อไฟล์
+ * ถ้าหาชื่อไม่เจอเลย (TikTok เปลี่ยนชื่อคอลัมน์ ไม่ใช่แค่ย้ายตำแหน่ง) โยน error บอกชื่อ
+ * คอลัมน์ที่หาไม่เจอตรงๆ ดีกว่าปล่อยให้เงียบแล้วได้ "ไม่พบออเดอร์ในไฟล์" อีกครั้งแบบไม่รู้สาเหตุ
+ */
+function resolveColumns(headerRow: string[]): Record<keyof typeof HEADER, number> {
+  const out = {} as Record<keyof typeof HEADER, number>;
+  for (const key of Object.keys(HEADER) as (keyof typeof HEADER)[]) {
+    const name = HEADER[key];
+    const idx = headerRow.findIndex((h) => String(h).trim() === name);
+    if (idx === -1) {
+      throw new Error(
+        `ไฟล์รายได้เปลี่ยนรูปแบบ — หาคอลัมน์ "${name}" ไม่เจอในแถวหัวตาราง กรุณาตรวจไฟล์`
+      );
+    }
+    out[key] = idx;
+  }
+  return out;
+}
 
 /** วันที่ในไฟล์เป็น "DD/MM/YYYY HH:MM:SS" (ไม่ใช่ ISO) */
 function parseThaiDate(s: string): Date | null {
@@ -122,6 +153,9 @@ export function parseAffiliateXlsx(buffer: Buffer): AffiliateOrderInput[] {
     raw: false,
     defval: "",
   });
+
+  if (rows.length === 0) return [];
+  const COL = resolveColumns(rows[0]);
 
   const out: AffiliateOrderInput[] = [];
   for (let i = 1; i < rows.length; i++) {
