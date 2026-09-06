@@ -48,6 +48,7 @@ model PromptEntry {
   hashtags       String      @default("")
   affiliateOrders AffiliateOrder[]
   clipMetrics     ClipMetric[]
+  flowJobs        FlowJob[]
 }
 
 model ProductImage {
@@ -175,4 +176,61 @@ model ProductCandidate {
   @@unique([batchId, nameKey])
   @@index([categoryLabel])
   @@index([batchId])
+}
+
+/// งาน 1 แถว = สินค้า 1 ตัวที่รอ/กำลัง/เสร็จการวาดรูปอ้างอิงใน Google Flow (spec §5-6)
+/// status: queued_r1 → running_r1 → review_r1 → queued_r2 → running_r2 → review_r2 → done
+///         running_* → failed → (รันต่อ) queued_r<round> | (ข้าม) skipped
+model FlowJob {
+  id            String      @id @default(cuid())
+  entryId       String
+  entry         PromptEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  status        String
+  round         Int         @default(1)
+  attempt       Int         @default(1)
+  flowProjectId String      @default("")
+  failedStep    String      @default("")
+  errorKind     String      @default("")
+  errorMessage  String      @default("")
+  failureDir    String      @default("")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  images        FlowJobImage[]
+
+  @@index([status])
+  @@index([entryId])
+}
+
+/// รูปของงาน — kind "source" = แคปจากผู้ใช้ (round 0) · "candidate" = Flow วาด (round 1|2)
+/// ไฟล์อยู่ที่ uploads/<entryId>/flow/<filename>
+model FlowJobImage {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       FlowJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind      String
+  round     Int      @default(0)
+  attempt   Int      @default(1)
+  index     Int      @default(0)
+  filename  String
+  mimeType  String
+  chosen    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([jobId])
+}
+
+/// แถวเดียว id = "singleton" — สถานะของ worker ที่ UI อ่าน (spec §5)
+model FlowWorkerState {
+  id            String    @id
+  lastSeenAt    DateTime?
+  currentJobId  String?
+  pausedReason  String    @default("")
+  pausedAt      DateTime?
+  todayDate     String    @default("")
+  todayBatches  Int       @default(0)
+  sessionStreak Int       @default(0)
+  nextWakeAt    DateTime?
+  updatedAt     DateTime  @updatedAt
 }
