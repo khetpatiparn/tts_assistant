@@ -63,3 +63,9 @@ next-env.d.ts
 /.superpowers/sdd/
 /.worktrees/
 /dev.db.bak-*
+
+# Flow bot runtime (Chrome profile of the spare account, failure evidence, smoke outputs)
+/.flow-profile/
+/uploads/_flow-failures/
+/worker/smoke/out/
+/.check-flow-tmp-*/

@@ -1,0 +1,20 @@
+{
+  "flowUrl": "https://labs.google/fx/tools/flow?hl=en",
+  "profileDir": ".flow-profile",
+  "viewport": { "width": 1920, "height": 1080 },
+  "actionDelayMs": [800, 3000],
+  "typeCharDelayMs": [40, 120],
+  "dwellAfterResultsMs": [5000, 25000],
+  "betweenBatchesMs": [20000, 60000],
+  "betweenProductsMs": [120000, 360000],
+  "longBreakEvery": [4, 6],
+  "longBreakMs": [900000, 2400000],
+  "dailyBatchCap": 24,
+  "activeHours": null,
+  "generationTimeoutMs": 300000,
+  "uploadTimeoutMs": 120000,
+  "selectorTimeoutMs": 8000,
+  "pollIdleMs": 30000,
+  "heartbeatMs": 30000,
+  "mouse": { "curve": true, "idleScrollChance": 0.3 }
+}
