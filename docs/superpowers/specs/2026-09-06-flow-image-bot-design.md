@@ -1,0 +1,237 @@
+# บอทวาดรูปอ้างอิงสินค้าผ่าน Google Flow — Design
+
+วันที่: 2026-09-06 · สถานะ: รอผู้ใช้ทวน → spike → implement
+branch: `flow-image-bot`
+
+## 1. เป้าหมาย
+
+ทุกสินค้า ผู้ใช้ต้องเข้า Google Flow ไปสั่งวาดรูป 2 รอบ (รอบละ 4 รูป เลือก 1) เพื่อได้ "รูปสินค้าพื้นหลังขาว" กับ "รูปสินค้าตอนใช้งาน" มาเป็นรูปอ้างอิงในแอป ก่อนถึงขั้น caption → สกัดสเปก → สร้าง 10-part prompt — ขั้นนี้เป็นงานคลิกซ้ำๆ ที่ทำทุกสินค้า และการเจนรูปใน Flow **ไม่กินเครดิต**
+
+ระบบนี้ให้บอททำขั้นนั้นแทน แบบ **สะสมสินค้าไว้แล้วสั่งรันเป็นชุด** (เช่นข้ามคืน) ผู้ใช้เหลือแค่มาไล่กดเลือกรูปที่ตรงสินค้าจริง
+
+เหตุผลที่เลือก Flow (ไม่ใช่ Gemini API ตรง): ผู้ใช้ไม่ต้องการต้นทุนเพิ่ม (Nano Banana 2 ผ่าน API ≈ ฿12-18/สินค้า) และบอทตัวนี้คือรากฐานของบอทเจนวิดีโอในอนาคตซึ่งไม่มี API ราคาเทียบเท่า ผู้ใช้มีบัญชี Flow สำรอง 2 บัญชี ยอมเอา 1 บัญชีมาเสี่ยง
+
+## 2. ไม่ทำในรอบนี้ (non-goals)
+
+- **ไม่เจนวิดีโอ** — รูปอย่างเดียว วิดีโอเป็นโปรเจกต์ถัดไปที่ต่อยอดจาก primitive ชุดนี้
+- ไม่ใช้ Gemini API เป็น fallback (ผู้ใช้ตัดออกเอง)
+- ไม่ทำโหมดคู่ขนาน (บอทวิ่งตลอดขณะผู้ใช้หาสินค้า) — เป็นคิวที่สั่งรันเป็นชุด
+- ไม่แก้พรอมต์ที่ส่งให้ Flow จาก UI — พรอมต์ 2 แบบตายตัว (ปุ่ม "วาดใหม่" ใช้พรอมต์เดิม)
+- ไม่ใช้ proxy / ไม่ปลอม fingerprint / ไม่รันหลาย session / ไม่ reset cookie อัตโนมัติเมื่อโดนสัญญาณ
+- ไม่ห่อ `gflow-cli` (ใช้ซอร์สของมันเป็นแผนที่ DOM ของ Flow เท่านั้น)
+
+## 3. workflow ของผู้ใช้ (หลังมีระบบ)
+
+```
+[คุณ]  สร้าง entry ตามเดิม (extractProductInfo ให้ productName แล้ว)
+       → อัปรูปแคปสินค้าจาก TikTok Shop (1+ รูป) → กด "เข้าคิว Flow"   ← ทำหลายตัวสะสม
+[คุณ]  เปิด flow-worker.bat แล้วปล่อย
+[บอท]  รอบ 1: แนบรูปแคป + "ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "<productName>""
+       3:4 · ×4 · nano banana 2 → โหลด 4 รูป → สถานะ "รอคุณเลือก รอบ 1"
+[คุณ]  หน้า /flow → กดเลือก 1 (หรือ "วาดใหม่") → "รอบอท รอบ 2"
+[บอท]  รอบ 2: รูปที่เลือกเป็นรูปอ้างอิง + "ขอภาพสินค้าตอนใช้งาน สินค้าคือ "<productName>""
+       ×4 โมเดลเดิม → "รอคุณเลือก รอบ 2"
+[คุณ]  กดเลือก 1 → 2 รูปที่เลือกกลายเป็น ProductImage ของ entry (caption ตั้งต้นให้)
+       → ต่อ caption / สกัดสเปก / สร้าง prompt ตามเดิม ไม่มีอะไรเปลี่ยน
+```
+
+## 4. สถาปัตยกรรม — 3 ชิ้น คุยกันผ่านตารางเท่านั้น
+
+```
+① Next.js app (เดิม)  ⇄  ② ตารางคิวใน dev.db  ⇄  ③ worker (โปรเซสแยก + Chrome ของตัวเอง)
+```
+
+- เว็บกับบอท**ไม่รู้จักกัน** — ไม่มี HTTP/WebSocket ระหว่างกัน ตายฝั่งหนึ่งอีกฝั่งไม่ตาย
+- บอทเป็น Node process แยก (`worker/`) เปิดด้วย `flow-worker.bat` ปิดด้วย `flow-worker-stop.bat` (คู่กับ `start.bat`/`stop.bat` เดิม)
+- ใช้ Prisma client ตัวเดียวกับแอป (`lib/prisma.ts`) · Playwright เปิด **Chrome จริง** (`channel: "chrome"`, headed) ด้วย persistent profile ที่ `.flow-profile/` (gitignore) — Google บังคับ headed + auth จริง
+
+### 4.1 SQLite ต้องเปิด WAL
+
+`dev.db` ตอนนี้ไม่ได้เปิด WAL — ถ้าบอทเขียนพร้อมเว็บจะชน `database is locked` ให้รัน `PRAGMA journal_mode=WAL` ครั้งเดียว (ติดไปกับไฟล์ถาวร) และตั้ง `busy_timeout` 5000 ms ในทั้งสองโปรเซส ผลข้างเคียง: มี `dev.db-wal`/`dev.db-shm` ข้างๆ — **backup ต้องก๊อป 3 ไฟล์ด้วยกัน หรือ `PRAGMA wal_checkpoint(TRUNCATE)` ก่อน** (จดลง CLAUDE.md)
+
+## 5. Data model (เพิ่ม 3 ตาราง ไม่แก้ตารางเดิม)
+
+```prisma
+model FlowJob {
+  id            String   @id @default(cuid())
+  entryId       String
+  entry         PromptEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  status        String   // ดู state machine ข้อ 6
+  round         Int      @default(1)      // 1 | 2
+  attempt       Int      @default(1)      // เพิ่มทุกครั้งที่กด "วาดใหม่" ของรอบนั้น
+  failedStep    String   @default("")     // ชื่อขั้นที่พัง เช่น "click-generate"
+  errorKind     String   @default("")     // selector_drift | login_required | captcha | generation_timeout | flow_error | download_failed | worker_crash
+  errorMessage  String   @default("")
+  failureDir    String   @default("")     // uploads/_flow-failures/<jobId>-<ts>/
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  startedAt     DateTime?                 // เริ่มรอบล่าสุด
+  finishedAt    DateTime?
+  images        FlowJobImage[]
+}
+
+model FlowJobImage {
+  id        String  @id @default(cuid())
+  jobId     String
+  job       FlowJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind      String  // "source" (รูปแคปที่ผู้ใช้อัป) | "candidate" (รูปที่ Flow วาด)
+  round     Int     @default(0)   // candidate: 1|2 · source: 0
+  attempt   Int     @default(1)
+  index     Int     @default(0)   // ลำดับใน 4 รูป
+  filename  String                // ใต้ uploads/<entryId>/flow/
+  mimeType  String
+  chosen    Boolean @default(false)
+  createdAt DateTime @default(now())
+}
+
+model FlowWorkerState {          // แถวเดียว id = "singleton"
+  id             String    @id
+  lastSeenAt     DateTime?
+  currentJobId   String?
+  pausedReason   String    @default("")   // ว่าง = ไม่หยุด · ไม่ว่าง = หยุดทั้งคิว
+  pausedAt       DateTime?
+  todayDate      String    @default("")   // "YYYY-MM-DD" local
+  todayBatches   Int       @default(0)    // ชุด 4 รูปที่วาดวันนี้
+  sessionStreak  Int       @default(0)    // สินค้าติดต่อกันตั้งแต่พักยาวครั้งล่าสุด
+  nextWakeAt     DateTime?                // บอทวางแผนจะหยิบงานถัดไปเมื่อไหร่ (ให้ UI โชว์)
+  updatedAt      DateTime  @updatedAt
+}
+```
+
+- ไฟล์รูป: `uploads/<entryId>/flow/source-*.{ext}` และ `uploads/<entryId>/flow/r<round>-a<attempt>-<index>.png` — เสิร์ฟผ่าน `app/api/uploads/[...path]/route.ts` เดิม
+- 1 entry มี FlowJob ที่ยังไม่จบ (`status ∉ {done, skipped}`) ได้ทีละ 1 — บังคับใน action
+- ตอน approve รอบ 2: ก๊อป 2 ไฟล์ที่ `chosen` ไปเป็น `uploads/<entryId>/` + สร้าง `ProductImage` 2 แถว (`sortOrder` 0,1 · caption ตั้งต้น `"สินค้า พื้นหลังขาว"` / `"สินค้าตอนใช้งาน"`) — `ProductImage` semantics เดิมไม่เปลี่ยนเลย ทุก pipeline ที่อ่าน `productImages` ไม่ต้องรู้จัก Flow
+
+## 6. State machine ของ FlowJob
+
+```
+queued_r1 → running_r1 → review_r1 ─(เลือก 1)→ queued_r2 → running_r2 → review_r2 ─(เลือก 1)→ done
+                                    └(วาดใหม่)→ queued_r1 (attempt+1)          └(วาดใหม่)→ queued_r2 (attempt+1)
+running_r* ──(พัง)──→ failed ─(รันต่อ หลังซ่อม)→ queued_r<round> (attempt เดิม)
+                            └(ข้าม)→ skipped
+```
+
+- `review_*` เก็บ candidate ทุก attempt ไว้ (ไม่ลบ) เพื่อเป็นข้อมูลว่าโมเดลเพี้ยนบ่อยแค่ไหน UI โชว์เฉพาะ attempt ล่าสุด
+- ตอน worker เริ่มทำงาน ถ้าเจอ job ค้าง `running_*` (worker ตายกลางคัน) → `failed` / `worker_crash` ไม่ reset เป็น queued เอง (กัน loop ถ้าพังซ้ำ)
+
+## 7. พฤติกรรมของ worker
+
+### 7.1 loop หลัก
+
+1. heartbeat ทุก 30 วิ → `FlowWorkerState.lastSeenAt`
+2. ถ้า `pausedReason` ไม่ว่าง → นอนรอ (poll 30 วิ) จนผู้ใช้กด "รันต่อ"
+3. ถ้านอกช่วง `activeHours` หรือ `todayBatches ≥ dailyBatchCap` → นอนถึงเวลาถัดไป (เขียน `nextWakeAt`)
+4. หยิบ job `queued_r2` ก่อน (คนรออยู่) แล้วค่อย `queued_r1` เรียงตาม `createdAt` — claim ด้วย `updateMany({where:{id,status:queued_*}})` กันหยิบซ้ำ
+5. ทำรอบ (ข้อ 7.2) → เขียนผล → `sessionStreak++`, `todayBatches++`
+6. พักตามข้อ 7.3 → วน
+
+### 7.2 ขั้นตอน 1 รอบ (ทุกขั้นมีชื่อ = `failedStep`)
+
+`open-flow` → `ensure-project` → `attach-reference` (รอบ 1: อัปรูปแคป · รอบ 2: ใช้รูปที่เลือกจาก candidate) → `set-aspect-3-4` → `set-count-4` → `set-model-nano-banana-2` → `type-prompt` → `click-generate` → `wait-results` → `dwell` (รอสุ่มเหมือนคนดูรูป) → `download-4` → `verify-files`
+
+รายละเอียด DOM/selector ของแต่ละขั้น **ยังไม่รู้ — จะรู้จาก spike** (ข้อ 10) และเก็บใน `worker/flow-selectors.ts` ไฟล์เดียว เพื่อให้วันที่ Flow เปลี่ยนหน้าแก้ที่เดียว
+
+### 7.3 ทำตัวเหมือนคน — ทุกค่าอยู่ใน `flow-worker.config.json`
+
+| key | ค่าเริ่มต้น | ความหมาย |
+|---|---|---|
+| `actionDelayMs` | `[800, 3000]` | หน่วงสุ่มก่อนทุกคลิก |
+| `typeCharDelayMs` | `[40, 120]` | พิมพ์ทีละตัวอักษร |
+| `dwellAfterResultsMs` | `[5000, 25000]` | นั่งดูรูปก่อนโหลด |
+| `betweenBatchesMs` | `[20000, 60000]` | พักระหว่างชุด 4 รูป |
+| `betweenProductsMs` | `[120000, 360000]` | พักระหว่างสินค้า |
+| `longBreakEvery` | `[4, 6]` | ทำกี่สินค้าติดกันแล้วพักยาว (สุ่มใหม่ทุกครั้ง) |
+| `longBreakMs` | `[900000, 2400000]` | พักยาว 15-40 นาที |
+| `dailyBatchCap` | `24` | ชุด 4 รูป/วัน (= 12 สินค้า) reset เที่ยงคืน local |
+| `activeHours` | `null` | เช่น `["22:00","07:00"]` · null = ตลอดเวลา |
+| `generationTimeoutMs` | `300000` | รอผลเกินนี้ = `generation_timeout` |
+| `mouse` | `{ curve: true, idleScrollChance: 0.3 }` | เลื่อนเมาส์เป็นเส้นโค้งหลาย step ไม่วาร์ป · บางทีเลื่อนหน้าเปล่าๆ |
+
+หลักการ: Chrome จริง 1 ตัว · PC จริง · IP บ้าน · บัญชีเดียว — ไม่ปลอมอะไรเพิ่ม เริ่มระวังก่อน ค่อยขยับเพดานเมื่อไม่มีสัญญาณอะไรเป็นสัปดาห์
+
+### 7.4 กฎหยุด (หยุดทั้งคิว ไม่ลองซ้ำเอง)
+
+เจออย่างใดอย่างหนึ่ง → job นั้น `failed` + `FlowWorkerState.pausedReason` = errorKind + เก็บหลักฐาน:
+
+| errorKind | ตรวจจากอะไร |
+|---|---|
+| `selector_drift` | หา element ของขั้นนั้นไม่เจอภายใน timeout |
+| `login_required` | URL เด้งไปหน้า accounts.google.com / เจอปุ่ม Sign in |
+| `captcha` | เจอ iframe/element ของ reCAPTCHA หรือข้อความ "unusual traffic" |
+| `generation_timeout` | รอผลเกิน `generationTimeoutMs` |
+| `flow_error` | Flow ขึ้น toast/dialog error หลังกดสร้าง |
+| `download_failed` | ได้ไฟล์ไม่ครบ 4 / ไฟล์ 0 byte / ไม่ใช่รูป |
+| `worker_crash` | exception ที่ไม่ได้จำแนก หรือเจอ job ค้าง running ตอนเริ่ม |
+
+หลักฐานที่ `uploads/_flow-failures/<jobId>-<ts>/`: `screenshot.png` (full page) · `page.html` · `steps.log` (เวลาแต่ละขั้น) · `state.json` (todayBatches, sessionStreak, เวลาห่างจากชุดก่อน) — ข้อมูลชุดหลังคือของที่ได้จากการเอาบัญชีสำรองมาเสี่ยง: รู้ว่าเจอสัญญาณตอนทำไปแล้วเท่าไหร่ จะได้ปรับ config ให้ระวังขึ้น**ก่อน**โดนแบนจริง
+
+ผู้ใช้กด "รันต่อ" (หลังซ่อม selector / login ใหม่ในหน้าต่างบอท) → `pausedReason` ว่าง + job → `queued_r<round>` · กด "ข้าม" → `skipped` + `pausedReason` ว่าง
+
+## 8. UI
+
+### 8.1 หน้า entry (`components/entry-workspace.tsx` แท็บ ①) — แตะน้อยที่สุด
+
+- แผงใหม่ "รูปแคปสินค้า → Flow": อัปโหลดรูปแคป 1+ รูป (`FlowJobImage kind=source`) + ปุ่ม "เข้าคิว Flow" (สร้าง `FlowJob queued_r1`)
+- ถ้ามี job ที่ยังไม่จบ: โชว์สถานะ 1 บรรทัด + ลิงก์ไป `/flow` แทนปุ่ม
+- ต้องมี `productName` ก่อน (ปุ่ม disabled ถ้าว่าง) เพราะพรอมต์ใช้ชื่อ
+
+### 8.2 หน้า `/flow` (ใหม่ · เมนูใน `components/app-header.tsx` คู่กับ Dashboard / Core Prompt)
+
+- แถบบน: บอทหายใจอยู่ไหม (`lastSeenAt` < 90 วิ = เขียว) · วันนี้ทำไปกี่ชุด/เพดาน · `nextWakeAt` · นับ job ต่อสถานะ · ถ้า `pausedReason` ไม่ว่าง → แถบแดง + สาเหตุ + ปุ่ม "รันต่อ"/"ข้าม" ที่ job ที่พัง
+- แต่ละ job = 1 แถว เรียง: `review_*` ก่อน (คนต้องทำ) → `failed` → `queued/running` → `done` (7 วันล่าสุด)
+- แถว `review_*`: **รูปแคปต้นทางวางซ้ายสุดเสมอ** + 4 candidate (attempt ล่าสุด) · กดรูปไหนก็ได้เพื่อขยาย (lightbox: ซ้าย=แคป ขวา=candidate สลับได้ด้วยลูกศร) · ปุ่ม "ใช้รูปนี้ → รอบ 2" / "ใช้รูปนี้ → บันทึกเป็นรูปสินค้า" · ปุ่ม "ไม่ผ่านสักรูป วาดใหม่" (พรอมต์เดิม)
+- แถว `failed`: `failedStep` + `errorKind` + ลิงก์ screenshot / page.html
+- แถว `done`: 2 รูปที่เลือก + ลิงก์ไป entry
+- ยึดกฎ UI ใน CLAUDE.md ทั้งหมด (ปุ่ม ≥44px ต่ำกว่า `lg:`, token สี, ไม่มี arbitrary text size, 1440px checkpoint) · เช็ก 390/820/1440 ด้วย `scripts/shot.mjs`
+
+### 8.3 Server Actions ใหม่ (`app/actions.ts`)
+
+`enqueueFlowJob(entryId, formData)` · `chooseFlowCandidate(jobId, imageId)` (ทำทั้ง round 1→queued_r2 และ round 2→done+ProductImage ตาม round) · `redoFlowRound(jobId)` · `resumeFlowWorker(jobId)` · `skipFlowJob(jobId)` — ทุกตัว `revalidatePath("/flow")` และ `/entry/[id]` ที่กระทบ
+
+## 9. โครงไฟล์
+
+```
+worker/
+  index.ts              loop หลัก + heartbeat + กฎหยุด
+  flow-driver.ts        ขั้นตอน 1 รอบ (ข้อ 7.2) — รับ page + job คืน 4 ไฟล์ หรือ throw FlowStepError(step, kind)
+  flow-selectors.ts     selector ทุกตัวรวมที่เดียว
+  humanize.ts           sleepRange / typeHuman / moveMouseCurve / idleScroll
+  config.ts             โหลด+validate flow-worker.config.json (zod)
+  failure.ts            เก็บหลักฐานพัง
+flow-worker.config.json
+flow-worker.bat / flow-worker-stop.bat
+lib/flow-jobs.ts        pure: state transitions + คำนวณสถานะสรุป (ทดสอบแยกได้ เหมือน lib/entry-rows.ts)
+app/flow/page.tsx · components/flow-queue.tsx · components/flow-review-row.tsx · components/flow-lightbox.tsx
+prisma/migrations/<ts>_flow_jobs/
+```
+
+- `playwright` เพิ่มเป็น dependency จริงของ repo (เดิมตั้งใจไม่ใส่ — ตอนนี้ worker ต้องใช้ตอนรัน) · worker รันด้วย `tsx` (รองรับ `@/*` path alias จาก tsconfig)
+- `.gitignore` เพิ่ม `.flow-profile/`, `uploads/_flow-failures/`
+
+## 10. Spike ก่อนสร้างของจริง (โค้ดทิ้งได้ อยู่ใน scratch · บัญชีสำรอง)
+
+| ขั้น | พิสูจน์ | ผ่านเมื่อ |
+|---|---|---|
+| S1 | persistent profile จำ login | login มือ 1 ครั้ง → ปิด/เปิด Chrome ใหม่ ยังอยู่ใน Flow |
+| S2 | ทำรอบ 1 ครบ | ได้ 4 ไฟล์ png 3:4 ใน scratch จากรูปแคป+พรอมต์จริง ตั้งค่า ×4 / nano banana 2 ได้ |
+| S3 | รอบ 2 อ้างอิงรูปที่เพิ่งวาด | รู้ว่า Flow ให้ "ใช้รูปที่วาดเป็น reference" ผ่านปุ่มไหน (หรือต้องดาวน์โหลดแล้วอัปกลับ) · ได้ 4 ไฟล์ |
+| S4 | fail-fast | จงใจใส่ selector ผิด → หยุดทันที + screenshot/html/log ครบ ไม่วนลอง |
+
+สิ่งที่ต้องบันทึกจาก spike (ลงท้าย spec นี้เป็น "Spike findings" ก่อนเขียน plan): selector จริงทุกขั้น · Flow เก็บผลไว้ใน project ยังไง (ต้องสร้าง project ใหม่ต่อสินค้าไหม) · วิธีอ้างอิงรูปรอบ 2 · เวลาเจนจริงต่อชุด · โควตารูปต่อวันของบัญชีสำรอง (ถ้า Flow แสดง) · Google ย้ายจาก `labs.google/fx/tools/flow` ไป `flow.google.com` แล้วหรือยังสำหรับบัญชีนี้
+
+ระหว่างนี้อ่านซอร์ส `ffroliva/gflow-cli` (Python/Playwright) เป็นแผนที่ DOM — ไม่ห่อใช้
+
+## 11. การทดสอบ / verification
+
+- `lib/flow-jobs.ts` (transitions) มี unit test แบบ node script เหมือน `lib/entry-rows.ts`
+- `worker/humanize.ts` ทดสอบว่า sleepRange/typeHuman อยู่ในช่วง config
+- S4 คือ test ของกฎหยุด — ทำซ้ำได้ด้วย env `FLOW_FORCE_FAIL_STEP=click-generate` ใน worker
+- UI: `npx tsc --noEmit` + `npm run lint` + `node scripts/check-contrast.mjs` + `scripts/shot.mjs` 3 ขนาด บน `dev-test.db` (ห้ามใช้ `dev.db` จริง)
+- end-to-end จริง: 2-3 สินค้าบนบัญชีสำรอง ผ่านครบ enqueue → review → done → เห็น ProductImage ใน entry
+
+## 12. ความเสี่ยงที่รับไว้
+
+- **ผิด ToS Google** — บัญชีสำรองอาจถูกจำกัด/แบน ผู้ใช้รับทราบและตั้งใจใช้บัญชีนี้เรียนรู้ ไม่แตะบัญชีหลัก
+- **Flow เปลี่ยนหน้า** → บอทหยุดจนกว่าจะแก้ `flow-selectors.ts` — ออกแบบให้หยุดเร็วและมีหลักฐานครบ ไม่ใช่ป้องกันไม่ให้พัง
+- **PC ต้องเปิดค้าง + หน้าต่าง Chrome ของบอทเปิดอยู่** ตลอดช่วงทำงาน (ย่อได้ ปิดไม่ได้)
+- **เพดาน/สัญญาณของ Google ไม่รู้ล่วงหน้า** — ค่า config เริ่มระวัง แล้วปรับจากข้อมูลใน `state.json` ของ failure
