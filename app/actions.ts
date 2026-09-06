@@ -1,6 +1,6 @@
 "use server";
 
-import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -30,6 +30,17 @@ import { handleFromUrl, buildVideoUrl, fetchOembedThumbnail } from "@/lib/tiktok
 import { parseMonthDayLabel } from "@/lib/csv";
 import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
+import {
+  DEFAULT_CAPTIONS,
+  FLOW_STATUS,
+  WORKER_STATE_ID,
+  afterChoose,
+  afterRedo,
+  afterResume,
+  isOpenStatus,
+  sourceFilename,
+  type FlowRound,
+} from "@/lib/flow-jobs";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -1085,4 +1096,159 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
   revalidatePath("/products");
   revalidatePath("/");
   return created.id;
+}
+
+// ---------------------------------------------------------------------------
+// Flow image bot (spec docs/superpowers/specs/2026-09-06-flow-image-bot-design.md)
+// ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้น chooseFlowCandidate
+// รอบ 2 ซึ่งเป็นที่เดียวที่สร้าง ProductImage (ก๊อป 2 ไฟล์ที่ผู้ใช้เลือก)
+// ---------------------------------------------------------------------------
+
+function extFromMime(mime: string): "png" | "webp" | "jpg" {
+  return mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+}
+
+/** อัปรูปแคปสินค้า + สร้างงาน queued_r1 — 1 entry มีงานค้างได้ทีละ 1 */
+export async function enqueueFlowJob(formData: FormData): Promise<string> {
+  const entryId = String(formData.get("entryId") ?? "").trim();
+  if (!entryId) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
+  const entry = await prisma.promptEntry.findUnique({ where: { id: entryId }, select: { id: true, productName: true } });
+  if (!entry) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
+  if (entry.productName.trim() === "") throw new Error("ต้องมีชื่อสินค้าก่อน (พรอมต์ของ Flow ใช้ชื่อสินค้า)");
+
+  const open = await prisma.flowJob.findFirst({
+    where: { entryId, status: { notIn: [FLOW_STATUS.DONE, FLOW_STATUS.SKIPPED] } },
+    select: { id: true },
+  });
+  if (open) throw new Error("รายการนี้มีงาน Flow ค้างอยู่แล้ว");
+
+  const files = formData.getAll("files").filter((v): v is File => v instanceof File && v.size > 0);
+  if (files.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
+  for (const file of files) {
+    // HEIC ไม่รับ — Flow อัปโหลดไม่ได้ และ Playwright ส่งไฟล์ตามที่เป็น
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("รองรับเฉพาะ JPEG, PNG, WebP");
+    if (file.size > MAX_IMAGE_BYTES) throw new Error("ไฟล์ใหญ่เกิน 10MB");
+  }
+
+  const dir = path.join(UPLOAD_ROOT, entryId, "flow");
+  await mkdir(dir, { recursive: true });
+
+  const job = await prisma.flowJob.create({ data: { entryId, status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1 } });
+  for (const [index, file] of files.entries()) {
+    const filename = sourceFilename(index, extFromMime(file.type));
+    await writeFile(path.join(dir, filename), Buffer.from(await file.arrayBuffer()));
+    await prisma.flowJobImage.create({
+      data: { jobId: job.id, kind: "source", round: 0, attempt: 1, index, filename, mimeType: file.type },
+    });
+  }
+
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${entryId}`);
+  return job.id;
+}
+
+/**
+ * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → done และก๊อป 2 รูปที่เลือกเป็น ProductImage
+ * (caption ตั้งต้นตาม DEFAULT_CAPTIONS แก้ได้ในหน้า entry เหมือนรูปที่อัปเอง)
+ */
+export async function chooseFlowCandidate(jobId: string, imageId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  const image = job.images.find((i) => i.id === imageId);
+  if (!image || image.kind !== "candidate" || image.round !== job.round || image.attempt !== job.attempt) {
+    throw new Error("รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  }
+  const next = afterChoose(job.status);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.flowJobImage.updateMany({
+      where: { jobId, kind: "candidate", round: job.round },
+      data: { chosen: false },
+    });
+    await tx.flowJobImage.update({ where: { id: imageId }, data: { chosen: true } });
+
+    if (next.status === FLOW_STATUS.QUEUED_R2) {
+      await tx.flowJob.update({ where: { id: jobId }, data: { status: next.status, round: 2, attempt: 1 } });
+      return;
+    }
+
+    // done: รูปที่เลือกรอบ 1 + รูปนี้ (รอบ 2) → ProductImage 2 แถว
+    const round1 = job.images.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen);
+    if (!round1) throw new Error("ไม่พบรูปที่เลือกไว้ในรอบ 1");
+    const existingCount = await tx.productImage.count({ where: { entryId: job.entryId } });
+    const picks: { img: typeof image; round: FlowRound }[] = [
+      { img: round1, round: 1 },
+      { img: image, round: 2 },
+    ];
+    for (const [i, { img, round }] of picks.entries()) {
+      const ext = path.extname(img.filename).slice(1) || "png";
+      const filename = `${crypto.randomUUID()}.${ext}`;
+      await copyFile(
+        path.join(UPLOAD_ROOT, job.entryId, "flow", img.filename),
+        path.join(UPLOAD_ROOT, job.entryId, filename)
+      );
+      await tx.productImage.create({
+        data: {
+          entryId: job.entryId,
+          filename,
+          mimeType: img.mimeType,
+          caption: DEFAULT_CAPTIONS[round],
+          sortOrder: existingCount + i,
+        },
+      });
+    }
+    await tx.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
+  });
+
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
+  revalidatePath("/");
+}
+
+/** "ไม่ผ่านสักรูป วาดใหม่" — พรอมต์เดิม attempt+1 · candidate เก่าเก็บไว้ (ข้อมูลว่าเพี้ยนบ่อยแค่ไหน) */
+export async function redoFlowRound(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  const next = afterRedo(job.status);
+  await prisma.flowJob.update({ where: { id: jobId }, data: { status: next.status, attempt: job.attempt + 1 } });
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
+}
+
+/** "รันต่อ (หลังซ่อม)" — งานที่พังกลับเข้าคิวรอบเดิม และปลดการหยุดของ worker */
+export async function resumeFlowWorker(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  if (job.status !== FLOW_STATUS.FAILED) throw new Error("รันต่อได้เฉพาะงานที่พัง");
+  const round = (job.round === 2 ? 2 : 1) as FlowRound;
+  await prisma.$transaction([
+    prisma.flowJob.update({
+      where: { id: jobId },
+      data: { status: afterResume(round).status, failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
+    }),
+    prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
+      update: { pausedReason: "", pausedAt: null },
+    }),
+  ]);
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
+}
+
+/** "ข้าม" — ทิ้งงานที่พัง ปลดการหยุดของ worker ให้ทำงานอื่นต่อ */
+export async function skipFlowJob(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  if (!isOpenStatus(job.status)) return;
+  await prisma.$transaction([
+    prisma.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.SKIPPED, finishedAt: new Date() } }),
+    prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
+      update: { pausedReason: "", pausedAt: null },
+    }),
+  ]);
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
 }

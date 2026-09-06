@@ -9,6 +9,10 @@ const MIME_BY_EXT: Record<string, string> = {
   ".webp": "image/webp",
   ".heic": "image/heic",
   ".heif": "image/heif",
+  // หลักฐานตอน Flow bot พัง (uploads/_flow-failures/) — เสิร์ฟเป็น text ล้วน ไม่ render HTML
+  ".html": "text/plain; charset=utf-8",
+  ".log": "text/plain; charset=utf-8",
+  ".json": "text/plain; charset=utf-8",
 };
 
 export async function GET(
