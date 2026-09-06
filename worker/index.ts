@@ -16,7 +16,7 @@ import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
 import { runRound } from "./flow-driver";
 import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
-import { randInt, sleepMs, sleepRange } from "./humanize";
+import { randInt, sleepMs } from "./humanize";
 import { isWithinActiveHours, localDateKey, msUntilActiveWindow, pickLongBreakTarget } from "./schedule";
 import type { Page } from "playwright";
 
