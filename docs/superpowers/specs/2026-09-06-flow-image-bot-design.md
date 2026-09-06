@@ -330,3 +330,27 @@ prisma/migrations/<ts>_flow_jobs/
   ของ project จริงที่เปิดอยู่ตอนพัง (`https://flow.google.com/project/ea66e01e-...`) ด้วย ซึ่งมีประโยชน์
   เวลา debug ของจริงในอนาคต
 - **สรุป S4: fail-fast ทำงานถูกต้อง 100%** — ไม่มี edge case ที่ต้องแก้เพิ่ม
+
+### E2E — รันจริงครบวงจร (Task 11, 2026-09-07)
+
+- รันแอป (`npm run dev -p 3001`, `DATABASE_URL=dev-test.db`) + worker (`npm run flow-worker`) จริง
+  พร้อมกัน ขับเบราว์เซอร์จริงผ่าน Playwright MCP บน entry จริง `cmriu8h0f0000t8p7ltkmkx2k`
+  ("ที่ลับเล็บแมว") — เข้าคิว → รอบ 1 → เลือกรูป → รอบ 2 → เลือกรูป → บันทึกเป็น `ProductImage`
+  ครบทุก transition สถานะตามสเปก (`queued_r1` → `running_r1` → `review_r1` → `queued_r2` →
+  `running_r2` → `review_r2` → `done`) ยืนยันแล้วว่า **selector set `migrated` ใช้งานได้จริงครบรอบ**
+  (ไม่ใช่แค่คำใบ้อีกต่อไป) — เจน 3 ครั้งจริงบนบัญชีสำรอง ทุกครั้งได้ 4 รูปครบ ไม่มีรูปเพี้ยน
+- **เจอบั๊กจริง 1 ตัว ที่ต้องแก้ (แก้แล้ว, ดู CLAUDE.md หัวข้อ Flow image bot):** รอบแรกที่
+  `attach-reference` timeout ปลอมจาก `humanClick` ช้า (ระบบมีโปรเซสอื่นแย่ง CPU หนักตอนนั้น) ทำให้
+  `page.waitForEvent("filechooser")` (8s) หมดเวลาก่อนคลิกจริงเกิดขึ้น — ไม่ใช่ selector ผิด เพราะรีรัน
+  งานเดิมทันทีด้วย selector เดิมผ่านเลยใน 23 วิ **ผลข้างเคียงที่ร้ายแรงกว่า**: `uploadResponse`
+  (`page.waitForResponse`) ที่สร้างไว้ก่อนแข่งกับ filechooser ใน `Promise.all` ถูกทิ้งค้างไม่มี handler
+  พอมันหมดเวลาเองอีก 120s (`uploadTimeoutMs`) ทีหลัง กลายเป็น unhandled rejection **พังทั้ง node
+  process** (ไม่ใช่แค่ pause ตามที่ดีไซน์ไว้ — ต้องเปิด worker ใหม่มือ) แก้ด้วยแนบ `.catch(() => {})`
+  เปล่าให้ `uploadResponse` ทันทีที่สร้างใน `worker/flow-driver.ts`
+- ทดสอบ fail path จริงเพิ่มอีก 1 เคส (entry `cmrk925wq0000r8p79o00ay46` "ที่นอนแมว") ด้วย
+  `FLOW_FORCE_FAIL_STEP=set-model` → banner "บอทหยุดแล้ว" ถูก step/errorKind ตรง, evidence links
+  (`screenshot.png`/`steps.log`) เปิดได้จริงมีเนื้อหาจริง → กด "รันต่อ" หลังปิด env → เจนจริงสำเร็จ
+  รอบ 1 ถึง `review_r1` ปกติ (ยืนยันเส้นทาง resume ทำงานถูกต้องทั้ง fail ปลอมและ fail จริง)
+- `scripts/shot.mjs` ที่เพิ่ม `/flow` ผ่านทั้ง 390/820/1440px ไม่มี horizontal scroll — grid
+  candidate 4-across ที่ 1440px, 2-across ที่ 390px ตรงตามดีไซน์ Task 9 · เลย์เอาต์ entry ที่ 1440px
+  ไม่เปลี่ยนอย่างมีนัยสำคัญ นอกจากการ์ด Flow ใหม่ที่เพิ่มเข้ามา

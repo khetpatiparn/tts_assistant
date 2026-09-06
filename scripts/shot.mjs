@@ -40,6 +40,7 @@ const entryId = process.env.ENTRY_ID || "";
 const PAGES = [
   { name: "list", path: "/" },
   { name: "products", path: "/products" },
+  { name: "flow", path: "/flow" },
   { name: "dashboard", path: "/dashboard" },
   { name: "core-prompt", path: "/core-prompt" },
   { name: "entry-new", path: "/entry/new" },
