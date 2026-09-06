@@ -1180,22 +1180,37 @@ export async function chooseFlowCandidate(jobId: string, imageId: string): Promi
       { img: round1, round: 1 },
       { img: image, round: 2 },
     ];
-    for (const [i, { img, round }] of picks.entries()) {
-      const ext = path.extname(img.filename).slice(1) || "png";
-      const filename = `${crypto.randomUUID()}.${ext}`;
-      await copyFile(
-        path.join(UPLOAD_ROOT, job.entryId, "flow", img.filename),
-        path.join(UPLOAD_ROOT, job.entryId, filename)
-      );
-      await tx.productImage.create({
-        data: {
-          entryId: job.entryId,
-          filename,
-          mimeType: img.mimeType,
-          caption: DEFAULT_CAPTIONS[round],
-          sortOrder: existingCount + i,
-        },
-      });
+    // ก๊อปไฟล์ไม่อยู่ใน transaction ของ DB — ถ้า copyFile ของ pick หลังพัง ต้องลบไฟล์ที่ก๊อป
+    // สำเร็จไปแล้วของ pick ก่อนหน้าในความพยายามนี้เอง ไม่งั้นจะเหลือไฟล์ค้างดิสก์ที่ไม่มีอะไรอ้างอิง
+    // (DB rollback เองอยู่แล้วเพราะอยู่ใน tx แต่ไฟล์บนดิสก์ไม่ transactional)
+    const copiedPaths: string[] = [];
+    try {
+      for (const [i, { img, round }] of picks.entries()) {
+        const ext = path.extname(img.filename).slice(1) || "png";
+        const filename = `${crypto.randomUUID()}.${ext}`;
+        const destPath = path.join(UPLOAD_ROOT, job.entryId, filename);
+        await copyFile(path.join(UPLOAD_ROOT, job.entryId, "flow", img.filename), destPath);
+        copiedPaths.push(destPath);
+        await tx.productImage.create({
+          data: {
+            entryId: job.entryId,
+            filename,
+            mimeType: img.mimeType,
+            caption: DEFAULT_CAPTIONS[round],
+            sortOrder: existingCount + i,
+          },
+        });
+      }
+    } catch (err) {
+      // เก็บกวาดไฟล์ที่ก๊อปสำเร็จไปแล้วก่อนพัง — ล้มการเก็บกวาดเองก็ไม่ throw ทับ error เดิม
+      for (const copiedPath of copiedPaths) {
+        try {
+          await unlink(copiedPath);
+        } catch {
+          // ไม่ต้องทำอะไรเพิ่ม ปล่อยไฟล์ค้างไว้ดีกว่ากลืน error เดิมที่ทำให้ transaction ล้ม
+        }
+      }
+      throw err;
     }
     await tx.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
   });
