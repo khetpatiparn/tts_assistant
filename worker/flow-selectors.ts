@@ -34,6 +34,10 @@ export type SelectorSet = {
    *
    * ที่ต้องมีเพราะเว็บใหม่: Escape ปิดแผงให้เห็นก็จริง แต่คอมโพเนนต์ยังจำว่า "เปิดอยู่"
    * คลิกครั้งถัดไปจึงถูกกลืนไปกับการปิดสถานะค้าง แล้วแผงไม่เปิด (ยืนยันสด 2026-09-06)
+   *
+   * **ต้องชี้เฉพาะแผงตั้งค่าเท่านั้น ห้ามใช้ตัวห่อ overlay กลางๆ** — ถ้าใส่กว้างไป
+   * overlay อื่นที่บังเอิญเปิดอยู่ (changelog แรกเข้า / ข้อความ onboarding / แผงรายละเอียดสื่อ)
+   * จะถูกอ่านว่า "แผงตั้งค่าเปิดแล้ว" แล้วข้ามการกด trigger ทำให้ขั้นถัดไปพังโดยรายงานผิดขั้น
    */
   settingsPanelOpen?: string;
   imageTab: string[];
@@ -186,7 +190,13 @@ const MIGRATED: SelectorSet = {
   projectUrlFragment: "/project/",
   projectUrl: (id) => `https://flow.google.com/project/${id}?hl=en`,
   modeTrigger: ["button.settings-trigger-button", "button[aria-label='Settings trigger']"],
-  settingsPanelOpen: ".cdk-overlay-pane",
+  // จับ overlay ที่เป็น "แผงตั้งค่า" จริงๆ ด้วยของที่อยู่แต่ในแผงนี้ 2 ตัว (คั่นด้วย , = ตัวไหน
+  // ติดก็ถือว่าเปิด · ทั้งคู่ชี้ pane เดียวกันจึงนับได้ 1 ไม่ซ้อน) ยืนยันสด 2026-09-06:
+  // แผงตั้งค่าเปิด → 1 · เปิดแค่ไดอะล็อกเลือกสื่อ → 0 (ตัว .cdk-overlay-pane เปล่าได้ 1 = false positive)
+  // .settings-content-overlay เป็น class ของคอมโพเนนต์เอง จึงเป็นตัวแรก ส่วน aria-label ผูกภาษา
+  // อังกฤษเป็นตัวสำรอง · ปุ่มเลือกโมเดลมีทั้งโหมดวิดีโอและรูป จึงเช็กได้ก่อนสลับโหมด
+  settingsPanelOpen:
+    ".cdk-overlay-pane:has(.settings-content-overlay), .cdk-overlay-pane:has(button[aria-label='Select model family'])",
   imageTab: [
     ".cdk-overlay-pane [role='radio']:has(mat-icon:text-is('image'))",
     ".cdk-overlay-pane [role='radio']:has-text('Image')",
@@ -215,7 +225,10 @@ const MIGRATED: SelectorSet = {
   uploadedAssetItem: (basename) =>
     `.cdk-overlay-pane [role='option'].asset-item:has(img.asset-thumbnail-image):has-text(${JSON.stringify(basename)})`,
   confirmMedia: ["button.detail-add-to-prompt-btn", ".cdk-overlay-pane button:has-text('Add to prompt')"],
-  openDialog: ".cdk-overlay-pane",
+  // เหตุผลเดียวกับ settingsPanelOpen: ชี้เฉพาะ overlay ที่เป็นไดอะล็อกเลือกสื่อ (มีปุ่มอัปโหลด
+  // ในแถบข้างของตัวเอง) ไม่ใช่ overlay ตัวไหนก็ได้ ไม่งั้น .last() ในขั้น attach-reference
+  // อาจไปจับ overlay อื่นแล้วรอ "ปิด" ของผิดตัว
+  openDialog: ".cdk-overlay-pane:has(button.sidebar-upload-btn)",
   uploadResponseUrlPart: "batchexecute",
   promptBox: [".ProseMirror[contenteditable='true']", "[contenteditable='true']"],
   submit: ["button.generate-icon-button", "button[aria-label='Start generation']"],
