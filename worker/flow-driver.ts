@@ -300,6 +300,12 @@ export async function runRound(
       await sleepMs(randInt([800, 1400]));
       const uploadBtn = await firstVisible(page, "attach-reference", sel.uploadButtonInDialog, cfg.selectorTimeoutMs);
       const uploadResponse = page.waitForResponse((r) => r.url().includes(sel.uploadResponseUrlPart) && r.request().method() === "POST", { timeout: cfg.uploadTimeoutMs });
+      // uploadResponse ถูกสร้างไว้ก่อน Promise.all ด้านล่างโดยตั้งใจ (ต้องเริ่มฟังก่อนคลิก) แต่ถ้า
+      // waitForEvent("filechooser") ข้างล่าง timeout ก่อน โค้ดจะ throw ทิ้ง uploadResponse ที่ยังรอ
+      // อยู่กลางอากาศ — พอมันหมดเวลาเองอีก uploadTimeoutMs (ค่าเริ่มต้น 120s) ทีหลัง จะกลาย
+      // เป็น unhandled rejection พังทั้งโปรเซส node (พิสูจน์แล้วจริงตอน E2E: 2026-09-07) แนบ
+      // catch เปล่าตรงนี้กันไว้ — ไม่กระทบ `await uploadResponse` ตัวจริงด้านล่างที่ยังโยน error ตามปกติ
+      uploadResponse.catch(() => {});
       const [chooser] = await Promise.all([
         page.waitForEvent("filechooser", { timeout: cfg.selectorTimeoutMs }),
         humanClick(page, uploadBtn, cfg),
