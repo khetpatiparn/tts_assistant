@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { getEntryDetail, getEntryRows, getUsedAngles } from "@/lib/entry-queries";
+import { getOpenFlowJobForEntry } from "@/lib/flow-queries";
 import { EntryWorkspace } from "@/components/entry-workspace";
 
 const RAIL_LIMIT = 15;
@@ -14,10 +15,11 @@ export default async function EntryPage({
 }) {
   const { id } = await params;
 
-  const [entry, rows, usedAngles] = await Promise.all([
+  const [entry, rows, usedAngles, flowJob] = await Promise.all([
     getEntryDetail(id),
     getEntryRows(),
     getUsedAngles(id),
+    getOpenFlowJobForEntry(id),
   ]);
 
   if (entry === null) notFound();
@@ -35,6 +37,7 @@ export default async function EntryPage({
       entry={entry}
       rows={railRows}
       usedAngles={usedAngles}
+      flowJob={flowJob}
     />
   );
 }

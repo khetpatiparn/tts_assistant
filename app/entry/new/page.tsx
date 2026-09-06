@@ -13,6 +13,7 @@ export default async function NewEntryPage() {
       entry={null}
       rows={rows.slice(0, RAIL_LIMIT)}
       usedAngles={[]}
+      flowJob={null}
     />
   );
 }

@@ -15,6 +15,7 @@ import { GEMINI_MODELS } from "@/lib/gemini";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
+import { FlowEnqueuePanel, type FlowJobSummary } from "@/components/flow-enqueue-panel";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
@@ -83,10 +84,12 @@ export function EntryWorkspace({
   entry,
   rows,
   usedAngles,
+  flowJob,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
   usedAngles: UsedAngleWithOutcome[];
+  flowJob: FlowJobSummary | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -301,6 +304,9 @@ export function EntryWorkspace({
                 hasSelectedEntry={entry !== null}
               />
               <div className="flex flex-1 flex-col gap-5">
+                {entry !== null && (
+                  <FlowEnqueuePanel entryId={entry.id} productName={form.productName} job={flowJob} />
+                )}
                 {entry !== null && (
                   <ProductSpecPanel
                     entryId={entry.id}
