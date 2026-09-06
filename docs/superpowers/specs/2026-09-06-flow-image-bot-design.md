@@ -267,3 +267,25 @@ prisma/migrations/<ts>_flow_jobs/
 6. **ผลลัพธ์เรนเดอร์เป็น gallery/timeline** มี caption ระหว่างรอ ("Requesting product im..." — เห็นแม้พรอมต์เป็นไทย แปลว่า Flow แปลพรอมต์เป็นอังกฤษก่อนประมวลผลภายใน) รูปที่ได้ตรงอัตราส่วน 3:4 ที่ตั้งไว้ทุกรูป
 
 **สรุปสำหรับ Task 4:** ใช้ชุด selector `migrated` เป็นหลัก อิง Angular Material (`mat-icon`, `.cdk-overlay-pane` สำหรับ dialog/panel ลอย) ตามโครงสร้าง 6 ขั้นข้างต้น — ยังต้องยืนยัน class/selector จริงด้วย dump DOM สดตอนอยู่ในหน้า project (s1-dom.txt มีแค่หน้า gallery) ผ่านกระบวนการ debug loop ที่ระบุไว้ใน Task 4 Step 8 อยู่แล้ว
+
+### S2 — รอบเต็ม 12 ขั้นบน flow.google.com (Task 4, 2026-09-06)
+
+- **ผ่านจริง 3 รอบติดกัน** ได้ 4 ไฟล์ JPEG ขนาด 896×1200 (= 3:4 เป๊ะ) ทุกรอบ · เวลาเจนนับจากกด
+  generate จนครบ 4 รูปอยู่ที่ **33-45 วินาที** (รูปทยอยโผล่ทีละใบ ไม่ได้มาพร้อมกัน)
+- selector ชุด `migrated` ยืนยันสดครบทุกตัวแล้ว ไม่เหลือ "คำใบ้" — ตัวหลักที่ใช้จริง:
+  `.settings-trigger-button` · `[role='radio']` ที่จับด้วย ligature ของ `mat-icon`
+  (image / crop_portrait) · `button[aria-label='Select model family']` + `[role='menuitem']`
+  ("Nano Banana Pro" / "Nano Banana 2" / "Nano Banana 2 Lite" มีจริงครบสามตัว) ·
+  `.add-menu-trigger` · `.sidebar-upload-btn` · `.ProseMirror[contenteditable='true']` ·
+  `.generate-icon-button`
+- **3 จุดที่ต่างจากคำใบ้เดิมและทำให้พังจริงระหว่างทาง:**
+  1. `Escape` ปิดแผงตั้งค่าให้เห็นก็จริง แต่คอมโพเนนต์ยังจำว่า "เปิดอยู่" คลิก trigger ครั้งถัดไป
+     จึงถูกกลืนไปกับการปิดสถานะค้าง แผงไม่เปิด → ต้องเปิด/ปิดด้วยปุ่ม trigger สลับเท่านั้น
+  2. ไดอะล็อกแนบสื่อ **ไม่เลือกไฟล์ที่เพิ่งอัปให้เอง** ต้องกดเลือกแถวนั้นก่อน (สัญญาณ "อัปเสร็จ"
+     ที่ไม่ผูกกับภาษา = `img.asset-thumbnail-image` มาแทน `mat-spinner`) และในโปรเจกต์เปล่า
+     ไดอะล็อกปิดตัวเองทันทีที่เลือก ไม่มีขั้นกด "Add to prompt"
+  3. ปุ่มสัดส่วน/จำนวนเป็น `mat-button-toggle` ใช้ `aria-checked` ไม่ใช่ `aria-selected`
+- **อ่านผลจาก DOM ไม่ใช่ network**: เว็บใหม่ยิงทุกอย่างผ่าน RPC ก้อนเดียว
+  (`/_/AiSandboxAngularFrontend/data/batchexecute`) ที่ตอบเป็นข้อความ เดินหา field แบบ JSON ไม่ได้ ·
+  รูปในกริดเสิร์ฟที่ `flow.google.com/asb/...` (ส่วน thumbnail ในไดอะล็อกเป็น
+  `flow-content.google/image/...`) และเป็นไฟล์เต็มความละเอียด ไม่ใช่ thumbnail
