@@ -289,3 +289,44 @@ prisma/migrations/<ts>_flow_jobs/
   (`/_/AiSandboxAngularFrontend/data/batchexecute`) ที่ตอบเป็นข้อความ เดินหา field แบบ JSON ไม่ได้ ·
   รูปในกริดเสิร์ฟที่ `flow.google.com/asb/...` (ส่วน thumbnail ในไดอะล็อกเป็น
   `flow-content.google/image/...`) และเป็นไฟล์เต็มความละเอียด ไม่ใช่ thumbnail
+
+### S3 — รอบ 2 ("ตอนใช้งาน") ใช้ project เดิมของรอบ 1 (Task 5, 2026-09-06)
+
+- **รัน S2 ใหม่ก่อนเพื่อได้ fixture สะอาด** (สินค้าเดิม "ที่ลับเล็บแมว") — ได้
+  `PROJECT_ID=286cc727-d94f-4b38-a439-94f9a0556bbb` และ `r1-a1-0.jpg`…`r1-a1-3.jpg` (4 ไฟล์ JPEG พื้นขาว
+  ผ่านจริง ใช้เวลารวมทั้งรอบ ~2 นาที 14 วิ ตั้งแต่ `open-flow` เริ่มถึง `download-4` เสร็จ)
+- **S3 ผ่านจริงในความพยายามครั้งแรก — ไม่ต้อง fallback ไป project ใหม่เลย**: สั่ง
+  `npm run flow-smoke:s3 -- worker/smoke/out/s2/r1-a1-0.jpg "ที่ลับเล็บแมว" 286cc727-d94f-4b38-a439-94f9a0556bbb`
+  (รอ ~2.5 นาทีหลัง S2 จบก่อนยิง ตามเจตนา `betweenProductsMs`) ขั้น `ensure-project` เจอ URL มี
+  `/project/` อยู่แล้วจาก `open-flow` จึงแค่ตัด id ออกจาก URL (**11ms** — ไม่ได้กดปุ่ม "New project" เลย)
+  → **ยืนยันแล้วว่า Task 8 ส่ง `job.flowProjectId` เดิมให้รอบ 2 ได้ตรงๆ ไม่ต้องแก้เป็น `projectId: null`
+  ตามที่ brief กังวลไว้ล่วงหน้า** (เคสนี้ทดสอบเฉพาะ "project เดิมยังเปิดอยู่ ใช้ต่อทันที" — ยังไม่ได้ลอง
+  เคส project ถูกลบ/idle นานจนหมดอายุ ถ้าเจอในโปรดักชันจริงต้องดักที่ `open-flow`/`ensure-project` แยกต่างหาก)
+- **ผลลัพธ์ตรงตามคาด**: ได้ 4 ไฟล์ (`r2-a1-0.jpg`…`r2-a1-3.jpg`) เปิดดูด้วยตาแล้วครบทั้ง 4 รูป — สินค้า
+  (ชั้นวางลับเล็บแมวรูปอุ้งเท้า) ถูกวางในฉากห้องนั่งเล่นจริง (พื้นไม้/พรม โซฟา ต้นไม้ประดับ แสงธรรมชาติ)
+  มีแมวจริง (พันธุ์/สีต่างกันทั้ง 4 ภาพ) กำลังนั่ง/นอน/เกาบนชั้น — ตรงกับพรอมต์รอบ 2 "ขอภาพสินค้าตอนใช้งาน"
+  ไม่ใช่แค่พื้นหลังขาวเหมือนรอบ 1 อีกต่อไป — สัดส่วน 3:4 ยังคงถูกต้องทุกภาพ
+- **เวลาที่วัดได้ (จาก `steps.log`):**
+  - อัปโหลดรูปอ้างอิง (`attach-reference` เริ่ม→เสร็จ): S2 ~19.8s (รูปจากดิสก์ 585KB) ·
+    S3 ~28.7s (รูปที่ Flow วาดเองกลับเข้าไปใหม่ ~585KB เท่ากัน — ช้ากว่าเล็กน้อย อาจเป็น variance ปกติ
+    ไม่ใช่รูปแบบที่ต่างกันชัดเจน)
+  - เจนรูป (`click-generate` เสร็จ → `wait-results` เสร็จ): S2 ~34.9s · S3 ~36.9s — ใกล้เคียงกัน ไม่มี
+    หลักฐานว่ารอบ 2 (มีรูปอ้างอิง) ช้ากว่ารอบ 1 (ไม่มีรูปอ้างอิง แค่ prompt ล้วน) อย่างมีนัยสำคัญ
+- **ไม่ต้องแก้ selector ตัวไหนเลย** — ชุด `migrated` ที่ยืนยันจาก S2/Task 4 ใช้ได้ตรงกับรอบ 2 ทุกขั้น
+  รวมถึงขั้น `attach-reference` ที่อัปโหลดรูปซึ่งเป็นผลลัพธ์จาก Flow เอง (ไม่ใช่รูปถ่ายจากผู้ใช้) ก็ไม่มี
+  พฤติกรรมต่างจากรูป PNG ธรรมดาที่ใช้ใน S2
+
+### S4 — พิสูจน์ fail-fast: หยุดก่อนกด generate จริง (Task 5, 2026-09-06)
+
+- รัน `FLOW_FORCE_FAIL_STEP=click-generate npm run flow-smoke:s2 -- worker/smoke/out/s2/r1-a1-0.jpg "ทดสอบ"`
+  — console แสดง `S2 FAILED step=click-generate kind=selector_drift: บังคับพังด้วย FLOW_FORCE_FAIL_STEP`
+  ตรงตัวทุกตัวอักษรตามที่ brief กำหนด
+- `worker/smoke/out/s2-failure/` มีครบ 4 ไฟล์: `screenshot.png` · `page.html` · `steps.log` · `state.json`
+- `steps.log` จบที่บรรทัด `type-prompt เสร็จ` — **ไม่มีบรรทัด `click-generate เริ่ม` เลยแม้แต่บรรทัดเดียว**
+  เพราะ `step()` ใน `flow-driver.ts` เช็ก `opts.forceFailStep === name` แล้วโยน error ทันทีก่อนเรียก
+  `assertPageUsable`/`fn()` ใดๆ → ยืนยันว่าไม่มีการกดปุ่ม generate จริง = ไม่มีรูปถูกเจนเลยแม้แต่ใบเดียว
+  (เครดิต/quota ไม่ถูกใช้)
+- `state.json`: `"step": "click-generate"`, `"kind": "selector_drift"` ตรงตามที่คาด — ไฟล์มี `url` เป็น URL
+  ของ project จริงที่เปิดอยู่ตอนพัง (`https://flow.google.com/project/ea66e01e-...`) ด้วย ซึ่งมีประโยชน์
+  เวลา debug ของจริงในอนาคต
+- **สรุป S4: fail-fast ทำงานถูกต้อง 100%** — ไม่มี edge case ที่ต้องแก้เพิ่ม
