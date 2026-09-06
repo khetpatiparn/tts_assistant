@@ -60,5 +60,6 @@ next-env.d.ts
 /uploads
 
 /.superpowers/brainstorm/
+/.superpowers/sdd/
 /.worktrees/
 /dev.db.bak-*
