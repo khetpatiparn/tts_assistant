@@ -275,7 +275,16 @@ async function main() {
     lastBatchAt = Date.now();
     await prisma.flowWorkerState.update({
       where: { id: WORKER_STATE_ID },
-      data: { currentJobId: null, todayBatches: { increment: 1 }, sessionStreak: { increment: 1 } },
+      data: {
+        currentJobId: null,
+        todayBatches: { increment: 1 },
+        // sessionStreak นับ "สินค้า" ไม่ใช่ "รอบ" (1 สินค้า = รอบ 1 + รอบ 2) จึงบวกเฉพาะตอน
+        // รอบ 2 จบ = สินค้านั้นเสร็จจริง — ถ้าบวกทุกรอบ longBreakEvery [4,6] จะกลายเป็น
+        // พักยาวทุก 2-3 สินค้า ผิดจากที่สเปกกับ CLAUDE.md เขียนไว้
+        // ผลข้างเคียงที่ยอมรับ: สินค้าที่ผู้ใช้ข้าม/สั่งทำใหม่ตั้งแต่รอบ 1 จะไม่ขยับ streak เลย
+        // ช่วงนั้นจึงเหลือ dailyBatchCap + betweenProductsMs เป็นตัวคุมจังหวะแทน
+        ...(job.round === 2 ? { sessionStreak: { increment: 1 } } : {}),
+      },
     });
 
     // betweenBatchesMs (config) ไม่ได้ใช้ตรงนี้โดยตั้งใจ — ตอนนี้มีแค่ 1 การส่งต่อสินค้าต่อรอบ
