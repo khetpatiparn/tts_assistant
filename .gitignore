@@ -73,3 +73,5 @@ next-env.d.ts
 /uploads/_flow-failures/
 /worker/smoke/out/
 /.check-flow-tmp-*/
+/flow-worker.log
+/.flow-worker.stop
