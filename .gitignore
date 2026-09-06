@@ -46,8 +46,12 @@ next-env.d.ts
 
 # sqlite database
 /dev.db
+/dev.db-shm
+/dev.db-wal
 /prisma/dev.db
 /dev-test.db
+/dev-test.db-shm
+/dev-test.db-wal
 /dev-backup-*.db
 
 # TikTok analytics exports (personal data, not source)
