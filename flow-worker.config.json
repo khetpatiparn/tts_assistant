@@ -1,5 +1,5 @@
 {
-  "flowUrl": "https://labs.google/fx/tools/flow?hl=en",
+  "flowUrl": "https://flow.google.com/?hl=en",
   "profileDir": ".flow-profile",
   "viewport": { "width": 1920, "height": 1080 },
   "actionDelayMs": [800, 3000],
