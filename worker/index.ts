@@ -56,6 +56,20 @@ async function pauseWorker(reason: ErrorKind): Promise<void> {
   await upsertState({ pausedReason: reason, pausedAt: new Date(), currentJobId: null, nextWakeAt: null });
 }
 
+/**
+ * บันทึกว่างานนี้พังทันที — ใช้เฉพาะจุดที่ไม่มี page ให้ captureFailure เก็บหลักฐานได้
+ * (claimNextJob เท่านั้น) ไม่ throw ต่อถ้าตัว update เองพังซ้อน กันพังซ้อนพังกลบสาเหตุจริง
+ */
+async function markJobFailedImmediately(jobId: string, e: unknown): Promise<void> {
+  const message = e instanceof Error ? e.message : String(e);
+  await prisma.flowJob
+    .update({
+      where: { id: jobId },
+      data: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: message.slice(0, 2000) },
+    })
+    .catch((err) => log(`บันทึกงานพังไม่สำเร็จ (${jobId}): ${String(err)}`));
+}
+
 /** หยิบงาน: รอบ 2 ก่อน (คนรออยู่) แล้วค่อยรอบ 1 เรียงตามเวลาเข้าคิว — claim ด้วย updateMany กันหยิบซ้ำ */
 async function claimNextJob() {
   for (const round of [2, 1] as FlowRound[]) {
@@ -70,7 +84,14 @@ async function claimNextJob() {
       data: { status: runningStatus(round), startedAt: new Date(), failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
     });
     if (claimed.count === 1) {
-      return prisma.flowJob.findUniqueOrThrow({ where: { id: candidate.id }, include: { entry: true, images: true } });
+      try {
+        return await prisma.flowJob.findUniqueOrThrow({ where: { id: candidate.id }, include: { entry: true, images: true } });
+      } catch (e) {
+        // claim สำเร็จ (running_*) แล้ว แต่ดึงรายละเอียดกลับไม่ได้ — บันทึกว่าพังทันที ไม่ปล่อยค้าง
+        // running_* จนกว่า worker รอบหน้าจะมาเจอตอน stale sweep แล้วโยนต่อให้ main() หยุดคิวเหมือนเดิม
+        await markJobFailedImmediately(candidate.id, e);
+        throw e;
+      }
     }
   }
   return null;
@@ -93,12 +114,17 @@ function referencePathFor(job: ClaimedJob): string {
 async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean> {
   const round = (job.round === 2 ? 2 : 1) as FlowRound;
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
-  mkdirSync(outDir, { recursive: true });
   const stepLog = new StepLog(true);
-  await upsertState({ currentJobId: job.id, nextWakeAt: null });
-  log(`เริ่มงาน ${job.id} (${job.entry.productName}) รอบ ${round} attempt ${job.attempt}`);
 
   try {
+    // ย้าย mkdirSync/upsertState/log เข้ามาใน try ด้วย — ถ้าตัวใดตัวหนึ่งพัง (เช่น
+    // upsertState ชน SQLITE_BUSY เพราะแอป Next.js ใช้ dev.db ไฟล์เดียวกัน) ต้องให้ catch
+    // ด้านล่างบันทึกงานนี้เป็น failed ทันที ไม่ปล่อยค้าง running_* จนกว่า worker รอบหน้า
+    // จะมาเจอตอน stale sweep
+    mkdirSync(outDir, { recursive: true });
+    await upsertState({ currentJobId: job.id, nextWakeAt: null });
+    log(`เริ่มงาน ${job.id} (${job.entry.productName}) รอบ ${round} attempt ${job.attempt}`);
+
     const result = await runRound(
       page,
       {
