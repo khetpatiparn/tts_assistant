@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Locator, Page, Response } from "playwright";
 import type { WorkerConfig } from "./config";
 import { FlowStepError, type ErrorKind } from "./errors";
-import { humanClick, maybeIdleScroll, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
+import { humanClick, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
 import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
@@ -67,6 +67,29 @@ async function firstVisible(page: Page, step: FlowStep, candidates: string[], ti
     }
   }
   throw new FlowStepError(step, "selector_drift", `หา element ไม่เจอ: ${candidates.join(" | ")}`);
+}
+
+/**
+ * อ่านกลับว่าตัวเลือกที่เพิ่งกดขึ้นสถานะ "ถูกเลือก" จริง — ไม่ใช่กดแล้วเชื่อ
+ *
+ * จำเป็นเพราะ humanClick กดด้วย mouse.down/up ตามพิกัดของ boundingBox ไม่ผ่านการตรวจ
+ * actionability แบบ locator.click() ถ้ามีอะไรบัง (toast / tooltip / แผงที่เพิ่งเรนเดอร์)
+ * คลิกจะไปโดนตัวบังแล้วขั้นนี้ "ผ่าน" ทั้งที่เลือกไม่ติด กลายเป็นรูปผิดสัดส่วน/ผิดโหมด
+ * ที่ผู้ใช้ต้องมาไล่เองแทนที่จะพังตรงขั้นที่ผิดจริง
+ *
+ * Radix (labs) ใช้ aria-selected ส่วน Angular Material (migrated) ใช้ aria-checked
+ * จึงยอมรับทั้งสองตัว ตัวไหนเป็น "true" ก็ถือว่าผ่าน
+ */
+async function assertSelected(loc: Locator, step: FlowStep, what: string): Promise<void> {
+  const checked = await loc.getAttribute("aria-checked");
+  const selfSelected = await loc.getAttribute("aria-selected");
+  if (checked !== "true" && selfSelected !== "true") {
+    throw new FlowStepError(
+      step,
+      "selector_drift",
+      `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"})`
+    );
+  }
 }
 
 /** สัญญาณอันตรายที่ต้องเช็กก่อนทุกขั้น — login หลุด / captcha / modal ที่กิน pointer events */
@@ -242,6 +265,8 @@ export async function runRound(
       const tab = await firstVisible(page, "switch-image-mode", sel.imageTab, cfg.selectorTimeoutMs);
       await humanClick(page, tab, cfg);
       await sleepMs(randInt([900, 1500]));
+      // อ่านกลับก่อนปิดแผง — โหมดผิดแปลว่าได้วิดีโอแทนรูปทั้งรอบ
+      await assertSelected(tab, "switch-image-mode", "โหมดรูป");
       // โฮสต์ที่ประกาศ settingsPanelOpen (migrated) ไม่ปิดแผงตรงนี้ — 3 ขั้นถัดไป
       // (โมเดล/สัดส่วน/จำนวน) ใช้แผงเดียวกันต่อ ส่วน labs ยังปิดเมนูด้วย Escape
       // แล้วให้ set-model เปิดใหม่เหมือนเดิม
@@ -271,6 +296,7 @@ export async function runRound(
       await tab.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
       await humanClick(page, tab, cfg);
       await sleepMs(randInt([400, 800]));
+      await assertSelected(tab, "set-aspect-3-4", ASPECT);
     });
 
     await step("set-count-4", async () => {
@@ -279,18 +305,7 @@ export async function runRound(
       await target.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
       await humanClick(page, target, cfg);
       await sleepMs(randInt([400, 800]));
-      // อ่านกลับ: ปุ่มที่กดต้องขึ้นสถานะ "ถูกเลือก" จริง — ไม่ใช่แค่กดแล้วเชื่อ
-      // Radix (labs) ใช้ aria-selected ส่วน Angular Material (migrated) ใช้ aria-checked
-      // จึงยอมรับทั้งสองตัว ตัวไหนเป็น "true" ก็ถือว่าผ่าน
-      const checked = await target.getAttribute("aria-checked");
-      const selfSelected = await target.getAttribute("aria-selected");
-      if (checked !== "true" && selfSelected !== "true") {
-        throw new FlowStepError(
-          "set-count-4",
-          "selector_drift",
-          `กด x4 แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"})`
-        );
-      }
+      await assertSelected(target, "set-count-4", "x4");
       await closeSettings("set-count-4");
     });
 
@@ -306,9 +321,13 @@ export async function runRound(
       // เป็น unhandled rejection พังทั้งโปรเซส node (พิสูจน์แล้วจริงตอน E2E: 2026-09-07) แนบ
       // catch เปล่าตรงนี้กันไว้ — ไม่กระทบ `await uploadResponse` ตัวจริงด้านล่างที่ยังโยน error ตามปกติ
       uploadResponse.catch(() => {});
+      // จังหวะ "คน" (หน่วง actionDelayMs + เลื่อนเมาส์) ต้องเกิดให้จบ**ก่อน**เริ่มจับเวลา
+      // filechooser ไม่งั้น timeout 8 วิถูกกินไปกับการหน่วงจนเหลือเวลาจริงให้ Chrome ยิง event
+      // แค่ ~4 วิ แล้วพังเป็น selector_drift ปลอม (เกิดจริงตอน E2E 2026-09-07)
+      const clickUpload = await prepareHumanClick(page, uploadBtn, cfg);
       const [chooser] = await Promise.all([
         page.waitForEvent("filechooser", { timeout: cfg.selectorTimeoutMs }),
-        humanClick(page, uploadBtn, cfg),
+        clickUpload(),
       ]);
       await chooser.setFiles(input.referencePath);
       const up = await uploadResponse;

@@ -50,16 +50,26 @@ export async function moveMouseCurve(page: Page, to: Point, from: Point = lastMo
 }
 
 /**
- * คลิก element แบบคน: หน่วงก่อน → เลื่อนเมาส์โค้งไปจุดสุ่มภายในกล่อง → กด
+ * เตรียมคลิกแบบคน: ทำ "ส่วนที่ช้า" ให้เสร็จก่อน (หน่วง → เลื่อนเมาส์โค้งไปจุดสุ่มในกล่อง)
+ * แล้วคืน callback ที่กดจริงทันทีเมื่อถูกเรียก
+ *
+ * มีไว้ให้ขั้นที่ต้องเริ่มรอ event ของเบราว์เซอร์พร้อมกับการกด (เช่น `waitForEvent("filechooser")`
+ * ใน attach-reference) ได้ผูก timeout กับ "การกดจริง" ไม่ใช่กับจังหวะหน่วงของคน — ไม่งั้น
+ * actionDelayMs (สูงสุด 3 วิ) + การเลื่อนเมาส์ จะกินงบ timeout ไปก่อนที่ Chrome จะได้ยิง event
+ * ด้วยซ้ำ (เคยทำให้ E2E พังเป็น selector_drift ปลอมมาแล้ว 2026-09-07)
+ *
  * ถ้า element ไม่มี bounding box (ซ่อนอยู่) ให้ตกไปใช้ locator.click() ปกติ เพื่อให้
  * error ที่ได้เป็น timeout ของ Playwright ตามเดิม (ผู้เรียกแปลงเป็น selector_drift เอง)
  */
-export async function humanClick(page: Page, locator: Locator, cfg: WorkerConfig): Promise<void> {
+export async function prepareHumanClick(
+  page: Page,
+  locator: Locator,
+  cfg: WorkerConfig
+): Promise<() => Promise<void>> {
   await sleepRange(cfg.actionDelayMs);
   const box = await locator.boundingBox();
   if (box === null || !cfg.mouse.curve) {
-    await locator.click({ timeout: cfg.selectorTimeoutMs });
-    return;
+    return () => locator.click({ timeout: cfg.selectorTimeoutMs });
   }
   const target: Point = {
     x: box.x + box.width * (0.3 + Math.random() * 0.4),
@@ -67,9 +77,17 @@ export async function humanClick(page: Page, locator: Locator, cfg: WorkerConfig
   };
   await moveMouseCurve(page, target);
   await sleepMs(randInt([40, 160]));
-  await page.mouse.down();
-  await sleepMs(randInt([30, 110]));
-  await page.mouse.up();
+  return async () => {
+    await page.mouse.down();
+    await sleepMs(randInt([30, 110]));
+    await page.mouse.up();
+  };
+}
+
+/** คลิก element แบบคน = เตรียม (หน่วง + เลื่อนเมาส์) แล้วกดต่อทันที */
+export async function humanClick(page: Page, locator: Locator, cfg: WorkerConfig): Promise<void> {
+  const click = await prepareHumanClick(page, locator, cfg);
+  await click();
 }
 
 /**

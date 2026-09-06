@@ -66,7 +66,18 @@ export async function checkSession(page: Page): Promise<{ email: string | null }
   }
 }
 
-/** เจอปุ่ม Sign in บนหน้า = session หลุด (ใช้เป็นตัวตรวจร่วมกับ checkSession) */
+/**
+ * เจอปุ่ม Sign in ที่ **มองเห็นจริง** บนหน้า = session หลุด (ใช้เป็นตัวตรวจร่วมกับ checkSession)
+ *
+ * ต้องกรอง visible ด้วยเพราะ assertPageUsable เรียกตัวนี้ก่อนทุกขั้น (12 ครั้ง/รอบ) แบบไม่มีคนดู
+ * ถ้านับแค่ count() ปุ่ม Sign in ที่ซ่อนอยู่ใน SPA (เมนูที่ยังไม่กาง / แผงบัญชีที่ hidden)
+ * ตัวเดียวก็หยุดทั้งคิวเป็น login_required แล้วสั่งให้ผู้ใช้ล็อกอินใหม่ทั้งที่ session ยังดีอยู่
+ */
 export async function hasSignInButton(page: Page): Promise<boolean> {
-  return (await page.locator("button:has-text('Sign in'), a:has-text('Sign in')").count()) > 0;
+  const loc = page.locator("button:has-text('Sign in'), a:has-text('Sign in')");
+  const count = await loc.count();
+  for (let i = 0; i < count; i++) {
+    if (await loc.nth(i).isVisible().catch(() => false)) return true;
+  }
+  return false;
 }
