@@ -51,7 +51,40 @@ try {
   writeFileSync(badPath, JSON.stringify({ ...good, dailyBatchCap: 0 }));
   checkThrows("dailyBatchCap must be >= 1", () => cfg.loadWorkerConfig(badPath), "dailyBatchCap");
 
-  // ---------- humanize / schedule checks are appended by later tasks ----------
+  // ---------- humanize (pure parts only) ----------
+  const hz = await import(pathToFileURL(join(out, "humanize.js")).href);
+  {
+    let inRange = true;
+    for (let i = 0; i < 500; i++) {
+      const v = hz.randInt([10, 20]);
+      if (!Number.isInteger(v) || v < 10 || v > 20) inRange = false;
+    }
+    check("randInt stays inside [min,max] and is an integer", inRange, true);
+    check("randInt with min==max returns min", hz.randInt([7, 7]), 7);
+    const pts = hz.bezierPoints({ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }, 5);
+    check("bezierPoints returns steps+1 points", pts.length, 6);
+    check("bezierPoints starts at from", pts[0].x === 0 && pts[0].y === 0, true);
+    check("bezierPoints ends at to", pts[5].x === 100 && pts[5].y === 100, true);
+  }
+
+  // ---------- schedule ----------
+  const sc = await import(pathToFileURL(join(out, "schedule.js")).href);
+  const at = (h, m) => new Date(2026, 8, 6, h, m, 0, 0); // 2026-09-06 local
+  check("activeHours null → always active", sc.isWithinActiveHours(at(13, 0), null), true);
+  check("same-day window 09:00-17:00 at 13:00 → active", sc.isWithinActiveHours(at(13, 0), ["09:00", "17:00"]), true);
+  check("same-day window at 18:00 → inactive", sc.isWithinActiveHours(at(18, 0), ["09:00", "17:00"]), false);
+  check("overnight window 22:00-07:00 at 23:30 → active", sc.isWithinActiveHours(at(23, 30), ["22:00", "07:00"]), true);
+  check("overnight window at 03:00 → active", sc.isWithinActiveHours(at(3, 0), ["22:00", "07:00"]), true);
+  check("overnight window at 12:00 → inactive", sc.isWithinActiveHours(at(12, 0), ["22:00", "07:00"]), false);
+  check("window end is exclusive (07:00 → inactive)", sc.isWithinActiveHours(at(7, 0), ["22:00", "07:00"]), false);
+  check("msUntilActiveWindow 12:00 → 22:00 = 10h", sc.msUntilActiveWindow(at(12, 0), ["22:00", "07:00"]), 10 * 3600000);
+  check("msUntilActiveWindow 18:00 → next day 09:00 = 15h", sc.msUntilActiveWindow(at(18, 0), ["09:00", "17:00"]), 15 * 3600000);
+  check("localDateKey formats YYYY-MM-DD local", sc.localDateKey(at(0, 5)), "2026-09-06");
+  {
+    let ok = true;
+    for (let i = 0; i < 200; i++) { const t = sc.pickLongBreakTarget([4, 6]); if (t < 4 || t > 6) ok = false; }
+    check("pickLongBreakTarget within range", ok, true);
+  }
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
