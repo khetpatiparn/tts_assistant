@@ -235,3 +235,35 @@ prisma/migrations/<ts>_flow_jobs/
 - **Flow เปลี่ยนหน้า** → บอทหยุดจนกว่าจะแก้ `flow-selectors.ts` — ออกแบบให้หยุดเร็วและมีหลักฐานครบ ไม่ใช่ป้องกันไม่ให้พัง
 - **PC ต้องเปิดค้าง + หน้าต่าง Chrome ของบอทเปิดอยู่** ตลอดช่วงทำงาน (ย่อได้ ปิดไม่ได้)
 - **เพดาน/สัญญาณของ Google ไม่รู้ล่วงหน้า** — ค่า config เริ่มระวัง แล้วปรับจากข้อมูลใน `state.json` ของ failure
+
+## Spike findings (บันทึกระหว่างทำ Task 3-4, 2026-09-06)
+
+### S1 — session persists + host detection (รันโดยผู้ใช้ + controller)
+
+- ผู้ใช้ login บัญชีสำรอง (`khetgammerz@gmail.com`) ผ่าน `flow-login.bat` ครั้งเดียว แล้วปิด Chrome
+- Controller รัน `npm run flow-smoke:s1` **2 รอบ** ได้ผลเหมือนกันทั้งคู่:
+  ```
+  URL=https://flow.google.com/?hl=en
+  HOST=flow.google.com
+  EMAIL=khetgammerz@gmail.com
+  LOGGED_IN=yes
+  SELECTOR_SET=migrated
+  ```
+  → **session persist จริง** (ยืนยันได้จากรัน 2 รอบแยกกันของ Chrome ไม่ต้อง login ซ้ำ)
+- **บัญชีนี้ถูกย้ายไปเว็บใหม่ (`flow.google.com`) แล้ว** — ไม่ใช่ `labs.google` classic ที่ selector ชุด `labs` (ยืนยันจาก gflow-cli) ใช้ได้ตรงๆ ต้องใช้ชุด `migrated` ซึ่งตอนเขียนแผนมีแค่ "คำใบ้" ยังไม่ยืนยัน
+- `worker/smoke/out/s1-dom.txt` (หน้า gallery ก่อนเข้า project): ยืนยัน UI เป็น **Angular Material** จริง (`mat-icon`, `mdc-button`, ไม่มี `<i class="google-symbols">` เลย) — ปุ่มสร้าง project ใหม่คือ `button.new-project-button` มี `mat-icon` ข้อความ `add` (`icons=[add] text="add New project"`) label ทุกอย่างเป็น **ภาษาอังกฤษ** เพราะบอทเปิดด้วย `locale: "en-US"` + query `?hl=en` (คงอยู่ผ่าน redirect)
+
+### การทดสอบเจนรูปด้วยมือผ่าน Claude extension (บัญชีเดียวกัน, 2026-09-06)
+
+ผู้ใช้สั่ง Claude extension (ควบคุมเบราว์เซอร์ปกติ ภาษาอินเตอร์เฟซเป็น**ไทย** ต่างจากบอทที่บังคับอังกฤษ — โครงสร้างเหมือนกัน แค่ label เป็นคนละภาษา) ให้ลองวาดรูปสินค้า "ที่ลับเล็บแมว" ตามขั้นตอนที่บอทจะทำจริง — **สำเร็จ ได้ครบ 4 รูป ใช้เครดิต 0** (ข้อความในแอปเอง: "การสร้างจะใช้ 0 เครดิต") **ยืนยันว่าฟีเจอร์เจนรูปมีจริงบนเว็บใหม่ ไม่ใช่แค่ทำ UI มาแต่ยังไม่เปิดใช้**
+
+โครงสร้างหน้าจอที่เจอ (แปลเป็นแนวคิด ไม่ใช่ selector — label ที่เห็นเป็นภาษาไทยของบัญชีนั้น บอทจะเห็นเป็นอังกฤษแทน):
+
+1. **หน้า Home/gallery** → การ์ด/ปุ่ม "+ โปรเจกต์ใหม่" ท้าย feed (ตรงกับ `s1-dom.txt`)
+2. **หน้า project**: sidebar ซ้าย (สื่อทั้งหมด/รูปภาพ/ตัวละคร/ฉาก/รายการที่อัปโหลด/เครื่องมือ/ถังขยะ/ยุบ) + prompt bar ล่างสุด placeholder "คุณต้องการสร้างอะไร" (EN: "What do you want to create")
+3. **ปุ่ม "+" ซ้ายของ prompt bar** → เปิด **media picker แบบ dialog/overlay** มีแท็บ (ทั้งหมด/รูปภาพ/วิดีโอ/เสียง/ตัวละคร/รูปโปรไฟล์/**การอัปโหลด**) ปุ่มล่างซ้าย "อัปโหลดสื่อ" (Upload media) → เปิด native file chooser → เลือกรูป → ปุ่ม "**เพิ่มไปยังพรอมต์**" (Add to prompt) ยืนยัน
+4. **ไอคอนตั้งค่า** (สี่เหลี่ยม อยู่หน้าตัวเลือกจำนวน) เปิด panel: toggle รูปภาพ/วิดีโอ · **aspect ratio เป็นกลุ่มตัวเลือก 5 แบบ**: 16:9, 4:3, 1:1, **3:4**, 9:16 · **model เป็น dropdown** มี emoji 🍌 นำหน้า "Nano Banana 2" · **จำนวนเป็นปุ่ม x1/x2/x3/x4** · ข้อความเครดิตอยู่ล่างสุดของ panel
+5. **ปุ่ม generate = ลูกศร ขวาสุดของ prompt bar** (ตรงกับที่ gflow-cli อธิบายไว้สำหรับ labs.google — ไอคอน `arrow_forward` ยังเป็นแนวคิดเดียวกันบนเว็บใหม่ แค่เปลี่ยนเป็น `mat-icon`)
+6. **ผลลัพธ์เรนเดอร์เป็น gallery/timeline** มี caption ระหว่างรอ ("Requesting product im..." — เห็นแม้พรอมต์เป็นไทย แปลว่า Flow แปลพรอมต์เป็นอังกฤษก่อนประมวลผลภายใน) รูปที่ได้ตรงอัตราส่วน 3:4 ที่ตั้งไว้ทุกรูป
+
+**สรุปสำหรับ Task 4:** ใช้ชุด selector `migrated` เป็นหลัก อิง Angular Material (`mat-icon`, `.cdk-overlay-pane` สำหรับ dialog/panel ลอย) ตามโครงสร้าง 6 ขั้นข้างต้น — ยังต้องยืนยัน class/selector จริงด้วย dump DOM สดตอนอยู่ในหน้า project (s1-dom.txt มีแค่หน้า gallery) ผ่านกระบวนการ debug loop ที่ระบุไว้ใน Task 4 Step 8 อยู่แล้ว
