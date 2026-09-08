@@ -1,13 +1,21 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Check, RotateCcw, SkipForward, Play } from "lucide-react";
 
-import { chooseFlowCandidate, redoFlowRound, resumeFlowWorker, skipFlowJob } from "@/app/actions";
+import {
+  chooseFlowCandidate,
+  generateWithAI,
+  redoFlowRound,
+  resumeFlowWorker,
+  skipFlowJob,
+} from "@/app/actions";
+import { GEMINI_MODELS } from "@/lib/gemini";
 import type { FlowJobRow, FlowImageRow } from "@/lib/flow-queries";
 import { ERROR_KIND_LABELS, FLOW_STATUS, STATUS_LABELS, STEP_LABELS, type FlowStatus } from "@/lib/flow-jobs";
+import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +42,12 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // entryId ที่เพิ่งปิดงาน Flow รอบ 2 เสร็จ ให้ useEffect ด้านล่างยิง generateWithAI ต่อ —
+  // ต้องแยกออกจาก startTransition ข้างบนจริงๆ (ไม่ใช่แค่ไม่ await) เพราะเรียก Server Action
+  // ตัวที่สองซ้อนอยู่ใน startTransition เดียวกันแบบไม่ await ก็ยังโดนนับเป็น pending เดียวกัน
+  // อยู่ดี (พิสูจน์แล้วจริงตอนทดสอบ: ปุ่มค้าง disabled ตลอด ~28 วิที่ generateWithAI ทำงาน)
+  // ย้ายมาเป็น state → useEffect แยกจังหวะออกจาก transition เดิมชัดเจน ปุ่มถึงปลดล็อกไว
+  const [autoGenerateEntryId, setAutoGenerateEntryId] = useState<string | null>(null);
 
   const isReview = job.status.startsWith("review_");
   const source = job.sources[0] ?? null;
@@ -48,6 +62,41 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
       }
     });
   }
+
+  /**
+   * เลือกรูปรอบ 2 เสร็จ (ปิดงาน Flow) → ต่อด้วยสกัดสเปก/สร้าง 10-part prompt/caption ให้เอง
+   * ทันที ไม่ต้องกดปุ่ม "สร้างด้วย AI" เอง — แค่ตั้ง autoGenerateEntryId ไว้ ตัว useEffect
+   * ด้านล่างเป็นคนยิง generateWithAI จริง (นอก transition นี้) ปุ่มจึงปลดล็อกทันทีที่
+   * chooseFlowCandidate เสร็จ ไม่ต้องรอ generateWithAI ด้วย — ไปเลือกรูปสินค้าตัวถัดไปต่อได้เลย
+   *
+   * ถ้าพัง (เช่น ยังไม่ได้ตั้ง Core Prompt) ตั้งใจไม่โชว์ error ค้างจอที่นี่ — เสียงพอ ("ป๊อก")
+   * entry จะไปอยู่ในตัวกรอง "ยังไม่มี prompt" ที่หน้ารายการเองอยู่แล้วให้เช็กย้อนหลังได้
+   * (ตัดสินใจแล้วตอนบรีฟฟีเจอร์นี้ — ไม่เพิ่มสถานะ/ฟิลด์ใหม่สำหรับเคสนี้)
+   */
+  function chooseAndMaybeAutoGenerate(imageId: string) {
+    const isRound2Completion = job.status === FLOW_STATUS.REVIEW_R2;
+    setError(null);
+    startTransition(async () => {
+      try {
+        await chooseFlowCandidate(job.id, imageId);
+        if (isRound2Completion) setAutoGenerateEntryId(job.entryId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
+      }
+    });
+  }
+
+  // ยิง generateWithAI จริงตรงนี้ — อยู่นอก startTransition ข้างบนโดยสมบูรณ์ ปุ่มเลือกรูปจึง
+  // ไม่ถูกนับรวมเป็น pending เดียวกัน (ดูคอมเมนต์ที่ autoGenerateEntryId ด้านบน)
+  useEffect(() => {
+    if (autoGenerateEntryId === null) return;
+    const entryId = autoGenerateEntryId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAutoGenerateEntryId(null);
+    generateWithAI(entryId, GEMINI_MODELS[0].id)
+      .then(() => playCompletionSound("success"))
+      .catch(() => playCompletionSound("error"));
+  }, [autoGenerateEntryId]);
 
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
@@ -117,7 +166,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
               <Button
                 type="button"
                 disabled={selected === null || isPending}
-                onClick={() => selected && run(() => chooseFlowCandidate(job.id, selected))}
+                onClick={() => selected && chooseAndMaybeAutoGenerate(selected)}
               >
                 {job.status === FLOW_STATUS.REVIEW_R1 ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2" : "ใช้รูปนี้ → บันทึกเป็นรูปสินค้า"}
               </Button>
@@ -174,7 +223,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
               ) : null
             )}
             <Link href={`/entry/${job.entryId}`} className="text-sm leading-relaxed text-primary underline-offset-4 hover:underline">
-              ไปหน้า entry ใส่ caption / สกัดสเปก →
+              ไปหน้า entry ดู prompt ที่สร้างให้แล้ว →
             </Link>
           </div>
         )}
