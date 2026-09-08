@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
+import { FlowStepper } from "@/components/flow-stepper";
 
 function badgeVariant(status: string): BadgeVariant {
   if (status.startsWith("review_")) return "warning";
@@ -114,6 +115,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
         <div>
           <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
         </div>
+        <FlowStepper status={job.status} round={job.round} />
       </div>
 
       <div className="flex flex-col gap-3">
