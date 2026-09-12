@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Image from "next/image";
-import { ImagePlus, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
+import { Download, ImagePlus, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import { AnglePanel, type UsedAngleWithOutcome } from "@/components/angle-panel";
@@ -36,6 +36,19 @@ function rejectionReason(files: File[]): string | null {
 function imageFilesFrom(list: FileList | null | undefined): File[] {
   if (!list) return [];
   return Array.from(list).filter((file) => file.type.startsWith("image/"));
+}
+
+/**
+ * ชื่อไฟล์ที่เสนอตอนกดโหลดรูปสินค้าออกไปใช้ที่อื่น (เคสจริง: เครดิตวิดีโอของบัญชี Flow
+ * ที่ใช้อยู่หมด ต้องเอารูปอ้างอิง 2 ใบนี้ไปเจนวิดีโอในบัญชีอื่น) — ไฟล์จริงบนดิสก์ตั้งชื่อ
+ * เป็น UUID โหลดออกไปแล้วแยกไม่ออกว่าใบไหนของสินค้าไหน จึงตั้งชื่อให้อ่านรู้เรื่องตรงนี้
+ * ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก และกันเคสยังไม่ได้ตั้งชื่อสินค้า
+ */
+function downloadName(productName: string, filename: string, index: number): string {
+  const dot = filename.lastIndexOf(".");
+  const ext = dot > 0 ? filename.slice(dot + 1) : "png";
+  const safe = productName.trim().replace(/[\\/:*?"<>|]/g, "-");
+  return `${safe === "" ? "รูปสินค้า" : safe}-${index + 1}.${ext}`;
 }
 
 function Field({
@@ -195,6 +208,10 @@ export function BriefForm({
   // to the focused input untouched.
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
+      // แผงอื่นบนแท็บเดียวกันที่รับ paste เองได้ (FlowEnqueuePanel ตอนถูกคลิกให้ focus อยู่)
+      // จะ preventDefault ไว้ก่อนแล้ว — listener ตัวนี้อยู่ระดับ window จึงทำงานทีหลัง
+      // React handler เสมอและเห็น flag นี้แน่นอน ถ้าไม่เช็ก รูปที่วางจะเข้าทั้งสองที่พร้อมกัน
+      if (event.defaultPrevented) return;
       const files = imageFilesFrom(event.clipboardData?.files);
       if (files.length === 0) return;
       event.preventDefault();
@@ -454,7 +471,7 @@ export function BriefForm({
         >
           {(pendingImages.length > 0 || productImages.length > 0) && (
             <div className="flex flex-wrap gap-2">
-              {productImages.map((image) => (
+              {productImages.map((image, index) => (
                 <div key={image.id} className="flex w-24 flex-col gap-1">
                   <div className="relative">
                     {/* 400 ไม่ใช่ 192 (96×2) เพราะผู้ใช้ต้องอ่านรายละเอียดสินค้าจากรูปนี้
@@ -466,6 +483,26 @@ export function BriefForm({
                       height={400}
                       className="size-24 rounded-md border border-border object-cover"
                     />
+                    {/* โหลดรูปเก็บไว้ใช้ที่อื่น — เป็น <a download> จริงไม่ใช่ปุ่ม (route
+                        /api/uploads เป็น same-origin จึงไม่ต้องมี Content-Disposition)
+                        stopPropagation เพราะกล่องที่ครอบอยู่เป็น dropzone ที่คลิกแล้ว
+                        เปิด file picker เหมือนที่ปุ่มลบด้านล่างต้องกันเช่นกัน */}
+                    <Button
+                      render={
+                        <a
+                          href={`/api/uploads/${image.entryId}/${image.filename}`}
+                          download={downloadName(form.productName, image.filename, index)}
+                        />
+                      }
+                      nativeButton={false}
+                      variant="secondary"
+                      size="icon-xs"
+                      aria-label="โหลดรูปนี้เก็บไว้"
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute -top-1.5 -left-1.5 rounded-full"
+                    >
+                      <Download className="size-3" />
+                    </Button>
                     <Button
                       type="button"
                       variant="destructive"
