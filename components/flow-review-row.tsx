@@ -102,34 +102,39 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
   return (
-    <li className="grid gap-4 border-b border-border py-4 md:grid-cols-[220px_1fr]">
-      <div className="flex flex-col gap-1.5">
-        <Link href={`/entry/${job.entryId}`} className="font-semibold leading-relaxed text-foreground hover:underline">
-          {job.productName}
-        </Link>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          เข้าคิว {timeLabel(job.createdAt)}
-          {job.startedAt ? ` · เริ่มรอบ ${job.round} ${timeLabel(job.startedAt)}` : ""}
-          {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
-        </p>
-        <div>
-          <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
+    <li className="flex flex-col gap-3 border-b border-border py-4">
+      {/* จัดใหม่ทั้งการ์ด (แบบ A จาก visual companion 2026-09-12) — เดิมคอลัมน์ซ้าย
+          220px ยัดชื่อ+เวลา+badge+stepper 6 ขั้นแน่นเกินไป ขณะที่รูป/ปุ่มฝั่งขวาใช้พื้นที่
+          ไม่ถึงครึ่งจอ ตอนนี้หัวการ์ดกับ stepper เต็มความกว้างการ์ด ให้ stepper มีที่หายใจ
+          และรูป/ปุ่มด้านล่างขยายใช้พื้นที่ทั้งแถวได้ */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-col gap-1">
+          <Link href={`/entry/${job.entryId}`} className="font-semibold leading-relaxed text-foreground hover:underline">
+            {job.productName}
+          </Link>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            เข้าคิว {timeLabel(job.createdAt)}
+            {job.startedAt ? ` · เริ่มรอบ ${job.round} ${timeLabel(job.startedAt)}` : ""}
+            {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
+          </p>
         </div>
-        <FlowStepper status={job.status} round={job.round} />
+        <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
       </div>
+
+      <FlowStepper status={job.status} round={job.round} />
 
       <div className="flex flex-col gap-3">
         {isReview && (
           <>
             <div className="flex flex-wrap items-start gap-3">
               {source && (
-                <figure className="flex w-24 flex-col gap-1">
+                <figure className="flex w-24 flex-col gap-1 lg:w-32">
                   <Image
                     src={imgUrl(job.entryId, source.filename)}
                     alt="รูปแคปต้นทาง"
                     width={400}
                     height={533}
-                    className="aspect-[3/4] w-24 rounded-md border border-border object-cover"
+                    className="aspect-[3/4] w-24 rounded-md border border-border object-cover lg:w-32"
                   />
                   <figcaption className="text-xs leading-relaxed text-muted-foreground">รูปแคป</figcaption>
                 </figure>
@@ -144,7 +149,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
                     onClick={() => setSelected(c.id)}
                     onDoubleClick={() => setLightbox(i)}
                     className={cn(
-                      "relative w-28 overflow-hidden rounded-md border-2 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                      "relative w-28 overflow-hidden rounded-md border-2 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none lg:w-36",
                       selected === c.id ? "border-primary" : "border-border-interactive"
                     )}
                   >
@@ -220,7 +225,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
                   alt={i === 0 ? "รูปที่เลือก พื้นหลังขาว" : "รูปที่เลือก ตอนใช้งาน"}
                   width={400}
                   height={533}
-                  className="aspect-[3/4] w-20 rounded-md border-2 border-status-success object-cover"
+                  className="aspect-[3/4] w-20 rounded-md border-2 border-status-success object-cover lg:w-28"
                 />
               ) : null
             )}
