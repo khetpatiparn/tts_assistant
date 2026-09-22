@@ -17,6 +17,7 @@ import {
   createEntryFromCandidate,
   deleteCandidateBatch,
   extractCandidates,
+  importShowcaseFile,
 } from "@/app/actions";
 import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
@@ -406,6 +407,42 @@ export function CandidatesRoute({
             </Button>
           )}
         </div>
+
+        <form
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3"
+          action={(formData) => {
+            setError(null);
+            setResult(null);
+            startUpdating(async () => {
+              try {
+                const r = await importShowcaseFile(formData);
+                setResult(
+                  `นำเข้า ${r.added} รายการ` +
+                    (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "") +
+                    (r.imagesFailed > 0 ? ` · โหลดรูปไม่สำเร็จ ${r.imagesFailed} รูป` : "")
+                );
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "นำเข้าไฟล์ไม่สำเร็จ");
+              }
+            });
+          }}
+        >
+          <label className="text-sm leading-relaxed text-foreground" htmlFor="showcase-json">
+            นำเข้าจากไฟล์ Showcase (.json)
+          </label>
+          <input
+            id="showcase-json"
+            name="file"
+            type="file"
+            accept="application/json"
+            required
+            className="text-sm"
+          />
+          <Button type="submit" disabled={isUpdating}>
+            นำเข้า
+          </Button>
+        </form>
+
         {result && <p className="text-sm text-foreground/80">{result}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
       </section>
@@ -461,6 +498,19 @@ export function CandidatesRoute({
                   <p className="text-base leading-relaxed font-medium text-foreground">
                     {r.name}
                   </p>
+                  {r.images.length > 0 && (
+                    <div className="flex gap-1">
+                      {r.images.slice(0, 3).map((img) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={img.id}
+                          src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
+                          alt=""
+                          className="size-10 rounded border border-border object-cover"
+                        />
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     {r.linkedEntryId === null ? (
                       <Button
@@ -598,6 +648,19 @@ export function CandidatesRoute({
                       >
                         {r.name}
                       </div>
+                      {r.images.length > 0 && (
+                        <div className="mt-1 flex gap-1">
+                          {r.images.slice(0, 3).map((img) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={img.id}
+                              src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
+                              alt=""
+                              className="size-10 rounded border border-border object-cover"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-3 py-2">

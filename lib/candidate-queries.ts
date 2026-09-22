@@ -23,6 +23,7 @@ export type CandidateRow = {
   capturedOn: Date;
   note: string;
   linkedEntryId: string | null;
+  images: { id: string; filename: string }[];
   commissionPercent: number;
   demandTotal: number | null;
   flags: CandidateFlag[];
@@ -53,7 +54,10 @@ export async function getCandidatesData(): Promise<{
   focus: FocusCategory[];
 }> {
   const [candidates, batchRecords, paidOrders] = await Promise.all([
-    prisma.productCandidate.findMany({ orderBy: { capturedOn: "desc" } }),
+    prisma.productCandidate.findMany({
+      orderBy: { capturedOn: "desc" },
+      include: { images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } } },
+    }),
     prisma.candidateBatch.findMany({ orderBy: { capturedOn: "desc" } }),
     prisma.affiliateOrder.findMany({
       where: { status: PAID_STATUS },
@@ -74,6 +78,7 @@ export async function getCandidatesData(): Promise<{
     capturedOn: c.capturedOn,
     note: c.note,
     linkedEntryId: c.linkedEntryId,
+    images: c.images,
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),
