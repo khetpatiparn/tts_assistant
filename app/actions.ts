@@ -22,6 +22,8 @@ import {
   type AngleSuggestion,
 } from "@/lib/angle";
 import { normalizeName, parseCandidateRows } from "@/lib/candidates";
+import { parseShowcasePayload } from "@/lib/showcase-import";
+import { downloadImage } from "@/lib/showcase-images";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
@@ -1096,6 +1098,110 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
   revalidatePath("/products");
   revalidatePath("/");
   return created.id;
+}
+
+const CANDIDATE_IMAGE_ROOT = path.join(process.cwd(), "uploads", "_candidates");
+
+/**
+ * นำเข้า Showcase JSON (จาก extension ภายนอก หรือไฟล์ที่อัปโหลดมือ) → CandidateBatch ใหม่
+ *
+ * ต่างจาก extractCandidates (แคปหน้าจัดอันดับ) ตรงที่มี Product ID จริงให้ dedupe และมีรูปสินค้า
+ * จริงติดมาด้วย — โหลดรูปลงดิสก์ทันทีในฟังก์ชันนี้เพราะ URL ในไฟล์ JSON หมดอายุได้ (ดูสเปก)
+ *
+ * โหลดรูปบางรูปไม่สำเร็จ = ข้ามเฉพาะรูปนั้น ไม่ทำทั้ง candidate fail (ดูสเปกหัวข้อ error handling)
+ */
+export async function importShowcaseBatch(
+  payload: unknown
+): Promise<{ batchId: string; added: number; skipped: number; imagesFailed: number }> {
+  const { rows, skipped } = parseShowcasePayload(payload);
+  if (rows.length === 0) {
+    throw new Error("ไม่มีสินค้าที่นำเข้าได้เลยสักรายการในไฟล์นี้");
+  }
+
+  const capturedOn = new Date();
+  let imagesFailed = 0;
+
+  // สร้างชุด + candidate ทุกแถวในทรานแซกชันเดียวก่อน (เหมือน extractCandidates) — การโหลดรูป
+  // (I/O ช้า, ไม่ transactional) ทำแยกหลัง transaction commit แล้ว เพื่อไม่ให้ธุรกรรม DB ค้าง
+  // รอ network นานเกินไป — ถ้าโหลดรูปพังกลางทาง candidate ที่สร้างไปแล้วยังอยู่ครบ แค่ไม่มีรูป
+  const batch = await prisma.$transaction(async (tx) => {
+    const created = await tx.candidateBatch.create({ data: { capturedOn } });
+    for (const row of rows) {
+      await tx.productCandidate.upsert({
+        where: { batchId_sourceProductId: { batchId: created.id, sourceProductId: row.sourceProductId } },
+        create: {
+          batchId: created.id,
+          name: row.name,
+          nameKey: normalizeName(row.name),
+          price: row.price,
+          commission: row.commission,
+          weeklySales: null,
+          categoryLabel: row.categoryLabel,
+          sourceProductId: row.sourceProductId,
+          capturedOn,
+        },
+        update: {
+          name: row.name,
+          price: row.price,
+          commission: row.commission,
+          categoryLabel: row.categoryLabel,
+        },
+      });
+    }
+    return created;
+  });
+
+  const created = await prisma.productCandidate.findMany({
+    where: { batchId: batch.id },
+    select: { id: true, sourceProductId: true },
+  });
+  const idByProductId = new Map(created.map((c) => [c.sourceProductId, c.id]));
+
+  for (const row of rows) {
+    const candidateId = idByProductId.get(row.sourceProductId);
+    if (!candidateId) continue; // ไม่ควรเกิด แต่กันไว้เผื่อ race
+    const dir = path.join(CANDIDATE_IMAGE_ROOT, candidateId);
+    let sortOrder = 0;
+    for (const url of row.imageUrls) {
+      const downloaded = await downloadImage(url);
+      if (!downloaded) {
+        imagesFailed++;
+        continue;
+      }
+      await mkdir(dir, { recursive: true });
+      const filename = `${crypto.randomUUID()}.${downloaded.ext}`;
+      await writeFile(path.join(dir, filename), downloaded.buffer);
+      await prisma.candidateImage.create({
+        data: {
+          candidateId,
+          filename,
+          mimeType: `image/${downloaded.ext === "jpg" ? "jpeg" : downloaded.ext}`,
+          sortOrder: sortOrder++,
+        },
+      });
+    }
+  }
+
+  revalidatePath("/products");
+  return { batchId: batch.id, added: created.length, skipped, imagesFailed };
+}
+
+/** ทางสำรอง — อัปโหลดไฟล์ .json มือแทนการรับ push จาก extension */
+export async function importShowcaseFile(
+  formData: FormData
+): Promise<{ batchId: string; added: number; skipped: number; imagesFailed: number }> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("กรุณาเลือกไฟล์ .json ที่ export มาจาก extension");
+  }
+  const text = await file.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("ไฟล์ไม่ใช่ JSON ที่ถูกต้อง");
+  }
+  return importShowcaseBatch(parsed);
 }
 
 // ---------------------------------------------------------------------------
