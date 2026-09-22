@@ -51,9 +51,11 @@
 
 - [ ] **Step 1: Copy the source folder, excluding build artifacts and dependencies**
 
+**Run this from the repo root you are actually working in** (if you were dispatched into an isolated worktree, that is this worktree's root, NOT the main checkout — use `$(pwd)` for the destination, never a hardcoded main-checkout path, since a worktree is a separate directory on disk):
+
 ```bash
 SRC="/c/Users/patip/Desktop/playground/Export Tiktok Production Lines Extension with Internal API"
-DST="/c/Users/patip/Desktop/playground/tts_assistant/pooling/pooling_prompt/showcase-extension"
+DST="$(pwd)/showcase-extension"
 mkdir -p "$DST"
 for item in extension docs README.md package.json package-lock.json tsconfig.json vitest.config.ts playwright.config.ts .gitignore scripts tests; do
   cp -r "$SRC/$item" "$DST/$item"
@@ -63,10 +65,11 @@ done
 - [ ] **Step 2: Verify the copy still builds standalone, on its own toolchain**
 
 ```bash
-cd "/c/Users/patip/Desktop/playground/tts_assistant/pooling/pooling_prompt/showcase-extension"
+cd showcase-extension
 npm install
 npm run typecheck
 npm run build:mock
+cd ..
 ```
 
 Expected: all three succeed, `dist/` appears under `showcase-extension/`. This proves the copy is complete and self-contained (its own `node_modules`, own `dist`, no path assumptions on the original folder).
@@ -74,7 +77,6 @@ Expected: all three succeed, `dist/` appears under `showcase-extension/`. This p
 - [ ] **Step 3: Confirm it doesn't leak into pooling_prompt's own tooling**
 
 ```bash
-cd "/c/Users/patip/Desktop/playground/tts_assistant/pooling/pooling_prompt"
 git status --short showcase-extension | head -5   # sanity: files are untracked, ready to add
 npx tsc --noEmit   # pooling_prompt's own typecheck — must still pass unchanged
 ```
