@@ -171,11 +171,29 @@ model ProductCandidate {
   note          String         @default("")
   /// เซ็ตโดยระบบตอนกด "สร้างงานเลย" ไม่ใช่ป้ายที่ผู้ใช้ติดเอง
   linkedEntryId String?
+  /// Product ID จริงจาก Showcase — null สำหรับ candidate จากแคปหน้าจัดอันดับ (ไม่มี ID ที่เชื่อถือได้)
+  sourceProductId String?
   createdAt     DateTime       @default(now())
+  images        CandidateImage[]
 
   @@unique([batchId, nameKey])
+  @@unique([batchId, sourceProductId])
   @@index([categoryLabel])
   @@index([batchId])
+}
+
+/// รูปสินค้าจริงจากร้าน ที่มากับ candidate บางแหล่ง (เช่น Showcase import) — candidate ที่มาจาก
+/// แคปหน้าจัดอันดับแบบเดิมจะไม่มีแถวในตารางนี้เลย (ไม่ใช่ optional field ว่าง แต่ไม่มีแถวจริงๆ)
+model CandidateImage {
+  id          String           @id @default(cuid())
+  candidateId String
+  candidate   ProductCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  @@index([candidateId])
 }
 
 /// งาน 1 แถว = สินค้า 1 ตัวที่รอ/กำลัง/เสร็จการวาดรูปอ้างอิงใน Google Flow (spec §5-6)
