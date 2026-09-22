@@ -658,6 +658,183 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
+### Task 5b: Harden `lib/showcase-images.ts` against SSRF and resource exhaustion
+
+**Added after Task 4 was already merged**, by a background automated security review that
+flagged two real issues the original task's review didn't ask its reviewer to check for.
+`downloadImage(url)` fetches an arbitrary URL server-side; once Task 5 wires it into
+`importShowcaseBatch`, that URL comes from a payload that is only semi-trusted (pushed by an
+external client through a shared-secret-gated endpoint, or uploaded as a plain `.json` file
+with zero gating) — this task closes both gaps before Task 6/9's UI make the feature end-to-end
+usable.
+
+**Files:**
+- Modify: `lib/showcase-images.ts`
+
+**Interfaces:**
+- Consumes: `node:dns/promises`, `node:net` (both Node built-ins, no new dependency).
+- Produces: `downloadImage`'s exported signature is UNCHANGED (`(url: string) => Promise<{buffer, ext} | null>`) — callers (Task 5, already written) need no changes. The added safety checks fold into the existing "return null on any failure" contract, so a blocked URL just looks like any other failed download to the caller.
+
+- [ ] **Step 1: Replace `lib/showcase-images.ts` with the hardened version**
+
+```typescript
+/**
+ * โหลดรูปสินค้าจาก URL ที่มากับ Showcase JSON ลงเป็น Buffer — แยกจาก lib/showcase-import.ts
+ * เพราะไฟล์นั้นต้องเป็น pure (ทดสอบด้วย scripts/check-showcase-import.mjs โดยไม่มี network)
+ * ส่วนไฟล์นี้ทำ I/O จริง ไม่มี pure-logic ให้ check script ตรวจ — พึ่งการทดสอบ end-to-end
+ * ใน Task 12 แทน (ตาม pattern เดียวกับ lib/tiktok-oembed.ts ซึ่งเป็นจุดยิงเน็ตอีกจุดของแอปนี้)
+ *
+ * โหลดไม่สำเร็จ (URL หมดอายุ/เน็ตมีปัญหา/ไม่ใช่รูปจริง/ไม่ผ่านเกณฑ์ความปลอดภัยด้านล่าง) =
+ * คืน null ไม่ throw — ผู้เรียก (Task 5) ตัดสินใจว่าจะข้ามรูปนั้นแล้วไปต่อ
+ *
+ * เพิ่มเมื่อ 2026-09-22 (หลัง security review อัตโนมัติของ commit ที่สร้างไฟล์นี้ครั้งแรก):
+ * URL ในนี้มาจาก payload ที่ยังเชื่อใจได้แค่ครึ่งเดียว (ยิงมาจาก extension ผ่าน endpoint ที่มี
+ * secret คุ้มครอง หรืออัปโหลดเป็นไฟล์ .json มือที่ไม่มีการคุ้มครองเลย) — ถ้าไม่กัน จะเปิดช่องให้
+ * ยิง request จากเซิร์ฟเวอร์ไปยัง URL ภายในเครื่อง/เครือข่ายได้ (SSRF) เช่น
+ * http://169.254.169.254/... (cloud metadata) หรือ service ภายใน LAN — จึงบังคับ https: เท่านั้น
+ * (ตรงกับ URL รูปจริงที่สังเกตได้ทั้งหมดอยู่แล้ว) และปฏิเสธ hostname ที่ resolve เข้า IP
+ * ส่วนตัว/loopback/link-local ก่อนยิง fetch จริงทุกครั้ง — ป้องกัน resource exhaustion คู่กันด้วย
+ * การเช็ค Content-Length ก่อนโหลด (ถ้ามี) บวกเช็คขนาด buffer จริงหลังโหลดเป็นด่านสำรอง (เผื่อ
+ * server โกหก header) ร่วมกับ timeout เดิม 15 วิที่จำกัดปริมาณสูงสุดที่โหลดได้ต่อครั้งอยู่แล้ว
+ */
+
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
+const TIMEOUT_MS = 15_000;
+const MAX_BYTES = 20 * 1024 * 1024; // 20MB — เผื่อเหลือเฟือสำหรับรูปสินค้าจริง กันการโหลดมโหฬาร
+
+const EXT_BY_CONTENT_TYPE: Record<string, "jpg" | "png" | "webp"> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+/** ช่วง IP ที่ไม่ควรให้เซิร์ฟเวอร์ยิง request ไปหาเอง (loopback, private, link-local/cloud metadata) */
+function isPrivateOrReservedIp(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+    if (a === 127) return true; // loopback
+    if (a === 10) return true; // RFC1918
+    if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
+    if (a === 192 && b === 168) return true; // RFC1918
+    if (a === 169 && b === 254) return true; // link-local รวม cloud metadata (169.254.169.254)
+    if (a === 0) return true; // "this network"
+    return false;
+  }
+  // IPv6 — กันแบบหยาบเท่าที่ป้องกันเคสที่พบบ่อยสุด (loopback, unique-local, link-local)
+  const lower = ip.toLowerCase();
+  return lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
+}
+
+/** ตรวจก่อน fetch ทุกครั้ง — https เท่านั้น + resolve แล้วต้องไม่ใช่ IP ภายใน */
+async function isUrlSafe(url: string): Promise<boolean> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  const hostname = parsed.hostname;
+  if (hostname === "localhost") return false;
+  if (isIP(hostname)) return !isPrivateOrReservedIp(hostname);
+  try {
+    const { address } = await lookup(hostname);
+    return !isPrivateOrReservedIp(address);
+  } catch {
+    return false; // resolve ไม่ได้ = ปฏิเสธไว้ก่อน
+  }
+}
+
+export async function downloadImage(
+  url: string
+): Promise<{ buffer: Buffer; ext: "jpg" | "png" | "webp" } | null> {
+  if (!(await isUrlSafe(url))) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+
+    const contentLength = res.headers.get("content-length");
+    if (contentLength && Number(contentLength) > MAX_BYTES) return null;
+
+    const contentType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+    const ext = EXT_BY_CONTENT_TYPE[contentType];
+    if (!ext) return null; // ไม่ใช่รูปที่รองรับ (หรือ response ไม่ใช่รูปเลย เช่นหน้า error HTML)
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length === 0) return null;
+    if (buffer.length > MAX_BYTES) return null; // ด่านสำรอง เผื่อ Content-Length ไม่มี/โกหก
+    return { buffer, ext };
+  } catch {
+    // timeout, network error, DNS ล้มเหลว ฯลฯ — ทั้งหมดคือ "โหลดไม่สำเร็จ" เหมือนกัน
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+```
+
+- [ ] **Step 2: Typecheck**
+
+```bash
+npx tsc --noEmit
+```
+
+- [ ] **Step 3: Manual verification — both the original smoke test AND the new safety checks**
+
+```bash
+node -e "
+const { pathToFileURL } = require('node:url');
+(async () => {
+  const out = require('node:fs').mkdtempSync('.check-showcase-images-tmp-');
+  require('node:child_process').execFileSync('npx', ['tsc', 'lib/showcase-images.ts', '--outDir', out, '--module', 'es2022', '--target', 'ES2017', '--moduleResolution', 'bundler'], { stdio: 'inherit', shell: true });
+  const m = await import(pathToFileURL(require('node:path').join(out, 'showcase-images.js')).href);
+
+  const ok = await m.downloadImage('https://httpbin.org/image/jpeg');
+  console.log('still downloads a real https jpeg:', ok !== null && ok.ext === 'jpg');
+
+  const http = await m.downloadImage('http://httpbin.org/image/jpeg');
+  console.log('plain http:// is rejected:', http === null);
+
+  const localhost = await m.downloadImage('https://localhost:1/whatever');
+  console.log('https://localhost is rejected:', localhost === null);
+
+  const metadata = await m.downloadImage('https://169.254.169.254/latest/meta-data/');
+  console.log('link-local/cloud-metadata IP is rejected:', metadata === null);
+
+  const privateIp = await m.downloadImage('https://192.168.1.1/');
+  console.log('private RFC1918 IP is rejected:', privateIp === null);
+
+  require('node:fs').rmSync(out, { recursive: true, force: true });
+})();
+"
+```
+
+Expected: all five lines print `true`. If `httpbin.org` (or any substitute URL you use, per Task 4's original note about network reachability) is unreachable from your environment, still run the scheme/IP-rejection checks (they don't need the target to actually respond — the rejection happens before or independent of a real successful fetch for the localhost/metadata/private-IP cases specifically, though note the DNS `lookup()` call itself still needs working DNS resolution even for a rejected hostname like `localhost`, which resolves locally without external network).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add lib/showcase-images.ts
+git commit -m "Harden downloadImage against SSRF and resource exhaustion
+
+Flagged by an automated security review of the original commit
+(flow: lib/showcase-images.ts fetches an arbitrary URL server-side
+that will soon come from a semi-trusted Showcase-import payload).
+Restricts to https:, rejects hostnames resolving to private/loopback/
+link-local IPs (blocks cloud metadata + LAN targets), and caps
+response size via Content-Length pre-check + a post-download backstop.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 6: UI — manual upload form + candidate thumbnails
 
 **Files:**
