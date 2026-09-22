@@ -1214,9 +1214,16 @@ function extFromMime(mime: string): "png" | "webp" | "jpg" {
   return mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
 }
 
-/** อัปรูปแคปสินค้า + สร้างงาน queued_r1 — 1 entry มีงานค้างได้ทีละ 1 */
-export async function enqueueFlowJob(formData: FormData): Promise<string> {
-  const entryId = String(formData.get("entryId") ?? "").trim();
+/**
+ * แกนกลางของการเข้าคิว Flow — แยกจาก FormData เพราะตอนนี้มีสองต้นทางของรูป:
+ * (1) ผู้ใช้อัปโหลดผ่านฟอร์ม (FormData, path เดิม) (2) รูปที่โหลดมาแล้วจาก Showcase import
+ * ผ่าน CandidateImage (Task 8) — ทั้งสองทางต้องได้ผลลัพธ์เดียวกันทุกจุด (validation, FlowJob
+ * ที่สร้าง, error message) จึงรวมไว้ที่เดียวแล้วให้สองทางเรียกใช้ร่วมกัน
+ */
+async function enqueueFlowJobCore(
+  entryId: string,
+  images: { buffer: Buffer; mimeType: string }[]
+): Promise<string> {
   if (!entryId) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
   const entry = await prisma.promptEntry.findUnique({ where: { id: entryId }, select: { id: true, productName: true } });
   if (!entry) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
@@ -1228,29 +1235,40 @@ export async function enqueueFlowJob(formData: FormData): Promise<string> {
   });
   if (open) throw new Error("รายการนี้มีงาน Flow ค้างอยู่แล้ว");
 
-  const files = formData.getAll("files").filter((v): v is File => v instanceof File && v.size > 0);
-  if (files.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
-  for (const file of files) {
+  if (images.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
+  for (const img of images) {
     // HEIC ไม่รับ — Flow อัปโหลดไม่ได้ และ Playwright ส่งไฟล์ตามที่เป็น
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("รองรับเฉพาะ JPEG, PNG, WebP");
-    if (file.size > MAX_IMAGE_BYTES) throw new Error("ไฟล์ใหญ่เกิน 10MB");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(img.mimeType)) {
+      throw new Error("รองรับเฉพาะ JPEG, PNG, WebP");
+    }
+    if (img.buffer.length > MAX_IMAGE_BYTES) throw new Error("ไฟล์ใหญ่เกิน 10MB");
   }
 
   const dir = path.join(UPLOAD_ROOT, entryId, "flow");
   await mkdir(dir, { recursive: true });
 
   const job = await prisma.flowJob.create({ data: { entryId, status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1 } });
-  for (const [index, file] of files.entries()) {
-    const filename = sourceFilename(index, extFromMime(file.type));
-    await writeFile(path.join(dir, filename), Buffer.from(await file.arrayBuffer()));
+  for (const [index, img] of images.entries()) {
+    const filename = sourceFilename(index, extFromMime(img.mimeType));
+    await writeFile(path.join(dir, filename), img.buffer);
     await prisma.flowJobImage.create({
-      data: { jobId: job.id, kind: "source", round: 0, attempt: 1, index, filename, mimeType: file.type },
+      data: { jobId: job.id, kind: "source", round: 0, attempt: 1, index, filename, mimeType: img.mimeType },
     });
   }
 
   revalidatePath("/flow");
   revalidatePath(`/entry/${entryId}`);
   return job.id;
+}
+
+/** อัปรูปแคปสินค้า + สร้างงาน queued_r1 — 1 entry มีงานค้างได้ทีละ 1 */
+export async function enqueueFlowJob(formData: FormData): Promise<string> {
+  const entryId = String(formData.get("entryId") ?? "").trim();
+  const files = formData.getAll("files").filter((v): v is File => v instanceof File && v.size > 0);
+  const images = await Promise.all(
+    files.map(async (file) => ({ buffer: Buffer.from(await file.arrayBuffer()), mimeType: file.type }))
+  );
+  return enqueueFlowJobCore(entryId, images);
 }
 
 /**
