@@ -1075,13 +1075,13 @@ export function CandidateImagePicker({
 }
 ```
 
-- [ ] **Step 2: Read the current call site first**
+- [ ] **Step 2: Read the current call sites first — there are TWO, not one**
 
 ```bash
 grep -n "handleCreate" components/candidates-route.tsx
 ```
 
-The existing code (confirmed earlier: `components/candidates-route.tsx:179-186`, `components/candidates-route.tsx:182`) is:
+Confirmed by reading the file directly: the definition is at `components/candidates-route.tsx:179-187`:
 
 ```typescript
 function handleCreate(id: string) {
@@ -1095,11 +1095,11 @@ function handleCreate(id: string) {
 }
 ```
 
-called from inside the `.map()` that renders each candidate row (find the exact JSX line via the same `grep -n "handleCreate"` output — it will be an `onClick={() => handleCreate(candidate.id)}` or equivalent on the "สร้างงาน" button, with the full `candidate` object already in scope in that closure since it's the loop variable).
+and it is called from **two separate places** — `onClick={() => handleCreate(r.id)}` at both line 469 and line 702 (one for the card layout used below `md`, one for the table layout used at `md` and up — this file renders the same row data twice for the two breakpoints, per its own existing pattern of "ใช้ร่วมกันทั้งการ์ด...และตาราง"). Both call sites iterate the same `CandidateRow` rows and use `r` as the loop variable. **Both must be updated**, not just one — missing the second one means the image picker only appears on one screen size and the other silently falls back to instant blank-entry creation, which would be a real, easy-to-miss regression since it only shows up at certain viewport widths.
 
 - [ ] **Step 3: Change the signature to take the full candidate, not just its id**
 
-Replace the function and its one call site:
+Replace the function and update both call sites:
 
 ```typescript
 import { CandidateImagePicker } from "@/components/candidate-image-picker";
@@ -1134,7 +1134,7 @@ function handleConfirmPicker(candidateId: string, chosenImageIds: string[]) {
 }
 ```
 
-Update the one call site found in Step 2 from `handleCreate(candidate.id)` (or whatever the existing argument was) to `handleCreate(candidate)`, passing the whole row object — it already carries `id`, and after Task 6 Step 2 it also carries `images` (from the widened `prisma.productCandidate.findMany({ include: { images: ... } })` query).
+Update **both** call sites found in Step 2 (line 469 and line 702) from `handleCreate(r.id)` to `handleCreate(r)`, passing the whole row object — it already carries `id`, and after Task 6 it also carries `images` (from the widened `prisma.productCandidate.findMany({ include: { images: ... } })` query in `lib/candidate-queries.ts`). The parameter type on `handleCreate` above is `{ id: string; images: {...}[] }`, which `CandidateRow` (imported from `@/lib/candidate-queries`) already satisfies structurally — no cast needed, just pass `r` directly.
 
 Render the dialog once near the bottom of the component's JSX, alongside the existing delete-confirmation dialog pattern already in this file:
 
