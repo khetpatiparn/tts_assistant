@@ -661,15 +661,42 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ### Task 6: UI — manual upload form + candidate thumbnails
 
 **Files:**
+- Modify: `lib/candidate-queries.ts` (NOT `app/products/page.tsx` — confirmed by reading the actual
+  code: `app/products/page.tsx` only calls `getCandidatesData()` from `lib/candidate-queries.ts` and
+  passes the result straight through to `<CandidatesRoute>`; the `prisma.productCandidate.findMany`
+  call and the `CandidateRow` type both live in `lib/candidate-queries.ts`)
 - Modify: `components/candidates-route.tsx`
 
 **Interfaces:**
 - Consumes: `importShowcaseFile` (Task 5).
-- Produces: nothing new consumed by later tasks — this is a leaf UI addition. (Task 9 adds a *separate* new component for the image picker; it does not extend this file's exports.)
+- Produces: `CandidateRow.images: { id: string; filename: string }[]` (widened type) — nothing else consumed by later tasks. (Task 9 adds a *separate* new component for the image picker; it does not extend this file's exports.)
 
-- [ ] **Step 1: Add the import and a small upload form near the existing "แคปหน้าจัดอันดับ" upload form**
+- [ ] **Step 1: Widen `lib/candidate-queries.ts` to include and expose each candidate's images**
 
-In `components/candidates-route.tsx`, add to the existing import block from `@/app/actions`:
+Three small edits to `lib/candidate-queries.ts`:
+
+1. Add `images` to the `CandidateRow` type (add this line anywhere in the type body, e.g. right after `linkedEntryId: string | null;`):
+
+```typescript
+  images: { id: string; filename: string }[];
+```
+
+2. Add `include` to the existing `prisma.productCandidate.findMany` call:
+
+```typescript
+    prisma.productCandidate.findMany({
+      orderBy: { capturedOn: "desc" },
+      include: { images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } } },
+    }),
+```
+
+(this replaces the current `prisma.productCandidate.findMany({ orderBy: { capturedOn: "desc" } })` — same call, same position in the `Promise.all([...])` array, just with the new `include` added)
+
+3. Add `images: c.images,` to the `rowsWithoutBadges` mapping (the object literal that starts `id: c.id, batchId: c.batchId, ...` — add the new field anywhere in that object, e.g. right after `linkedEntryId: c.linkedEntryId,`).
+
+- [ ] **Step 2: Add the import and a small upload form in `components/candidates-route.tsx`**
+
+Add to the existing import block from `@/app/actions` (currently `createEntryFromCandidate, deleteCandidateBatch, extractCandidates`):
 
 ```typescript
 import {
@@ -680,19 +707,22 @@ import {
 } from "@/app/actions";
 ```
 
-Add a sibling upload form (find the existing `<form action={...}>` that wraps the screenshot-capture file input and place this right after it, inside the same card/section so both import paths sit together):
+Add a sibling upload form (find the existing screenshot-capture upload UI — the file already has an `extractCandidates`-driven flow using `files`/`setFiles`/`handleExtract`, `isExtracting`/`startExtracting`, and a `result`/`setResult` state that `handleExtract` already uses for its success message; place this new form right after that UI, inside the same card/section, and reuse `result`/`setResult`/`error`/`setError`/`isUpdating`/`startUpdating` — do not introduce new state for this):
 
 ```tsx
 <form
   className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3"
   action={(formData) => {
+    setError(null);
+    setResult(null);
     startUpdating(async () => {
       try {
-        const result = await importShowcaseFile(formData);
-        setError(null);
-        // ใช้ error state ตัวเดียวกันแสดงผลลัพธ์ชั่วคราวได้ ไม่ต้อง state ใหม่ — ถ้าอยากแยก
-        // ข้อความสำเร็จออกจาก error ค่อยเพิ่ม state ใหม่ทีหลังตอนเห็นว่าจำเป็นจริง
-        console.log(`นำเข้า ${result.added} รายการ (ข้าม ${result.skipped}, รูปพัง ${result.imagesFailed})`);
+        const r = await importShowcaseFile(formData);
+        setResult(
+          `นำเข้า ${r.added} รายการ` +
+            (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "") +
+            (r.imagesFailed > 0 ? ` · โหลดรูปไม่สำเร็จ ${r.imagesFailed} รูป` : "")
+        );
       } catch (e) {
         setError(e instanceof Error ? e.message : "นำเข้าไฟล์ไม่สำเร็จ");
       }
@@ -716,20 +746,18 @@ Add a sibling upload form (find the existing `<form action={...}>` that wraps th
 </form>
 ```
 
-(Reuse whatever `isUpdating`/`startUpdating`/`setError` state names the file already has — this file already manages a pending-transition + error string for `handleCreate`/`handleDeleteBatch`, per the earlier grep of this file; wire into those same variables rather than introducing new ones.)
+- [ ] **Step 3: Render thumbnails for candidates that have images**
 
-- [ ] **Step 2: Render thumbnails for candidates that have images**
-
-Find the row-rendering code for a single `ProductCandidate` (the table row / card that shows name/price/commission and the "สร้างงาน" button). Add a thumbnail strip when `candidate.images.length > 0`:
+Find the row-rendering code for a single `CandidateRow` (the table row / card that shows name/price/commission and the "สร้างงาน" button, inside the `.map()` over `visible`). Add a thumbnail strip when `r.images.length > 0`:
 
 ```tsx
-{candidate.images.length > 0 && (
+{r.images.length > 0 && (
   <div className="flex gap-1">
-    {candidate.images.slice(0, 3).map((img) => (
+    {r.images.slice(0, 3).map((img) => (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         key={img.id}
-        src={`/api/uploads/_candidates/${candidate.id}/${img.filename}`}
+        src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
         alt=""
         className="size-10 rounded border border-border object-cover"
       />
@@ -738,21 +766,19 @@ Find the row-rendering code for a single `ProductCandidate` (the table row / car
 )}
 ```
 
-This reuses the existing `app/api/uploads/[...path]/route.ts` handler that already serves `uploads/<entryId>/...` — confirm in Task 7's prerequisite check that it also serves `uploads/_candidates/...` (same catch-all path segment, no special-casing needed, but verify by opening one such URL in the browser during Task 12's manual pass).
+This reuses the existing `app/api/uploads/[...path]/route.ts` handler that already serves `uploads/<entryId>/...` — confirm it also serves `uploads/_candidates/...` (same catch-all path segment, no special-casing needed) by opening one such URL directly in the browser during Task 12's manual pass; if it turns out to special-case the path in a way that rejects `_candidates`, that's a real finding to report, not something to route around silently.
 
-The component receiving `candidate` as a prop needs its TypeScript type widened to include `images: { id: string; filename: string }[]` — find wherever the page/route component fetches `prisma.productCandidate.findMany(...)` (likely in `app/products/page.tsx` or similar server component) and add `include: { images: { orderBy: { sortOrder: "asc" } } }` to that query, then thread the new field through the existing candidate type used by `candidates-route.tsx`.
-
-- [ ] **Step 3: Typecheck and lint**
+- [ ] **Step 4: Typecheck and lint**
 
 ```bash
 npx tsc --noEmit
 npm run lint
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add components/candidates-route.tsx app/products/page.tsx
+git add lib/candidate-queries.ts components/candidates-route.tsx
 git commit -m "Add manual Showcase JSON upload and candidate thumbnails
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
