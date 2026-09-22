@@ -823,6 +823,7 @@ async function enqueueFlowJobCore(
 
   if (images.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
   for (const img of images) {
+    // HEIC ไม่รับ — Flow อัปโหลดไม่ได้ และ Playwright ส่งไฟล์ตามที่เป็น
     if (!["image/jpeg", "image/png", "image/webp"].includes(img.mimeType)) {
       throw new Error("รองรับเฉพาะ JPEG, PNG, WebP");
     }
