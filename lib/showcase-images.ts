@@ -132,7 +132,7 @@ export async function downloadImage(
         if (buffer.length > MAX_BYTES) return null; // ด่านสำรอง เผื่อ Content-Length ไม่มี/โกหก
         return { buffer, ext };
       } finally {
-        await dispatcher.close();
+        dispatcher.destroy();
       }
     }
     return null; // redirect เกิน MAX_REDIRECTS hop — ถือว่าไม่สำเร็จ
