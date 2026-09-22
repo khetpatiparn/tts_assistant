@@ -1429,14 +1429,14 @@ Expected: first call prints `401`; second call returns JSON with `batchId`, `add
 
 - [ ] **Step 5: Commit**
 
+Confirmed while writing this brief: `.env.example` does **not** exist in this repo (checked via `ls .env.example`) — do not create one, that would be inventing a new convention this repo doesn't already use. `.env` itself is gitignored, so there is nothing to add there either; only the route file is new/tracked:
+
 ```bash
-git add app/api/showcase-import/route.ts .env.example
+git add app/api/showcase-import/route.ts
 git commit -m "Add POST /api/showcase-import push endpoint
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
-
-(If `.env.example` doesn't exist in this repo, skip adding it — check first with `ls .env.example` before assuming; don't invent a new convention this repo doesn't already use.)
 
 ---
 
