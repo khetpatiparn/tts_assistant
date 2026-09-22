@@ -1797,7 +1797,7 @@ NEXT_DIST_DIR=.next-dev DATABASE_URL="file:./dev-test.db" npm run dev -- -p 3001
 ```
 
 Walk through, in order:
-1. Open `/products`, upload `tests/fixtures/showcase-sample.json` via the new manual-upload form — confirm a new batch appears with 2 candidates, one showing thumbnails (may be 0 real thumbnails since the fixture's URLs are placeholders — see Task 10 note; if so, redo this step with one real Showcase export file if available, otherwise accept 0 thumbnails as expected for the fake fixture and move on)
+1. Open `/products`, upload `tests/fixtures/showcase-sample.json` via the new manual-upload form — confirm a new batch appears with 3 candidates, one showing thumbnails (may be 0 real thumbnails since the fixture's URLs are placeholders — see Task 10 note; if so, redo this step with one real Showcase export file if available, otherwise accept 0 thumbnails as expected for the fake fixture and move on)
 2. Click "สร้างงาน" on a candidate **without** images (existing screenshot-sourced candidate, if any exist in `dev-test.db`) — confirm it creates the entry immediately, no picker dialog (old behavior unchanged)
 3. Click "สร้างงาน" on a candidate **with** images (needs a real Showcase export — if none available, verify this step conceptually by temporarily seeding one `CandidateImage` row pointing at any existing JPEG under `uploads/` via `npx prisma db execute --stdin`, then clean it up after) — confirm the picker dialog opens, selecting 1+ images and confirming creates the entry AND a `queued_r1` FlowJob (check `/flow`)
 4. `curl` the health endpoint again to confirm it's still `200` after all the above
