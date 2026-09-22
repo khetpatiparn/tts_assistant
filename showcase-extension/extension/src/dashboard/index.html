@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flow A Showcase Importer</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <main>
+      <p id="channel-banner" class="banner" role="status">
+        MOCK-ONLY PROTOTYPE — ยังไม่เชื่อมต่อบริการภายนอกจริง (G0 ยังไม่ผ่าน)
+      </p>
+
+      <h1>Flow A Showcase Importer</h1>
+
+      <section aria-labelledby="build-heading">
+        <h2 id="build-heading">ข้อมูล build</h2>
+        <div id="build-info" class="rows">กำลังโหลด…</div>
+      </section>
+
+      <section aria-labelledby="permission-heading">
+        <h2 id="permission-heading">สิทธิ์เข้าถึง shop.tiktok.com</h2>
+        <p class="hint">
+          จำเป็นเฉพาะตอนใช้ live adapter (ยัง gate ด้วย G0 อยู่) — mock adapter ไม่ต้องมีสิทธิ์นี้
+          กดปุ่มนี้เพื่ออนุญาต ไม่มีการขอสิทธิ์ใดโดยอัตโนมัติจากเบื้องหลัง
+        </p>
+        <div id="permission-status" class="rows" role="status" aria-live="polite">กำลังตรวจสิทธิ์…</div>
+        <button id="grant-permission-button" type="button" hidden>อนุญาตให้เข้าถึง shop.tiktok.com</button>
+      </section>
+
+      <section aria-labelledby="probe-heading">
+        <h2 id="probe-heading">ทดสอบอ่านทีละหน้า (probe)</h2>
+        <p class="hint">
+          อ่านครั้งละหนึ่งหน้า (count=6) หนึ่งครั้งต่อหนึ่งคลิก ไม่มี pagination อัตโนมัติและไม่มี retry —
+          ปุ่ม “อ่านหน้าถัดไป” จะเลื่อน offset ไปทีละ 6 ก็ต่อเมื่อคุณกดเองเท่านั้น
+          ผลลัพธ์ที่ได้คือผลทดสอบทีละหน้า <strong>ไม่ใช่ผลสแกนครบ</strong>
+        </p>
+        <button id="probe-button" type="button">อ่านหน้าแรก (offset=0)</button>
+        <button id="probe-next-button" type="button" hidden>อ่านหน้าถัดไป</button>
+        <button id="probe-export-button" type="button" hidden>Export ผลทดสอบหน้านี้</button>
+        <div id="probe-result" class="rows" role="status" aria-live="polite"></div>
+      </section>
+
+      <section aria-labelledby="run-heading">
+        <h2 id="run-heading">สแกน Showcase</h2>
+        <p class="hint">
+          จำกัดจำนวนหน้าได้ (เช่น เพิ่งเพิ่มสินค้าใหม่ 12 ชิ้น = 2 หน้า ไม่ต้องสแกนทั้งหมดซ้ำ) —
+          เว้นว่างไว้ = สแกนจนจบทั้ง Showcase ตามปกติ <strong>ยังไม่มีหลักฐานว่าสินค้าใหม่ขึ้นหน้าแรก
+          เสมอ</strong> ถ้าใช้ครั้งแรกควรตรวจเองก่อนว่าได้สินค้าที่ต้องการจริง
+        </p>
+        <label for="max-pages-input">จำนวนหน้าที่จะสแกน</label>
+        <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
+        <div class="row-buttons">
+          <button id="max-pages-1" type="button">1 หน้า</button>
+          <button id="max-pages-2" type="button">2 หน้า</button>
+          <button id="max-pages-all" type="button">ทั้งหมด</button>
+        </div>
+        <div id="run-status" class="rows" role="status" aria-live="polite">กำลังตรวจสถานะ…</div>
+        <button id="start-button" type="button">เริ่มสแกน</button>
+        <button id="cancel-button" type="button" hidden>ยกเลิก</button>
+        <button id="clear-data-button" type="button">ล้างข้อมูลที่เก็บไว้</button>
+      </section>
+
+      <section id="preview-section" aria-labelledby="preview-heading" hidden>
+        <h2 id="preview-heading">Preview</h2>
+
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab-button" data-filter="candidate" role="tab">
+            Candidate (<span id="count-candidate">0</span>)
+          </button>
+          <button type="button" class="tab-button" data-filter="other" role="tab">
+            Other status (<span id="count-other">0</span>)
+          </button>
+          <button type="button" class="tab-button" data-filter="rejected" role="tab">
+            Rejected (<span id="count-rejected">0</span>)
+          </button>
+        </div>
+
+        <div class="selection-controls">
+          <button id="select-all-button" type="button">เลือกทั้งหมดในแท็บนี้</button>
+          <button id="deselect-all-button" type="button">ยกเลิกเลือกในแท็บนี้</button>
+          <span id="selected-count" class="hint"></span>
+        </div>
+
+        <div id="product-list" role="list"></div>
+        <div id="rejected-list" hidden></div>
+
+        <div class="pagination">
+          <button id="prev-page-button" type="button">ก่อนหน้า</button>
+          <span id="page-indicator" class="hint"></span>
+          <button id="next-page-button" type="button">ถัดไป</button>
+        </div>
+
+        <button id="export-button" type="button">Export JSON</button>
+      </section>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

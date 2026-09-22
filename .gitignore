@@ -75,3 +75,10 @@ next-env.d.ts
 /.check-flow-tmp-*/
 /flow-worker.log
 /.flow-worker.stop
+
+# showcase-extension (external project, self-contained build)
+showcase-extension/node_modules/
+showcase-extension/dist/
+showcase-extension/dist-release/
+showcase-extension/coverage/
+showcase-extension/test-results/

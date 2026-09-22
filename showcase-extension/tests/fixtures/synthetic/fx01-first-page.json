@@ -1,0 +1,72 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "products": [
+      {
+        "product_id": "1736749159048840633",
+        "title": "เซรั่มบำรุงผิวหน้า สูตรอ่อนโยน ขนาด 30 มล.",
+        "format_available_price": "฿153.71",
+        "stock_num": 100,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": true,
+        "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.test/synthetic/a1.jpeg"] },
+        "seller_info": { "shop_name": "ร้านทดสอบสังเคราะห์ A" }
+      },
+      {
+        "product_id": "1736749159048840634",
+        "title": "ครีมกันแดด SPF50+ PA++++ เนื้อบางเบา",
+        "format_available_price": "฿289.00",
+        "stock_num": 0,
+        "stock_status": 2,
+        "review_status": 1,
+        "can_added": true,
+        "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.test/synthetic/a2.jpeg"] },
+        "seller_info": { "shop_name": "ร้านทดสอบสังเคราะห์ A" }
+      },
+      {
+        "product_id": "1736749159048840635",
+        "title": "มาส์กหน้าแผ่น แพ็ค 10 ชิ้น",
+        "format_available_price": "฿99.00 - ฿249.00",
+        "stock_num": null,
+        "stock_status": 1,
+        "review_status": 3,
+        "can_added": false,
+        "cover": null,
+        "seller_info": { "shop_name": "ร้านทดสอบสังเคราะห์ A" }
+      },
+      {
+        "product_id": "1736749159048840636",
+        "title": "โฟมล้างหน้า สำหรับผิวแพ้ง่าย 150 มล.",
+        "format_available_price": "฿178.50",
+        "stock_num": 42,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.test/synthetic/a4.jpeg"] }
+      },
+      {
+        "product_id": "1736749159048840637",
+        "title": "โทนเนอร์ปรับสภาพผิว 200 มล. สูตรไม่มีแอลกอฮอล์",
+        "format_available_price": "฿215.00",
+        "stock_num": 7,
+        "stock_status": 1,
+        "review_status": 99,
+        "can_added": true,
+        "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.test/synthetic/a5.jpeg"] },
+        "seller_info": { "shop_name": "ร้านทดสอบสังเคราะห์ A" }
+      },
+      {
+        "product_id": "1736749159048840638",
+        "title": "อายครีม ลดริ้วรอยรอบดวงตา 15 มล.",
+        "format_available_price": "฿459.00",
+        "stock_num": 3,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": true,
+        "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.test/synthetic/a6.jpeg"] },
+        "seller_info": { "shop_name": "ร้านทดสอบสังเคราะห์ A" }
+      }
+    ]
+  }
+}

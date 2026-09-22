@@ -1,0 +1,190 @@
+:root {
+  color-scheme: light dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 24px;
+  max-width: 720px;
+}
+
+.banner {
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border: 2px solid #b45309;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #7c2d12;
+  font-weight: 600;
+}
+
+/* ข้อมูลไม่ครบ — ต้องเด่นกว่า banner ปกติเพราะเป็นคำเตือนเกี่ยวกับตัวข้อมูลที่กำลังจะถูก export */
+.banner-warning {
+  border-color: #b91c1c;
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+h1 {
+  font-size: 1.35rem;
+  margin: 0 0 24px;
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+section {
+  margin-bottom: 28px;
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  opacity: 0.75;
+}
+
+.rows {
+  font-size: 0.9rem;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgb(128 128 128 / 0.25);
+}
+
+.row-label {
+  flex: 0 0 180px;
+  opacity: 0.75;
+}
+
+.row-value {
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+button {
+  font: inherit;
+  padding: 8px 16px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tab-button[aria-selected="true"] {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.selection-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.product-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgb(128 128 128 / 0.2);
+}
+
+.product-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.product-title {
+  overflow-wrap: anywhere;
+}
+
+.product-price,
+.product-shop,
+.product-image {
+  font-size: 0.85rem;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+/* กดขยายดูรูปทั้งหมดของสินค้าชิ้นนั้น — ปุ่มพื้นฐาน แค่ให้ดูรู้ว่ากดได้ ไม่เน้นสวยงาม */
+.product-image-toggle {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.product-image-toggle img {
+  max-height: 40px;
+  display: block;
+}
+
+.product-image-count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  font-size: 0.65rem;
+  background: rgb(0 0 0 / 0.7);
+  color: #fff;
+  border-radius: 8px;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+
+/*
+ * ขยายเต็มความกว้างของแถว (span ทุกคอลัมน์ของ .product-row grid) แทนที่จะบีบอยู่ในคอลัมน์รูปแคบ ๆ
+ * ต้องใช้ :not([hidden]) เพราะ `display: flex` ทั่วไปมี specificity เท่ากับกฎ `[hidden] { display: none }`
+ * ของ user-agent stylesheet — ถ้าไม่กันไว้ กฎของเราจะชนะแล้วทำให้ element ที่ตั้ง hidden=true ยังโชว์อยู่
+ */
+.product-image-gallery:not([hidden]) {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.product-image-gallery img {
+  max-height: 80px;
+}
+
+.pagination {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.quarantine-row {
+  padding: 4px 0;
+  border-bottom: 1px solid rgb(128 128 128 / 0.2);
+  font-size: 0.85rem;
+}

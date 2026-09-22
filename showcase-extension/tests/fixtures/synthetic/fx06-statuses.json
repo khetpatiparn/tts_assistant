@@ -1,0 +1,61 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "products": [
+      {
+        "product_id": "9000000000000000001",
+        "title": "stock_status และ review_status เป็น 1 ทั้งคู่",
+        "format_available_price": "฿10.00",
+        "stock_num": 5,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": true
+      },
+      {
+        "product_id": "9000000000000000002",
+        "title": "stock_status เป็นค่าที่ไม่เคยพบมาก่อน",
+        "format_available_price": "฿10.00",
+        "stock_num": 5,
+        "stock_status": 77,
+        "review_status": 1,
+        "can_added": true
+      },
+      {
+        "product_id": "9000000000000000003",
+        "title": "review_status หายไปทั้ง field",
+        "format_available_price": "฿10.00",
+        "stock_num": 5,
+        "stock_status": 1,
+        "can_added": true
+      },
+      {
+        "product_id": "9000000000000000004",
+        "title": "can_added เป็น false ทั้งที่ status ดูปกติ",
+        "format_available_price": "฿10.00",
+        "stock_num": 5,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": false
+      },
+      {
+        "product_id": "9000000000000000005",
+        "title": "stock เป็นศูนย์ แต่ status ยังปกติ",
+        "format_available_price": "฿10.00",
+        "stock_num": 0,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": true
+      },
+      {
+        "product_id": "9000000000000000006",
+        "title": "stock เป็น null คือไม่ทราบ ไม่ใช่ศูนย์",
+        "format_available_price": "฿10.00",
+        "stock_num": null,
+        "stock_status": 1,
+        "review_status": 1,
+        "can_added": true
+      }
+    ]
+  }
+}

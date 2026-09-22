@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Flow A Showcase Importer (LIVE TRIAL manual scan, not live-ready)",
+  "version": "0.1.0",
+  "description": "อ่านรายการสินค้าใน Showcase ของบัญชีตนเองเพื่อ preview และ export JSON — รุ่นนี้เป็นรุ่นทดลองที่ผู้ใช้สั่งอ่านเองทีละครั้ง ยังไม่ใช่รุ่นพร้อมใช้งานจริง",
+  "minimum_chrome_version": "124",
+  "permissions": ["storage"],
+  "optional_host_permissions": ["https://shop.tiktok.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "Flow A Importer (mock)"
+  },
+  "options_page": "dashboard/index.html",
+  "incognito": "not_allowed",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

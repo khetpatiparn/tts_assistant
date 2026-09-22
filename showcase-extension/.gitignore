@@ -1,0 +1,22 @@
+node_modules/
+dist/
+dist-release/
+coverage/
+
+# Triple Bot reference package — §3.2 ข้อ 7 ห้ามคัดลอก source/assets/แบรนด์
+11.9.8_0.zip
+11.9.8_0/
+
+# §8.4 + §13.2: observed fixtures ต้อง sanitize ก่อน และห้ามเข้า repo โดยอัตโนมัติ
+# deny-by-default: ไฟล์ใหม่ทุกไฟล์ถูกตัดทิ้ง ต้องระบุชื่อไว้ข้างล่างทีละไฟล์จึงจะ commit ได้
+# การเพิ่มบรรทัด negation = การยืนยันว่า sanitize แล้วตามกฎใน observed/PROVENANCE.md §3
+tests/fixtures/observed/*
+!tests/fixtures/observed/README.md
+!tests/fixtures/observed/PROVENANCE.md
+!tests/fixtures/observed/2026-09-20-page1-offset0-full6products.json
+!tests/fixtures/observed/2026-09-20-page2-offset6-full6products.json
+!tests/fixtures/observed/2026-09-20-page34-offset198-full3products.json
+*.har
+
+test-results/
+playwright-report/
