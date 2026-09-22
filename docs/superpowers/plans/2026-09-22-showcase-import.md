@@ -1136,7 +1136,7 @@ function handleConfirmPicker(candidateId: string, chosenImageIds: string[]) {
 
 Update **both** call sites found in Step 2 (line 469 and line 702) from `handleCreate(r.id)` to `handleCreate(r)`, passing the whole row object — it already carries `id`, and after Task 6 it also carries `images` (from the widened `prisma.productCandidate.findMany({ include: { images: ... } })` query in `lib/candidate-queries.ts`). The parameter type on `handleCreate` above is `{ id: string; images: {...}[] }`, which `CandidateRow` (imported from `@/lib/candidate-queries`) already satisfies structurally — no cast needed, just pass `r` directly.
 
-Render the dialog once near the bottom of the component's JSX, alongside the existing delete-confirmation dialog pattern already in this file:
+Render the dialog once near the bottom of the component's top-level JSX (a sibling of the component's main content, so it overlays everything regardless of which layout — card or table — triggered it). Note: the file's *existing* delete-confirmation UI is an **inline** replacement of the delete button with a confirm/cancel message in place, not a modal overlay — this new picker is intentionally a different pattern (a full-screen overlay) because it needs to show a grid of images, which doesn't fit inline in a table row or card the way a short text confirmation does. Don't go looking for an existing modal to match; there isn't one in this file or `components/ui/` (confirmed: no `Dialog`/`Modal` component exists anywhere in this codebase, only `Popover`, which is used elsewhere in this same file for a small tap-triggered tooltip and doesn't fit a multi-image grid either) — this component is meant to be self-contained, which the JSX below already achieves:
 
 ```tsx
 {pickerFor && (
