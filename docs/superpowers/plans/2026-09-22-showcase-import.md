@@ -310,12 +310,17 @@ Create `tests/fixtures/showcase-sample.json` (repo root `tests/` — new folder,
       "format_available_price": "฿70.00",
       "affiliate_info": { "commission_rate": 1600 },
       "category_info": { "name": "สัตว์เลี้ยง" }
+    },
+    {
+      "product_id": "1735661139711723379",
+      "title": "ชั้นวางของในครัว 1 ชั้น",
+      "format_available_price": "฿99.00"
     }
   ]
 }
 ```
 
-(Third product has no `cover`/`images` — proves the parser tolerates missing image fields entirely, matching the "affiliate_info shapes vary, fields can be missing" finding from the source project's own data dictionary.)
+(Third product has no `cover`/`images` — proves the parser tolerates missing image fields entirely. Fourth product has no `affiliate_info`/`category_info` at all — proves the parser falls back to `commission: 0`/`categoryLabel: ""` instead of throwing, matching the "affiliate_info shapes vary, fields can be missing entirely" finding from the source project's own data dictionary.)
 
 - [ ] **Step 3: Write `scripts/check-showcase-import.mjs`**
 
@@ -359,7 +364,7 @@ try {
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "tests/fixtures/showcase-sample.json"), "utf8"));
   const { rows, skipped } = m.parseShowcasePayload(fixture);
 
-  check("2 usable rows parsed", rows.length, 2);
+  check("3 usable rows parsed", rows.length, 3);
   check("1 row skipped (missing product_id)", skipped, 1);
   check("first row sourceProductId", rows[0].sourceProductId, "1736476547228075452");
   check("first row name", rows[0].name, "ชั้นวางของในครัว 2 ชั้น");
@@ -371,8 +376,10 @@ try {
     "https://p16-oec-sg.ibyteimg.com/example-1.jpeg?sig=abc",
     "https://p16-oec-sg.ibyteimg.com/example-2.jpeg?sig=abc",
   ]);
-  check("third row (no cover/images) has empty imageUrls", rows[1].imageUrls.length, 0);
-  check("commission with no affiliate_info -> 0", rows[1].commission, 0);
+  check("second row (PETLUSCI, no cover/images) has empty imageUrls", rows[1].imageUrls.length, 0);
+  check("commission_rate 1600 -> 16", rows[1].commission, 16);
+  check("third row (no affiliate_info at all) commission falls back to 0", rows[2].commission, 0);
+  check("third row (no category_info) categoryLabel falls back to empty string", rows[2].categoryLabel, "");
 
   let threw = false;
   try {
@@ -1212,7 +1219,7 @@ curl -s -X POST http://localhost:3001/api/showcase-import \
   -d @tests/fixtures/showcase-sample.json
 ```
 
-Expected: first call prints `401`; second call returns JSON with `batchId`, `added: 2`, `skipped: 1` (matches the fixture from Task 3 — note `imagesFailed` will likely be 3 since the fixture's image URLs are fake `example-*.jpeg` placeholders that don't resolve to real images; that's expected here, not a bug).
+Expected: first call prints `401`; second call returns JSON with `batchId`, `added: 3`, `skipped: 1` (matches the fixture from Task 3 — note `imagesFailed` will likely be 3 since the fixture's image URLs are fake `example-*.jpeg` placeholders that don't resolve to real images; that's expected here, not a bug).
 
 - [ ] **Step 5: Commit**
 
