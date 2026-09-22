@@ -1,0 +1,34 @@
+{
+  "products": [
+    {
+      "product_id": "1736476547228075452",
+      "title": "ชั้นวางของในครัว 2 ชั้น",
+      "format_available_price": "฿128.71",
+      "seller_info": { "shop_name": "exampleshop_" },
+      "affiliate_info": { "commission_rate": 1200 },
+      "category_info": { "name": "เครื่องครัว" },
+      "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-cover.jpeg?sig=abc"] },
+      "images": [
+        { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-1.jpeg?sig=abc"] },
+        { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-2.jpeg?sig=abc"] }
+      ]
+    },
+    {
+      "product_id": "",
+      "title": "สินค้าไม่มี ID",
+      "format_available_price": "฿50.00"
+    },
+    {
+      "product_id": "1736141205259257672",
+      "title": "PETLUSCI แผ่นลับเล็บแมว",
+      "format_available_price": "฿70.00",
+      "affiliate_info": { "commission_rate": 1600 },
+      "category_info": { "name": "สัตว์เลี้ยง" }
+    },
+    {
+      "product_id": "1735661139711723379",
+      "title": "ชั้นวางของในครัว 1 ชั้น",
+      "format_available_price": "฿99.00"
+    }
+  ]
+}
