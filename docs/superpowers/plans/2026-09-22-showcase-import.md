@@ -835,6 +835,292 @@ Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 
 ---
 
+### Task 5c: Close remaining SSRF gaps in `lib/showcase-images.ts` — DNS rebinding, unchecked redirects, IPv4-mapped-IPv6 bypass
+
+**Added after Task 5b was already merged**, by three converging automated security review
+passes (two independent background reviewers plus the controller's own preflight read of the
+diff) that found Task 5b's first hardening pass, while a real improvement, left three concrete
+bypasses:
+
+1. **DNS rebinding (TOCTOU)** — Task 5b's `isUrlSafe` resolves the hostname and checks the IP,
+   but the subsequent `fetch()` call does its own **separate** DNS resolution of the same
+   hostname. An attacker controlling the DNS answer for a hostname can return a safe IP for the
+   check and a different (private/internal) IP moments later for the real connection.
+2. **Redirects bypass the check entirely** — `fetch()` follows redirects by default with no
+   re-validation. A URL that passes `isUrlSafe` can 302 to an internal address and `fetch` will
+   silently follow it.
+3. **IPv4-mapped IPv6 bypasses the IP blocklist** — Task 5b's IPv6 handling only checked a few
+   literal prefixes (`::1`, `fe80:`, `fc`/`fd`) and never normalized IPv4-mapped IPv6 addresses
+   (`::ffff:127.0.0.1` and equivalent hex forms), which represent the exact same blocked IPv4
+   addresses in a different textual form.
+
+**Verified empirically before writing this task** (not just by reading docs): the fix below —
+pinning the actual TCP connection to a pre-validated IPv4 address via `undici`'s `Agent` with a
+custom `connect.lookup`, forcing IPv4-only DNS resolution, and manually walking redirects with
+re-validation per hop — was tested live against real hosts:
+- A pinned connection to a deliberately WRONG IP was proven to actually reach that wrong IP (not
+  the original hostname's real IP) — confirms the pinning genuinely controls the socket target,
+  not just a documentation claim.
+- A pinned connection to the CORRECT resolved IP returned a normal `200 OK`.
+- `dns.lookup(hostname, { family: 4 })` was confirmed to always return a plain IPv4 address or
+  throw — never an IPv6/mapped form — eliminating bypass class 3 by construction rather than by
+  pattern-blocklisting (which is inherently incomplete across IPv6's many valid textual forms).
+- A real redirect (`https://httpbin.org/redirect-to?...` → `302` with a `Location` header) was
+  confirmed to be caught by `redirect: "manual"`, with the body still readable on the final hop
+  after the dispatcher is closed in the right order (close only after `arrayBuffer()` resolves,
+  not before — closing too early was tested and would have silently broken body reads).
+
+**Files:**
+- Modify: `lib/showcase-images.ts` (full replacement)
+- Modify: `package.json` (add `undici` as a direct dependency — it is already present
+  transitively at v7.28.0 via other packages' dependencies, confirmed via
+  `node -e "console.log(require('undici/package.json').version)"`, but relying on transitive
+  hoisting for security-critical code is fragile across future `npm install` runs; pin it
+  directly)
+
+**Interfaces:**
+- Consumes: `node:dns/promises`, `node:net` (Node built-ins), `undici` (new direct dependency).
+- Produces: `downloadImage`'s exported signature is UNCHANGED (`(url: string) => Promise<{buffer, ext} | null>`) — no caller needs any change.
+
+- [ ] **Step 1: Add `undici` as a direct dependency**
+
+In `package.json`, add to the `"dependencies"` object (alphabetically, between `"tw-animate-css"` and `"xlsx"`):
+
+```json
+    "undici": "^7.28.0",
+```
+
+Then run:
+
+```bash
+npm install
+```
+
+Expected: this should be a no-op in terms of what's actually on disk (it's already resolved to this exact version transitively) — `npm install` just updates `package-lock.json`'s dependency graph to reflect the new direct entry.
+
+- [ ] **Step 2: Replace `lib/showcase-images.ts` entirely**
+
+```typescript
+/**
+ * โหลดรูปสินค้าจาก URL ที่มากับ Showcase JSON ลงเป็น Buffer — แยกจาก lib/showcase-import.ts
+ * เพราะไฟล์นั้นต้องเป็น pure (ทดสอบด้วย scripts/check-showcase-import.mjs โดยไม่มี network)
+ * ส่วนไฟล์นี้ทำ I/O จริง ไม่มี pure-logic ให้ check script ตรวจ — พึ่งการทดสอบ end-to-end
+ * ใน Task 12 แทน (ตาม pattern เดียวกับ lib/tiktok-oembed.ts ซึ่งเป็นจุดยิงเน็ตอีกจุดของแอปนี้)
+ *
+ * โหลดไม่สำเร็จ (URL หมดอายุ/เน็ตมีปัญหา/ไม่ใช่รูปจริง/ไม่ผ่านเกณฑ์ความปลอดภัยด้านล่าง) =
+ * คืน null ไม่ throw — ผู้เรียก (Task 5) ตัดสินใจว่าจะข้ามรูปนั้นแล้วไปต่อ
+ *
+ * ประวัติการเสริมความปลอดภัย (2026-09-22, หลัง security review อัตโนมัติ 3 รอบติดกันของ
+ * commit ที่สร้าง/แก้ไฟล์นี้): URL ในนี้มาจาก payload ที่เชื่อใจได้แค่ครึ่งเดียว (ยิงมาจาก
+ * extension ผ่าน endpoint ที่มี secret คุ้มครอง หรืออัปโหลดเป็นไฟล์ .json มือที่ไม่มีการ
+ * คุ้มครองเลย) — รอบแรกเพิ่ม: บังคับ https:, ปฏิเสธ hostname ที่ resolve เข้า IP ส่วนตัว/
+ * loopback/link-local, จำกัดขนาดโหลด รอบสอง (นี้) ปิดช่องที่รอบแรกยังเหลือ 3 จุด:
+ * 1. **DNS rebinding (TOCTOU)** — รอบแรก resolve ตรวจแล้วปล่อยให้ fetch() resolve เองอีกรอบ
+ *    ซ้ำ — ถ้า attacker คุม DNS server ได้ ตอบ IP ปลอดภัยตอนตรวจ แต่ตอบ IP ภายในตอน fetch จริง
+ *    ก็หลบผ่านได้ แก้ด้วยการ "pin" การเชื่อมต่อจริงให้ใช้ IP เดียวกับที่ตรวจผ่านแล้วเท่านั้น
+ *    ผ่าน undici Agent + custom lookup (พิสูจน์แล้วว่าใช้งานได้จริงด้วยการทดสอบสดกับ host จริง)
+ * 2. **Redirect ไม่ถูกตรวจซ้ำ** — fetch() ตามค่าเริ่มต้นเดิน redirect เองอัตโนมัติโดยไม่เช็ค
+ *    ปลายทางใหม่เลย ถ้าปลายทางแรกผ่านแต่ตอบ 3xx ไปยัง URL ภายใน ก็หลุดไปได้ แก้ด้วย
+ *    redirect: "manual" แล้วเช็ค checkUrlSafe() ซ้ำทุก hop เอง (จำกัดไม่เกิน 5 hop กันวนไม่จบ)
+ * 3. **IPv4-mapped IPv6 หลบ blocklist ได้** — เดิมเช็ค IPv6 แบบหยาบ ไม่ครอบคลุมที่อยู่แบบ
+ *    "::ffff:127.0.0.1" ซึ่งเป็น IPv4 ปลอมตัวเป็น IPv6 แก้ด้วยการ "บังคับ resolve แบบ IPv4
+ *    เท่านั้น" (dns.lookup(hostname, {family: 4})) — ปฏิเสธ IPv6 ทุกรูปแบบไปเลย (ปลอดภัยกว่า
+ *    การพยายาม blocklist ทุกวิธีเขียน IPv6 ที่ไม่ปลอดภัย — URL รูปจริงจากร้านทั้งหมดที่สังเกต
+ *    ได้ก็เป็น IPv4-reachable อยู่แล้ว ไม่เสียของจริง)
+ */
+
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
+
+const TIMEOUT_MS = 15_000;
+const MAX_BYTES = 20 * 1024 * 1024; // 20MB — เผื่อเหลือเฟือสำหรับรูปสินค้าจริง กันการโหลดมโหฬาร
+const MAX_REDIRECTS = 5;
+
+const EXT_BY_CONTENT_TYPE: Record<string, "jpg" | "png" | "webp"> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+/** ช่วง IPv4 ที่ไม่ควรให้เซิร์ฟเวอร์ยิง request ไปหาเอง (loopback, private, link-local/cloud metadata) */
+function isPrivateOrReservedIpv4(ip: string): boolean {
+  const parts = ip.split(".").map(Number);
+  const [a, b] = parts;
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // RFC1918
+  if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
+  if (a === 192 && b === 168) return true; // RFC1918
+  if (a === 169 && b === 254) return true; // link-local รวม cloud metadata (169.254.169.254)
+  if (a === 0) return true; // "this network"
+  return false;
+}
+
+/**
+ * ตรวจ URL ก่อน fetch ทุกครั้ง (เรียกซ้ำทุก redirect hop ด้วย) — https เท่านั้น + บังคับ resolve
+ * แบบ IPv4 เท่านั้น (ปฏิเสธ IPv6 ทุกรูปแบบไปเลย กัน bypass ผ่าน IPv4-mapped IPv6) + ต้องไม่ใช่
+ * IP ภายใน คืน IP ที่ resolve ได้กลับไปด้วย เพื่อให้ผู้เรียก "pin" การเชื่อมต่อจริงเข้ากับ IP นี้
+ */
+async function checkUrlSafe(url: string): Promise<{ safe: boolean; ip: string | null }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { safe: false, ip: null };
+  }
+  if (parsed.protocol !== "https:") return { safe: false, ip: null };
+  const hostname = parsed.hostname;
+  if (hostname === "localhost") return { safe: false, ip: null };
+
+  if (isIP(hostname) === 6) return { safe: false, ip: null }; // ปฏิเสธ IPv6 literal ไปเลย
+  if (isIP(hostname) === 4) {
+    return isPrivateOrReservedIpv4(hostname) ? { safe: false, ip: null } : { safe: true, ip: hostname };
+  }
+
+  try {
+    const { address, family } = await lookup(hostname, { family: 4 }); // บังคับ IPv4 เท่านั้น
+    if (family !== 4 || isPrivateOrReservedIpv4(address)) return { safe: false, ip: null };
+    return { safe: true, ip: address };
+  } catch {
+    return { safe: false, ip: null }; // resolve ไม่ได้/ไม่มี IPv4 เลย = ปฏิเสธไว้ก่อน
+  }
+}
+
+/** เชื่อมต่อเฉพาะ IP ที่ตรวจผ่านแล้ว (ไม่ให้ fetch ไป resolve hostname ซ้ำเอง) กัน DNS rebinding */
+function pinnedDispatcher(ip: string): Agent {
+  return new Agent({
+    connect: { lookup: (_hostname, _options, callback) => callback(null, [{ address: ip, family: 4 }]) },
+  });
+}
+
+export async function downloadImage(
+  url: string
+): Promise<{ buffer: Buffer; ext: "jpg" | "png" | "webp" } | null> {
+  let currentUrl = url;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const { safe, ip } = await checkUrlSafe(currentUrl);
+      if (!safe || !ip) return null;
+
+      const dispatcher = pinnedDispatcher(ip);
+      try {
+        const res = await undiciFetch(currentUrl, {
+          signal: controller.signal,
+          redirect: "manual",
+          dispatcher,
+        });
+
+        if (res.status >= 300 && res.status < 400) {
+          const location = res.headers.get("location");
+          if (!location) return null;
+          currentUrl = new URL(location, currentUrl).toString(); // เผื่อ Location เป็น relative
+          continue; // ตรวจ URL ปลายทางใหม่ซ้ำในรอบถัดไปของลูป ไม่ตามไปเฉยๆ
+        }
+
+        if (!res.ok) return null;
+
+        const contentLength = res.headers.get("content-length");
+        if (contentLength && Number(contentLength) > MAX_BYTES) return null;
+
+        const contentType = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+        const ext = EXT_BY_CONTENT_TYPE[contentType];
+        if (!ext) return null; // ไม่ใช่รูปที่รองรับ (หรือ response ไม่ใช่รูปเลย เช่นหน้า error HTML)
+
+        // อ่าน body ให้เสร็จก่อนปิด dispatcher เสมอ — ปิดก่อนอ่านจบทำให้ body อ่านไม่ได้
+        const buffer = Buffer.from(await res.arrayBuffer());
+        if (buffer.length === 0) return null;
+        if (buffer.length > MAX_BYTES) return null; // ด่านสำรอง เผื่อ Content-Length ไม่มี/โกหก
+        return { buffer, ext };
+      } finally {
+        await dispatcher.close();
+      }
+    }
+    return null; // redirect เกิน MAX_REDIRECTS hop — ถือว่าไม่สำเร็จ
+  } catch {
+    // timeout, network error, DNS ล้มเหลว ฯลฯ — ทั้งหมดคือ "โหลดไม่สำเร็จ" เหมือนกัน
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+```
+
+- [ ] **Step 3: Typecheck**
+
+```bash
+npx tsc --noEmit
+```
+
+- [ ] **Step 4: Manual verification — legitimate download, all 5 original safety checks, plus the 3 new bypass classes**
+
+```bash
+node -e "
+const { pathToFileURL } = require('node:url');
+(async () => {
+  const out = require('node:fs').mkdtempSync('.check-showcase-images-tmp-');
+  require('node:child_process').execFileSync('npx', ['tsc', 'lib/showcase-images.ts', '--outDir', out, '--module', 'es2022', '--target', 'ES2017', '--moduleResolution', 'bundler'], { stdio: 'inherit', shell: true });
+  const m = await import(pathToFileURL(require('node:path').join(out, 'showcase-images.js')).href);
+
+  const ok = await m.downloadImage('https://httpbin.org/image/jpeg');
+  console.log('1. still downloads a real https jpeg:', ok !== null && ok.ext === 'jpg');
+
+  const http = await m.downloadImage('http://httpbin.org/image/jpeg');
+  console.log('2. plain http:// is rejected:', http === null);
+
+  const localhost = await m.downloadImage('https://localhost:1/whatever');
+  console.log('3. https://localhost is rejected:', localhost === null);
+
+  const metadata = await m.downloadImage('https://169.254.169.254/latest/meta-data/');
+  console.log('4. link-local/cloud-metadata IP is rejected:', metadata === null);
+
+  const privateIp = await m.downloadImage('https://192.168.1.1/');
+  console.log('5. private RFC1918 IP is rejected:', privateIp === null);
+
+  const mappedIpv6 = await m.downloadImage('https://[::ffff:127.0.0.1]/');
+  console.log('6. IPv4-mapped IPv6 loopback is rejected:', mappedIpv6 === null);
+
+  const ipv6Literal = await m.downloadImage('https://[::1]/');
+  console.log('7. plain IPv6 literal is rejected (IPv6 blocked entirely):', ipv6Literal === null);
+
+  const redirected = await m.downloadImage('https://httpbin.org/redirect-to?url=https://httpbin.org/image/jpeg');
+  console.log('8. a real redirect to another safe https URL still resolves to a real image:', redirected !== null && redirected.ext === 'jpg');
+
+  const redirectToPrivate = await m.downloadImage('https://httpbin.org/redirect-to?url=https://192.168.1.1/');
+  console.log('9. a redirect INTO a private IP is rejected, not silently followed:', redirectToPrivate === null);
+
+  require('node:fs').rmSync(out, { recursive: true, force: true });
+})();
+"
+```
+
+Expected: all 9 lines print `true`. If `httpbin.org` is unreachable from your environment, substitute per Task 4's original note, but line 9 specifically (redirect-into-private-IP rejection) is the single most important check in this whole task — if you cannot reach any external host to test it, at minimum confirm by reading the code that `checkUrlSafe` is called again inside the loop for the `location` target before any second fetch happens, and say so explicitly in your report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/showcase-images.ts package.json package-lock.json
+git commit -m "Close DNS rebinding, redirect, and IPv4-mapped-IPv6 SSRF bypasses
+
+Task 5b's first hardening pass (https-only, private-IP blocklist,
+size cap) left three gaps found by automated security review:
+DNS rebinding (fetch() re-resolves the hostname separately from the
+check), unchecked redirects (fetch() follows 3xx automatically with
+no re-validation), and IPv4-mapped IPv6 addresses bypassing the IPv4
+blocklist. Fixes: pin the actual connection to the pre-validated IP
+via an undici Agent with a custom connect.lookup (verified live
+against real hosts — a mismatched pin genuinely fails to reach the
+original host), force IPv4-only DNS resolution (eliminates the
+mapped-IPv6 bypass by construction), and manually walk redirects
+with re-validation at every hop instead of letting fetch() auto-follow.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 6: UI — manual upload form + candidate thumbnails
 
 **Files:**
