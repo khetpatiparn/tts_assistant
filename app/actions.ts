@@ -1100,6 +1100,67 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
   return created.id;
 }
 
+/**
+ * เหมือน createEntryFromCandidate แต่สำหรับ candidate ที่มีรูป (มาจาก Showcase import) —
+ * สร้าง entry แล้ว "ก๊อป" รูปที่ผู้ใช้เลือกจาก uploads/_candidates/<candidateId>/ เข้าคิว Flow
+ * ทันที (ผ่าน enqueueFlowJobCore) แทนที่จะปล่อยให้ผู้ใช้ไปอัปโหลดรูปเองที่หน้า entry
+ */
+export async function createEntryFromCandidateWithImages(
+  candidateId: string,
+  chosenImageIds: string[]
+): Promise<string> {
+  if (chosenImageIds.length === 0) {
+    throw new Error("กรุณาเลือกรูปอย่างน้อย 1 รูป");
+  }
+
+  const candidate = await prisma.productCandidate.findUnique({
+    where: { id: candidateId },
+    include: { images: true },
+  });
+  if (!candidate) throw new Error("ไม่พบสินค้าที่เลือก");
+
+  const chosen = candidate.images.filter((img) => chosenImageIds.includes(img.id));
+  if (chosen.length !== chosenImageIds.length) {
+    throw new Error("รูปที่เลือกบางรูปไม่ตรงกับสินค้านี้");
+  }
+
+  const active = await prisma.corePrompt.findFirst({ where: { isActive: true, kind: "core" } });
+
+  const created = await prisma.promptEntry.create({
+    data: {
+      productName: candidate.name,
+      productInfo: "",
+      riskModule: "",
+      extraNotes: "",
+      images: "[]",
+      corePromptId: active?.id ?? null,
+    },
+  });
+
+  await prisma.productCandidate.update({
+    where: { id: candidateId },
+    data: { linkedEntryId: created.id },
+  });
+
+  const images = await Promise.all(
+    chosen.map(async (img) => ({
+      buffer: await readFile(path.join(CANDIDATE_IMAGE_ROOT, candidateId, img.filename)),
+      mimeType: img.mimeType,
+    }))
+  );
+  // เข้าคิว Flow — ถ้าพังตรงนี้ (เช่น รูปหายจากดิสก์) entry ยังถูกสร้างไปแล้ว ผู้ใช้ไปอัปโหลด
+  // รูปเองที่หน้า entry ได้ตามปกติ ไม่ทำให้ entry ที่สร้างไปแล้วหายหรือใช้งานไม่ได้
+  try {
+    await enqueueFlowJobCore(created.id, images);
+  } catch (err) {
+    console.error("เข้าคิว Flow อัตโนมัติไม่สำเร็จ ผู้ใช้ต้องอัปโหลดรูปเองที่หน้า entry:", err);
+  }
+
+  revalidatePath("/products");
+  revalidatePath("/");
+  return created.id;
+}
+
 const CANDIDATE_IMAGE_ROOT = path.join(process.cwd(), "uploads", "_candidates");
 
 /**
