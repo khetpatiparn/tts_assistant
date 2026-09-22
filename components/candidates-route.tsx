@@ -15,6 +15,7 @@ import {
 
 import {
   createEntryFromCandidate,
+  createEntryFromCandidateWithImages,
   deleteCandidateBatch,
   extractCandidates,
   importShowcaseFile,
@@ -28,6 +29,7 @@ import type {
 import { playCompletionSound } from "@/lib/completion-sound";
 import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 import { cn } from "@/lib/utils";
+import { CandidateImagePicker } from "@/components/candidate-image-picker";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -124,6 +126,11 @@ export function CandidatesRoute({
   const [batchView, setBatchView] = useState<string | null>(null);
   // เก็บ id ของชุดที่กดลบไว้รอยืนยัน — ยืนยันในที่เดิมแทนการเปิด dialog
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  // ไม่ null = กำลังเปิด dialog เลือกรูปสำหรับ candidate นี้ก่อนสร้างงาน
+  const [pickerFor, setPickerFor] = useState<{
+    id: string;
+    images: { id: string; filename: string }[];
+  } | null>(null);
   const [isExtracting, startExtracting] = useTransition();
   const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -177,10 +184,25 @@ export function CandidatesRoute({
     });
   }
 
-  function handleCreate(id: string) {
+  function handleCreate(candidate: { id: string; images: { id: string; filename: string }[] }) {
+    if (candidate.images.length > 0) {
+      setPickerFor({ id: candidate.id, images: candidate.images });
+      return;
+    }
     startUpdating(async () => {
       try {
-        await createEntryFromCandidate(id);
+        await createEntryFromCandidate(candidate.id);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
+      }
+    });
+  }
+
+  function handleConfirmPicker(candidateId: string, chosenImageIds: string[]) {
+    setPickerFor(null);
+    startUpdating(async () => {
+      try {
+        await createEntryFromCandidateWithImages(candidateId, chosenImageIds);
       } catch (e) {
         setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
       }
@@ -516,7 +538,7 @@ export function CandidatesRoute({
                       <Button
                         type="button"
                         size="sm"
-                        onClick={() => handleCreate(r.id)}
+                        onClick={() => handleCreate(r)}
                         disabled={isUpdating}
                       >
                         สร้างงานเลย
@@ -762,7 +784,7 @@ export function CandidatesRoute({
                           <Button
                             type="button"
                             size="sm"
-                            onClick={() => handleCreate(r.id)}
+                            onClick={() => handleCreate(r)}
                             disabled={isUpdating}
                           >
                             สร้างงานเลย
@@ -784,6 +806,15 @@ export function CandidatesRoute({
           </table>
         </div>
         </>
+      )}
+
+      {pickerFor && (
+        <CandidateImagePicker
+          candidateId={pickerFor.id}
+          images={pickerFor.images}
+          onConfirm={handleConfirmPicker}
+          onCancel={() => setPickerFor(null)}
+        />
       )}
     </div>
   );
