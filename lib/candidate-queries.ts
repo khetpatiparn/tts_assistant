@@ -28,6 +28,9 @@ export type CandidateRow = {
   demandTotal: number | null;
   flags: CandidateFlag[];
   badges: CandidateBadge[];
+  /** Product ID จริงจาก Showcase — non-null แปลว่าแถวนี้มาจาก Showcase import ไม่ใช่แคปหน้าจัดอันดับ
+   *  (ดู ProductCandidate.sourceProductId ใน schema) ใช้แยกว่าคำเตือน/สัญญาณไหนใช้กับแถวนี้ได้บ้าง */
+  sourceProductId: string | null;
   /** แถวนี้อยู่ในชุดล่าสุดของหมวดตัวเองไหม — มุมมองดีฟอลต์ของหน้าแสดงเฉพาะแถวที่เป็น true */
   isLatestForCategory: boolean;
 };
@@ -79,6 +82,7 @@ export async function getCandidatesData(): Promise<{
     note: c.note,
     linkedEntryId: c.linkedEntryId,
     images: c.images,
+    sourceProductId: c.sourceProductId,
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),

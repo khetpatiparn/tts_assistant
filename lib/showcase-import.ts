@@ -48,6 +48,19 @@ function parseCommissionRate(raw: number | undefined): number {
   return raw / 100;
 }
 
+/**
+ * แปลง NormalizedShowcaseCandidate.commission (เปอร์เซ็นต์ — ดูหมายเหตุที่ field ด้านบน) เป็น
+ * "บาทต่อชิ้น" ซึ่งเป็นหน่วยจริงของ ProductCandidate.commission ทั้งคอลัมน์ (ดู lib/candidates.ts:
+ * commissionPercent/demandTotal คำนวณย้อนจากบาทเสมอ ไม่ใช่ %) — ห้ามเขียนค่า .commission ของ
+ * NormalizedShowcaseCandidate ลง Prisma ตรงๆ ต้องแปลงผ่านฟังก์ชันนี้ก่อนเสมอ (ดู
+ * app/actions.ts importShowcaseBatch) ไม่งั้นค่าที่เก็บจะเป็นเลขเปอร์เซ็นต์ที่ทุก consumer อื่น
+ * ในระบบตีความเป็นบาทผิดหน่วยทันที (แสดงผล "ค่าคอม" ผิด, commissionPercent/demandTotal/ป้าย
+ * จัดอันดับคำนวณผิดหมด)
+ */
+export function commissionBahtFromPercent(price: number, commissionPercent: number): number {
+  return (price * commissionPercent) / 100;
+}
+
 export function parseShowcasePayload(raw: unknown): {
   rows: NormalizedShowcaseCandidate[];
   skipped: number;

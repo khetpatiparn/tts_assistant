@@ -31,7 +31,10 @@ import { isIP } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
 
 const TIMEOUT_MS = 15_000;
-const MAX_BYTES = 20 * 1024 * 1024; // 20MB — เผื่อเหลือเฟือสำหรับรูปสินค้าจริง กันการโหลดมโหฬาร
+// 10MB — จับคู่กับ MAX_IMAGE_BYTES ใน app/actions.ts (enqueueFlowJobCore validate ด้วยค่าเดียวกัน)
+// เดิมตั้งไว้ 20MB ซึ่งกว้างกว่าเพดานฝั่งเข้าคิว Flow — ทำให้รูป 10-20MB โหลดสำเร็จที่นี่แต่ไป
+// throw "ไฟล์ใหญ่เกิน 10MB" ตอน enqueueFlowJobCore ในภายหลัง (ดู createEntryFromCandidateWithImages)
+const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 
 const EXT_BY_CONTENT_TYPE: Record<string, "jpg" | "png" | "webp"> = {

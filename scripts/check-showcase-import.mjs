@@ -26,13 +26,24 @@ function checkDeep(name, actual, expected) {
   if (!ok) console.log(`      ได้ ${JSON.stringify(actual)}\n      ควรได้ ${JSON.stringify(expected)}`);
 }
 
+function checkClose(name, actual, expected, tolerance = 0.001) {
+  const ok = Math.abs(actual - expected) < tolerance;
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+  if (!ok) console.log(`      ได้ ${actual} ควรได้ ~${expected}`);
+}
+
 try {
+  // compile lib/candidates.ts ด้วย (ไม่ใช่แค่ showcase-import.ts) เพื่อใช้ normalizeName ตัวจริง
+  // ตอนทดสอบ Finding 2 (nameKey collision fix) — ให้ทดสอบสูตรเดียวกับที่ app/actions.ts ใช้จริง
+  // (`${normalizeName(row.name)}::${row.sourceProductId}`) ไม่ใช่ก๊อปสูตรมาเขียนซ้ำในเทสต์
   execFileSync(
     "npx",
-    ["tsc", "lib/showcase-import.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+    ["tsc", "lib/showcase-import.ts", "lib/candidates.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
     { stdio: "inherit", shell: true }
   );
   const m = await import(pathToFileURL(join(out, "showcase-import.js")).href);
+  const candidatesModule = await import(pathToFileURL(join(out, "candidates.js")).href);
 
   const fixture = JSON.parse(readFileSync(join(process.cwd(), "tests/fixtures/showcase-sample.json"), "utf8"));
   const { rows, skipped } = m.parseShowcasePayload(fixture);
@@ -61,6 +72,52 @@ try {
     threw = true;
   }
   check("malformed payload (no products array) throws", threw, true);
+
+  // --- Fix 1 (final-review 2026-09-22): commissionBahtFromPercent ---
+  // price=128.71, commission=12 (เปอร์เซ็นต์ — เหมือนแถวแรกของ fixture ด้านบน) ต้องได้บาทต่อชิ้น
+  // ฿15.4452 (128.71 * 12 / 100) ไม่ใช่ 12 ดิบๆ ที่เคยถูกเขียนลง Prisma ตรงๆ (บั๊ก Critical)
+  checkClose(
+    "commissionBahtFromPercent(128.71, 12) = 15.4452 บาท (ไม่ใช่ 12% ดิบ)",
+    m.commissionBahtFromPercent(128.71, 12),
+    15.4452
+  );
+  checkClose("commissionBahtFromPercent(70, 16) = 11.2 บาท", m.commissionBahtFromPercent(70, 16), 11.2);
+  check("commissionBahtFromPercent(0, 12) = 0 บาท (ราคา 0)", m.commissionBahtFromPercent(0, 12), 0);
+  // ยืนยันด้วยแถวที่ parse จริงจาก fixture ด้านบน (rows[0]: price 128.71, commission 12%)
+  checkClose(
+    "commissionBahtFromPercent ต่อจาก parseShowcasePayload จริง ได้ 15.4452 บาท",
+    m.commissionBahtFromPercent(rows[0].price, rows[0].commission),
+    15.4452
+  );
+
+  // --- Fix 2 (final-review 2026-09-22): nameKey ไม่ชนกันเมื่อ 2 สินค้าคนละตัวชื่อซ้ำ ---
+  // จำลองเพย์โหลดที่มี 2 product_id ต่างกันแต่ title เหมือนกันเป๊ะ (routine บน TikTok Shop —
+  // ร้านคัดลอกชื่อกัน) ก่อนแก้บั๊ก: nameKey = normalizeName(title) ล้วนๆ จะชนกันที่
+  // @@unique([batchId, nameKey]) จน transaction ทั้งก้อน rollback สูตรที่แก้แล้วใน
+  // app/actions.ts คือ `${normalizeName(row.name)}::${row.sourceProductId}` — ทดสอบด้วย
+  // normalizeName ตัวจริงจาก lib/candidates.ts (compile คู่กันด้านบน) ไม่ใช่ก๊อปสูตรมาเขียนซ้ำ
+  const duplicateTitlePayload = {
+    products: [
+      { product_id: "aaa111", title: "ที่ลับเล็บแมว", format_available_price: "฿29.00" },
+      { product_id: "bbb222", title: "ที่ลับเล็บแมว", format_available_price: "฿35.00" },
+    ],
+  };
+  const { rows: dupRows } = m.parseShowcasePayload(duplicateTitlePayload);
+  check("payload สินค้าชื่อซ้ำ 2 ตัว -> parse ได้ 2 แถวไม่ถูกข้าม", dupRows.length, 2);
+  const nameKeyA = `${candidatesModule.normalizeName(dupRows[0].name)}::${dupRows[0].sourceProductId}`;
+  const nameKeyB = `${candidatesModule.normalizeName(dupRows[1].name)}::${dupRows[1].sourceProductId}`;
+  check(
+    "nameKey ของ 2 สินค้าชื่อซ้ำแต่ product_id ต่างกัน -> ไม่ชนกัน (Fix 2)",
+    nameKeyA === nameKeyB,
+    false
+  );
+  // ก่อนแก้ (nameKey = normalizeName(title) เฉยๆ) สองแถวนี้จะได้คีย์เดียวกันเป๊ะ — ยืนยันว่า
+  // normalizeName อย่างเดียวคือสาเหตุจริงของการชนกัน ไม่ใช่แค่สมมติฐาน
+  check(
+    "ยืนยันสาเหตุ: normalizeName(title) อย่างเดียว (สูตรเดิมก่อนแก้) ชนกันจริง",
+    candidatesModule.normalizeName(dupRows[0].name) === candidatesModule.normalizeName(dupRows[1].name),
+    true
+  );
 } finally {
   rmSync(out, { recursive: true, force: true });
 }

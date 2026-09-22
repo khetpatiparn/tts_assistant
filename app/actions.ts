@@ -22,8 +22,9 @@ import {
   type AngleSuggestion,
 } from "@/lib/angle";
 import { normalizeName, parseCandidateRows } from "@/lib/candidates";
-import { parseShowcasePayload } from "@/lib/showcase-import";
+import { commissionBahtFromPercent, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
+import { Prisma } from "@/lib/generated/prisma/client";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
 import { parseAffiliateXlsx, videoIdFromUrl } from "@/lib/affiliate";
@@ -1108,7 +1109,7 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
 export async function createEntryFromCandidateWithImages(
   candidateId: string,
   chosenImageIds: string[]
-): Promise<string> {
+): Promise<{ entryId: string; flowEnqueueError: string | null }> {
   if (chosenImageIds.length === 0) {
     throw new Error("กรุณาเลือกรูปอย่างน้อย 1 รูป");
   }
@@ -1142,23 +1143,28 @@ export async function createEntryFromCandidateWithImages(
     data: { linkedEntryId: created.id },
   });
 
-  const images = await Promise.all(
-    chosen.map(async (img) => ({
-      buffer: await readFile(path.join(CANDIDATE_IMAGE_ROOT, candidateId, img.filename)),
-      mimeType: img.mimeType,
-    }))
-  );
-  // เข้าคิว Flow — ถ้าพังตรงนี้ (เช่น รูปหายจากดิสก์) entry ยังถูกสร้างไปแล้ว ผู้ใช้ไปอัปโหลด
-  // รูปเองที่หน้า entry ได้ตามปกติ ไม่ทำให้ entry ที่สร้างไปแล้วหายหรือใช้งานไม่ได้
+  // เข้าคิว Flow — entry ต้องถูกสร้างสำเร็จไปแล้วเสมอไม่ว่าขั้นนี้จะพังหรือไม่ (เช่น รูปหายจาก
+  // ดิสก์ตอน readFile หรือ enqueueFlowJobCore validate ไม่ผ่าน เช่นไฟล์ใหญ่เกิน 10MB) — ผู้ใช้
+  // ไปอัปโหลดรูปเองที่หน้า entry ได้ตามปกติเสมอ entry ที่สร้างไปแล้วไม่หาย แต่ต้องคืน error
+  // กลับไปให้ผู้เรียกโชว์ใน UI ด้วย ไม่ใช่แค่ console.error เงียบๆ (ผู้ใช้เคยไม่มีทางรู้เลยว่า
+  // งาน Flow ไม่ได้ถูกสร้างจนกว่าจะบังเอิญสังเกตเห็นทีหลัง)
+  let flowEnqueueError: string | null = null;
   try {
+    const images = await Promise.all(
+      chosen.map(async (img) => ({
+        buffer: await readFile(path.join(CANDIDATE_IMAGE_ROOT, candidateId, img.filename)),
+        mimeType: img.mimeType,
+      }))
+    );
     await enqueueFlowJobCore(created.id, images);
   } catch (err) {
+    flowEnqueueError = err instanceof Error ? err.message : "เข้าคิว Flow อัตโนมัติไม่สำเร็จ";
     console.error("เข้าคิว Flow อัตโนมัติไม่สำเร็จ ผู้ใช้ต้องอัปโหลดรูปเองที่หน้า entry:", err);
   }
 
   revalidatePath("/products");
   revalidatePath("/");
-  return created.id;
+  return { entryId: created.id, flowEnqueueError };
 }
 
 const CANDIDATE_IMAGE_ROOT = path.join(process.cwd(), "uploads", "_candidates");
@@ -1185,32 +1191,52 @@ export async function importShowcaseBatch(
   // สร้างชุด + candidate ทุกแถวในทรานแซกชันเดียวก่อน (เหมือน extractCandidates) — การโหลดรูป
   // (I/O ช้า, ไม่ transactional) ทำแยกหลัง transaction commit แล้ว เพื่อไม่ให้ธุรกรรม DB ค้าง
   // รอ network นานเกินไป — ถ้าโหลดรูปพังกลางทาง candidate ที่สร้างไปแล้วยังอยู่ครบ แค่ไม่มีรูป
-  const batch = await prisma.$transaction(async (tx) => {
-    const created = await tx.candidateBatch.create({ data: { capturedOn } });
-    for (const row of rows) {
-      await tx.productCandidate.upsert({
-        where: { batchId_sourceProductId: { batchId: created.id, sourceProductId: row.sourceProductId } },
-        create: {
-          batchId: created.id,
-          name: row.name,
-          nameKey: normalizeName(row.name),
-          price: row.price,
-          commission: row.commission,
-          weeklySales: null,
-          categoryLabel: row.categoryLabel,
-          sourceProductId: row.sourceProductId,
-          capturedOn,
-        },
-        update: {
-          name: row.name,
-          price: row.price,
-          commission: row.commission,
-          categoryLabel: row.categoryLabel,
-        },
-      });
+  let batch;
+  try {
+    batch = await prisma.$transaction(async (tx) => {
+      const created = await tx.candidateBatch.create({ data: { capturedOn } });
+      for (const row of rows) {
+        // row.commission คือ "เปอร์เซ็นต์" (ดูหมายเหตุใน NormalizedShowcaseCandidate) แต่
+        // ProductCandidate.commission เป็นบาทต่อชิ้นเหมือน candidate ทุกแหล่งอื่นในระบบ —
+        // ต้องแปลงก่อนเขียนเสมอ ไม่งั้น "ค่าคอม" ที่แสดงผล/commissionPercent/demandTotal/ป้าย
+        // จัดอันดับจะผิดหน่วยกันทั้งหมด (เคยเป็นบั๊ก Critical ของ final review รอบนี้)
+        const commissionBaht = commissionBahtFromPercent(row.price, row.commission);
+        await tx.productCandidate.upsert({
+          where: { batchId_sourceProductId: { batchId: created.id, sourceProductId: row.sourceProductId } },
+          create: {
+            batchId: created.id,
+            name: row.name,
+            // ผูก nameKey กับ sourceProductId เสมอ (ต่างจาก extractCandidates ที่ใช้แค่
+            // normalizeName(name) เพราะแคปหน้าจัดอันดับไม่มี ID ที่เชื่อถือได้) — สินค้าคนละตัว
+            // ใน Showcase payload เดียวกันตั้งชื่อซ้ำกันได้จริง (ร้านก๊อปชื่อกันเป็นเรื่องปกติบน
+            // TikTok Shop) ถ้าใช้แค่ normalizeName(name) แถวที่สองจะชน @@unique([batchId, nameKey])
+            // แล้วทำให้ transaction ทั้งก้อน rollback (ดู catch ด้านล่างเป็นด่านกันสำรอง)
+            nameKey: `${normalizeName(row.name)}::${row.sourceProductId}`,
+            price: row.price,
+            commission: commissionBaht,
+            weeklySales: null,
+            categoryLabel: row.categoryLabel,
+            sourceProductId: row.sourceProductId,
+            capturedOn,
+          },
+          update: {
+            name: row.name,
+            price: row.price,
+            commission: commissionBaht,
+            categoryLabel: row.categoryLabel,
+          },
+        });
+      }
+      return created;
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      throw new Error(
+        "นำเข้าไม่สำเร็จ — มีสินค้าในไฟล์นี้ชนกันในระบบ (ชื่อหรือรหัสสินค้าซ้ำ) ลองนำเข้าไฟล์นี้ใหม่อีกครั้ง"
+      );
     }
-    return created;
-  });
+    throw err;
+  }
 
   const created = await prisma.productCandidate.findMany({
     where: { batchId: batch.id },

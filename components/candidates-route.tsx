@@ -82,13 +82,24 @@ function buildCandidateWarnings(
     });
   }
   if (r.demandTotal === null) {
-    warnings.push({
-      key: "nosales",
-      danger: true,
-      text:
-        'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
-        'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
-    });
+    // แถวจาก Showcase import (sourceProductId ไม่ null) ไม่มีตัวเลขยอดขายเป็นเรื่องปกติ/
+    // โครงสร้างเสมอ (Showcase ไม่มีฟิลด์นี้ให้เลย) — คำแนะนำ "ลองแคปจากหน้าขายดีที่สุด" ผิด
+    // ทั้งหมดสำหรับแถวเหล่านี้เพราะไม่มีสกรีนช็อตให้แคปใหม่ ใช้ข้อความกลางๆ ที่ตรงกับความจริงแทน
+    if (r.sourceProductId !== null) {
+      warnings.push({
+        key: "nosales",
+        danger: false,
+        text: "นำเข้าจาก Showcase — ไม่มีตัวเลขยอดขายรายสัปดาห์ จึงจัดอันดับศักยภาพรายได้ให้ไม่ได้",
+      });
+    } else {
+      warnings.push({
+        key: "nosales",
+        danger: true,
+        text:
+          'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
+          'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
+      });
+    }
   }
   if (r.flags.includes("mechanism")) {
     warnings.push({
@@ -142,8 +153,15 @@ export function CandidatesRoute({
         : rows.filter((r) => r.batchId === batchView);
     if (filter === "todo") list = list.filter((r) => r.linkedEntryId === null);
     else if (filter === "created") list = list.filter((r) => r.linkedEntryId !== null);
-    // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
-    return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
+    // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้เพราะข้อมูลพัง (screenshot ที่ขาด
+    // ยอดขายจริงๆ) ไปท้ายสุดเหมือนเดิม — แต่แถว Showcase import (sourceProductId ไม่ null) ไม่มี
+    // ยอดขายโดยโครงสร้างเสมอ (Showcase ไม่มีฟิลด์นี้) ไม่ใช่ปัญหาคุณภาพข้อมูล จึงให้คีย์กลางๆ (0)
+    // แทนที่จะโดนฝัง -1 ไว้ใต้ทุกแถว screenshot ที่มีตัวเลขจริงโดยธรรมชาติ
+    const sortKey = (r: CandidateRow): number => {
+      if (r.demandTotal !== null) return r.demandTotal;
+      return r.sourceProductId !== null ? 0 : -1;
+    };
+    return [...list].sort((a, b) => sortKey(b) - sortKey(a));
   }, [rows, filter, batchView]);
 
   // จำนวนแถวของแต่ละชุดที่กำลังโชว์อยู่ในมุมมองดีฟอลต์ (ไม่ใช่ทั้งหมด batchView) — ใช้เตือน
@@ -200,9 +218,22 @@ export function CandidatesRoute({
 
   function handleConfirmPicker(candidateId: string, chosenImageIds: string[]) {
     setPickerFor(null);
+    setError(null);
+    setResult(null);
     startUpdating(async () => {
       try {
-        await createEntryFromCandidateWithImages(candidateId, chosenImageIds);
+        const { flowEnqueueError } = await createEntryFromCandidateWithImages(
+          candidateId,
+          chosenImageIds
+        );
+        // entry ถูกสร้างสำเร็จเสมอถึงจุดนี้ — ถ้าแค่ขั้นเข้าคิว Flow อัตโนมัติพัง ต้องโชว์ผู้ใช้
+        // เห็น ไม่ใช่ปล่อยให้หายเงียบๆ (entry ยังใช้งานได้ปกติ ไปอัปโหลดรูปเองที่หน้ารายการได้)
+        if (flowEnqueueError) {
+          setResult(
+            `สร้างรายการแล้ว แต่เข้าคิว Flow อัตโนมัติไม่สำเร็จ (${flowEnqueueError}) — ` +
+              "ไปอัปโหลดรูปเองที่หน้ารายการนี้ได้"
+          );
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
       }
