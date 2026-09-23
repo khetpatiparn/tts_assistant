@@ -29,6 +29,13 @@ export type SelectorSet = {
   /** ปุ่มเปิดเมนูโหมด/ตั้งค่า (ไอคอน crop_*) */
   modeTrigger: string[];
   /**
+   * fallback ชั้นสุดท้ายของ modeTrigger เมื่อ CSS selector ทุกตัวข้างบนพังหมด — หาปุ่มจาก
+   * ข้อความเชิงความหมาย (innerText/aria-label/title) แทน ใส่เฉพาะโฮสต์ที่มีหลักฐาน DOM dump จริง
+   * รองรับแล้วเท่านั้น (ดู modeTriggerIntent ของ MIGRATED ด้านล่างเป็นตัวอย่าง — ห้ามเดาไปก่อน
+   * มีหลักฐาน) ดูคอมเมนต์เต็มที่ worker/dom-heuristics.ts
+   */
+  modeTriggerIntent?: { match: RegExp; exclude?: RegExp };
+  /**
    * element ที่มีอยู่ก็ต่อเมื่อแผงตั้งค่าเปิดอยู่ — ใส่ค่านี้แปลว่า "เปิด/ปิดแผงด้วยการกด
    * modeTrigger สลับ ห้ามใช้ Escape" ไม่ใส่ = พฤติกรรมเดิม (เปิดใหม่ทุกขั้น ปิดด้วย Escape)
    *
@@ -189,7 +196,19 @@ const MIGRATED: SelectorSet = {
   ],
   projectUrlFragment: "/project/",
   projectUrl: (id) => `https://flow.google.com/project/${id}?hl=en`,
-  modeTrigger: ["button.settings-trigger-button", "button[aria-label='Settings trigger']"],
+  // แก้ 2026-09-23: Flow เปลี่ยนปุ่มเปิดแผงตั้งค่าจริง — ปุ่มเดิม (.settings-trigger-button /
+  // aria-label 'Settings trigger') ยังอยู่ใน DOM แต่โดนใส่ hidden="" แล้ว ยืนยันจากหลักฐาน
+  // เจอ selector_drift 2 ครั้งอิสระกัน (คนละ project, คนละวัน) ใน uploads/_flow-failures/ —
+  // ทั้งคู่มี <mat-icon>tune</mat-icon> อยู่ในปุ่มใหม่ที่ aria-label="Settings" (ไม่มี "trigger")
+  // แทนที่ ยังไม่ได้ยืนยันขั้นถัดไปหลังจากนี้ (imageTab/modelTrigger/ฯลฯ) เพราะบอทพังที่ขั้นนี้
+  // ก่อนถึงขั้นนั้นเสมอ — ต้องรัน flow-smoke:s2 ยืนยันซ้ำว่าไปต่อได้จริงหลังแก้
+  modeTrigger: ["button:has(mat-icon:text-is('tune'))", "button[aria-label='Settings']"],
+  // fallback ชั้นสุดท้าย ถ้าแม้แต่ 2 ตัวข้างบนก็เจอ drift รอบใหม่อีก — ยืนยันจาก DOM dump จริง
+  // เดียวกับที่แก้ modeTrigger ข้างบน (uploads/_flow-failures/ 2026-09-22): "tune" คือ ligature
+  // ของ mat-icon ในปุ่มนี้ ยืนยันแล้วว่า match แค่ตัวเดียวในหน้า (ไม่ชนปุ่มอื่น) ส่วน exclude กัน
+  // ปุ่ม "Tile grid settings" (คนละปุ่ม อยู่แถบเครื่องมือด้านบน ไม่ใช่ปุ่มเปิดแผงของ composer)
+  // กับ "Select model family" (modelTrigger คนละขั้น) ที่มีคำว่า settings/select ปนอยู่ในหน้าเดียวกัน
+  modeTriggerIntent: { match: /\btune\b|\bsettings\b/i, exclude: /tile grid|grid settings|select model|trash|delete/i },
   // จับ overlay ที่เป็น "แผงตั้งค่า" จริงๆ ด้วยของที่อยู่แต่ในแผงนี้ 2 ตัว (คั่นด้วย , = ตัวไหน
   // ติดก็ถือว่าเปิด · ทั้งคู่ชี้ pane เดียวกันจึงนับได้ 1 ไม่ซ้อน) ยืนยันสด 2026-09-06:
   // แผงตั้งค่าเปิด → 1 · เปิดแค่ไดอะล็อกเลือกสื่อ → 0 (ตัว .cdk-overlay-pane เปล่าได้ 1 = false positive)

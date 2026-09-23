@@ -4,6 +4,7 @@ import type { Locator, Page, Response } from "playwright";
 import type { WorkerConfig } from "./config";
 import { FlowStepError, type ErrorKind } from "./errors";
 import { humanClick, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
+import { findByIntent } from "./dom-heuristics";
 import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
@@ -54,8 +55,18 @@ function isTimeout(e: unknown): boolean {
   return e instanceof Error && (e.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(e.message));
 }
 
-/** ลอง selector ตามลำดับ คืนตัวแรกที่ visible · ไม่เจอเลย = selector_drift */
-async function firstVisible(page: Page, step: FlowStep, candidates: string[], timeoutMs: number): Promise<Locator> {
+/**
+ * ลอง selector ตามลำดับ คืนตัวแรกที่ visible · ไม่เจอเลย = selector_drift
+ * `intent` (ถ้ามี) คือ fallback ชั้นสุดท้ายหลัง CSS selector ทุกตัวพังหมด — หาแทนด้วยความหมาย
+ * ของปุ่ม (ดูคอมเมนต์ที่ findByIntent) ใส่เฉพาะจุดที่มีหลักฐาน DOM dump จริงรองรับแล้วเท่านั้น
+ */
+async function firstVisible(
+  page: Page,
+  step: FlowStep,
+  candidates: string[],
+  timeoutMs: number,
+  intent?: { match: RegExp; exclude?: RegExp }
+): Promise<Locator> {
   const perCandidate = Math.max(1000, Math.floor(timeoutMs / candidates.length));
   for (const sel of candidates) {
     const loc = page.locator(sel).first();
@@ -65,6 +76,10 @@ async function firstVisible(page: Page, step: FlowStep, candidates: string[], ti
     } catch {
       // ลองตัวถัดไป
     }
+  }
+  if (intent) {
+    const loc = await findByIntent(page, intent.match, intent.exclude);
+    if (loc) return loc;
   }
   throw new FlowStepError(step, "selector_drift", `หา element ไม่เจอ: ${candidates.join(" | ")}`);
 }
@@ -239,7 +254,7 @@ export async function runRound(
         const open = await page.locator(sel.settingsPanelOpen).first().isVisible().catch(() => false);
         if (open) return;
       }
-      const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs);
+      const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
       await humanClick(page, trigger, cfg);
       await sleepMs(randInt([600, 1000]));
     }
@@ -253,7 +268,7 @@ export async function runRound(
       }
       const pane = page.locator(sel.settingsPanelOpen).first();
       if (await pane.isVisible().catch(() => false)) {
-        const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs);
+        const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
         await humanClick(page, trigger, cfg);
         await pane.waitFor({ state: "hidden", timeout: cfg.selectorTimeoutMs });
       }
