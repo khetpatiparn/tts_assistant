@@ -26,6 +26,15 @@ export type SelectorSet = {
    * ไม่ใช่ต่อสตริงเองที่ผู้เรียก
    */
   projectUrl: (id: string) => string;
+  /**
+   * ปุ่ม toggle "Agent" mode ของ composer (class `.agent-mode-chip`, ยืนยันสด 2026-09-23 ผ่าน
+   * extension ของ Claude ในเบราว์เซอร์จริงของผู้ใช้ — ไม่ใช่ automation) — ตั้งใจ**ไม่ใช้โหมด
+   * Agent เลย** เพราะเป็นแชท AI ที่ตัดสินใจเองว่าจะสร้างกี่ภาพ/สัดส่วนอะไร ไม่รับประกันว่าฟังค่า
+   * default ที่ตั้งไว้ (ยืนยันจริง: ตั้ง count=4 ไว้ถูกต้องแล้ว แต่ generate ผ่าน Agent chat ได้แค่
+   * ~1 ภาพ) เช็ก `aria-pressed` ของปุ่มนี้ก่อนทุกรอบ — "true" = ON ต้องกดปิดก่อนเริ่มงาน
+   * ไม่ใส่ = โฮสต์นี้ไม่มี concept นี้ (labs)
+   */
+  agentModeChip?: string;
   /** ปุ่มเปิดเมนูโหมด/ตั้งค่า (ไอคอน crop_*) */
   modeTrigger: string[];
   /**
@@ -47,7 +56,20 @@ export type SelectorSet = {
    * จะถูกอ่านว่า "แผงตั้งค่าเปิดแล้ว" แล้วข้ามการกด trigger ทำให้ขั้นถัดไปพังโดยรายงานผิดขั้น
    */
   settingsPanelOpen?: string;
-  imageTab: string[];
+  /**
+   * ปุ่ม "ปิดแผงตั้งค่า" แบบเจาะจง (เช่นปุ่ม Back) — ใส่เมื่อ `settingsPanelOpen` ชี้ไปที่ panel
+   * ฝังถาวร (ไม่ใช่ .cdk-overlay-pane) ที่คลิก modeTrigger ซ้ำไม่ได้ปิดเหมือน overlay เดิม
+   * ไม่ใส่ = พฤติกรรมเดิม (กด modeTrigger ซ้ำเพื่อปิด)
+   */
+  closeSettingsButton?: string[];
+  /**
+   * radio "Never" ของ "Confirm before generating" — เว็บใหม่ (migrated, ยืนยัน 2026-09-23) มี
+   * ตัวเลือกนี้เพิ่มมาโดย default เป็น "Always" (ต้องกดยืนยันก่อนเจนทุกครั้ง) ซึ่งบอทไม่รู้จักหน้า
+   * ยืนยันนี้ ต้องสลับเป็น "Never" ก่อนเริ่มงานเสมอ ไม่ใส่ = โฮสต์นี้ไม่มีแนวคิดนี้ (labs)
+   */
+  confirmPolicyNever?: string;
+  /** ไม่ใส่ = โฮสต์นี้ไม่มี concept "สลับโหมด" แยก (migrated ตั้งแต่ 2026-09-23 — ดูคอมเมนต์ที่ modeTrigger) */
+  imageTab?: string[];
   modelTrigger: string[];
   /** ต้องแมตช์ 1 ตัวพอดี — 0 หรือ >1 = drift (เคยพังตอน "Nano Banana 2 Lite" โผล่มา) */
   modelOptionNanoBanana2: string;
@@ -196,43 +218,49 @@ const MIGRATED: SelectorSet = {
   ],
   projectUrlFragment: "/project/",
   projectUrl: (id) => `https://flow.google.com/project/${id}?hl=en`,
-  // แก้ 2026-09-23: Flow เปลี่ยนปุ่มเปิดแผงตั้งค่าจริง — ปุ่มเดิม (.settings-trigger-button /
-  // aria-label 'Settings trigger') ยังอยู่ใน DOM แต่โดนใส่ hidden="" แล้ว ยืนยันจากหลักฐาน
-  // เจอ selector_drift 2 ครั้งอิสระกัน (คนละ project, คนละวัน) ใน uploads/_flow-failures/ —
-  // ทั้งคู่มี <mat-icon>tune</mat-icon> อยู่ในปุ่มใหม่ที่ aria-label="Settings" (ไม่มี "trigger")
-  // แทนที่ ยังไม่ได้ยืนยันขั้นถัดไปหลังจากนี้ (imageTab/modelTrigger/ฯลฯ) เพราะบอทพังที่ขั้นนี้
-  // ก่อนถึงขั้นนั้นเสมอ — ต้องรัน flow-smoke:s2 ยืนยันซ้ำว่าไปต่อได้จริงหลังแก้
-  modeTrigger: ["button:has(mat-icon:text-is('tune'))", "button[aria-label='Settings']"],
-  // fallback ชั้นสุดท้าย ถ้าแม้แต่ 2 ตัวข้างบนก็เจอ drift รอบใหม่อีก — ยืนยันจาก DOM dump จริง
-  // เดียวกับที่แก้ modeTrigger ข้างบน (uploads/_flow-failures/ 2026-09-22): "tune" คือ ligature
-  // ของ mat-icon ในปุ่มนี้ ยืนยันแล้วว่า match แค่ตัวเดียวในหน้า (ไม่ชนปุ่มอื่น) ส่วน exclude กัน
-  // ปุ่ม "Tile grid settings" (คนละปุ่ม อยู่แถบเครื่องมือด้านบน ไม่ใช่ปุ่มเปิดแผงของ composer)
-  // กับ "Select model family" (modelTrigger คนละขั้น) ที่มีคำว่า settings/select ปนอยู่ในหน้าเดียวกัน
-  modeTriggerIntent: { match: /\btune\b|\bsettings\b/i, exclude: /tile grid|grid settings|select model|trash|delete/i },
-  // จับ overlay ที่เป็น "แผงตั้งค่า" จริงๆ ด้วยของที่อยู่แต่ในแผงนี้ 2 ตัว (คั่นด้วย , = ตัวไหน
-  // ติดก็ถือว่าเปิด · ทั้งคู่ชี้ pane เดียวกันจึงนับได้ 1 ไม่ซ้อน) ยืนยันสด 2026-09-06:
-  // แผงตั้งค่าเปิด → 1 · เปิดแค่ไดอะล็อกเลือกสื่อ → 0 (ตัว .cdk-overlay-pane เปล่าได้ 1 = false positive)
-  // .settings-content-overlay เป็น class ของคอมโพเนนต์เอง จึงเป็นตัวแรก ส่วน aria-label ผูกภาษา
-  // อังกฤษเป็นตัวสำรอง · ปุ่มเลือกโมเดลมีทั้งโหมดวิดีโอและรูป จึงเช็กได้ก่อนสลับโหมด
-  settingsPanelOpen:
-    ".cdk-overlay-pane:has(.settings-content-overlay), .cdk-overlay-pane:has(button[aria-label='Select model family'])",
-  imageTab: [
-    ".cdk-overlay-pane [role='radio']:has(mat-icon:text-is('image'))",
-    ".cdk-overlay-pane [role='radio']:has-text('Image')",
-  ],
+  // แก้ 2026-09-23 (รอบ 3 ในวันเดียวกัน — เปลี่ยนกลยุทธ์ทั้งยวงหลังพบว่าโหมด "Agent" (แชท AI)
+  // ไม่รับประกันว่าฟังค่า default ที่ตั้งไว้จริง — ยืนยันจริงจากการรัน smoke test เต็มรอบ: ตั้ง
+  // count=4 ถูกต้องแล้ว (assertSelected ผ่าน) แต่ Agent chat generate ได้แค่ ~1 ภาพ ไม่ใช่ 4
+  // จึงตัดสินใจ**เลี่ยงโหมด Agent ไปเลย** ไม่พยายามควบคุมพารามิเตอร์ผ่านมันอีก — ใช้ปุ่ม toggle
+  // agentModeChip ปิด Agent mode ก่อนเสมอ แล้วใช้ popover ตั้งค่าเร็วที่โผล่แทนที่ (ตอน Agent
+  // OFF เท่านั้น) ซึ่งกลายเป็นว่า**ตรงกับ selector ดั้งเดิมที่สุด**ของไฟล์นี้ (.settings-trigger-
+  // button / aria-label 'Settings trigger') — ที่รอบก่อนพังเพราะตอนนั้น Agent เปิดอยู่ ปุ่มนี้เลย
+  // โดนซ่อนด้วย hidden="" (ปุ่มที่เห็นตอน Agent ON คือคนละปุ่ม: .agent-action-button ไอคอน tune)
+  // ยืนยันสดทั้งหมดนี้ผ่าน extension ของ Claude ในเบราว์เซอร์จริงของผู้ใช้ (ไม่ใช่ automation ของ
+  // เรา จึงไม่ต้องกังวลเรื่อง bot-detection) — ไม่ได้กด Generate เลยระหว่างสำรวจ
+  modeTrigger: ["button.settings-trigger-button", "button[aria-label='ทริกเกอร์การตั้งค่า']", "button[aria-label='Settings trigger']"],
+  // popover ตอน Agent OFF เป็น custom element <flow-prompt-box-settings> ยืนยันสด — ไม่ใช่แผงฝัง
+  // ถาวรแบบตอน Agent ON (flow-settings-view) จึงกลับไปใช้พฤติกรรม overlay แบบเดิม (toggle เปิด/
+  // ปิดด้วยการกด modeTrigger ซ้ำ, ไม่ต้องมีปุ่ม Back) — ไม่ต้องประกาศ closeSettingsButton
+  settingsPanelOpen: "flow-prompt-box-settings",
+  // ไม่มี concept "Confirm before generating" ในเส้นทาง non-agent นี้ (นั่นเป็นของแผง Agent
+  // Settings ตอน ON เท่านั้น) — ไม่ต้องประกาศ confirmPolicyNever
+  // ยืนยันสด 2026-09-23: ปุ่ม toggle Agent mode เอง — class `.agent-mode-chip` แน่นอน 100%
+  // (aria-pressed สลับ true/false ตรงกับสถานะ ไม่ผูกภาษา UI เลย ต่างจาก aria-label ที่เจอว่า
+  // เปลี่ยนเป็นไทยได้ในบางเซสชัน — ห้ามพึ่ง aria-label เป็นหลักอีกต่อไปสำหรับปุ่มนี้)
+  agentModeChip: "button.agent-mode-chip",
+  // ปุ่ม "รูปภาพ/วิดีโอ" ใน popover ใหม่ — mat-button-toggle มี mat-icon ligature "image"/"videocam"
+  // ข้างใน ยืนยันสดตรงกับที่คาดไว้ scope ด้วย <flow-prompt-box-settings> กันชนกับ toggle กลุ่มอื่น
+  // ในหน้าเดียวกัน (อัตราส่วน/จำนวน ก็เป็น mat-button-toggle เหมือนกันหมด)
+  imageTab: ["flow-prompt-box-settings mat-button-toggle:has(mat-icon:text-is('image'))"],
   modelTrigger: [
-    "button[aria-label='Select model family']",
-    ".cdk-overlay-pane button:has(mat-icon:text-is('arrow_drop_down'))",
+    "flow-prompt-box-settings button.mat-mdc-menu-trigger:has(mat-icon:text-is('arrow_drop_down'))",
   ],
   modelOptionNanoBanana2:
-    ".cdk-overlay-pane [role='menuitem']:has-text('Nano Banana 2'):not(:has-text('Lite')):not(:has-text('Pro'))",
+    "[role='menuitem']:has-text('Nano Banana 2'):not(:has-text('Lite')):not(:has-text('Pro'))",
+  // **สำคัญ: ต่างจากแผง Agent Settings เดิม — สถานะ "ถูกเลือก" ของ popover นี้อยู่ที่ class
+  // `mat-button-toggle-checked` บนตัว <mat-button-toggle> เอง ไม่ใช่ aria-checked ของ button
+  // ข้างใน (ยืนยันสดชัดเจน: "ตัวที่ถูกเลือกจะมี class mat-button-toggle-checked เพิ่มเข้ามา
+  // ไม่ใช่ aria-checked") — จึงชี้ selector ที่ตัว <mat-button-toggle> เอง ไม่ต้องลงไปถึง
+  // button[role=radio] ข้างใน (assertSelected ใน flow-driver.ts รองรับเช็คทั้งสองแบบแล้ว)
   aspectTab: (label) => {
     const icon = MIGRATED_ASPECT_ICON[label];
-    return icon
-      ? `.cdk-overlay-pane [role='radio']:has(mat-icon:text-is('${icon}'))`
-      : `.cdk-overlay-pane [role='radio']:has-text("${label}")`;
+    const scope = "flow-prompt-box-settings mat-button-toggle";
+    return icon ? `${scope}:has(mat-icon:text-is('${icon}'))` : `${scope}:has-text("${label}")`;
   },
-  countTabs: ".cdk-overlay-pane [role='radio']",
+  // ตัวเลือกจำนวน (x1-x4) เป็น mat-button-toggle เหมือนกันแต่**ไม่มี mat-icon ข้างใน** (ข้อความ
+  // ล้วน) ใช้ :not(:has(mat-icon)) กันชนกับ toggle รูปภาพ/วิดีโอ กับอัตราส่วนที่มีไอคอนทั้งคู่
+  countTabs: "flow-prompt-box-settings mat-button-toggle:not(:has(mat-icon))",
   countTabPattern: /^x[1-4]$/,
   addMedia: ["button.add-menu-trigger", "button[aria-label='Add ingredients to the prompt box']"],
   uploadButtonInDialog: [

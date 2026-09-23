@@ -98,11 +98,16 @@ async function firstVisible(
 async function assertSelected(loc: Locator, step: FlowStep, what: string): Promise<void> {
   const checked = await loc.getAttribute("aria-checked");
   const selfSelected = await loc.getAttribute("aria-selected");
-  if (checked !== "true" && selfSelected !== "true") {
+  // popover ตั้งค่าเร็วตอน Agent=OFF (migrated, ยืนยันสด 2026-09-23) ไม่ใช้ aria-checked เลย —
+  // สถานะ "ถูกเลือก" อยู่ที่ class mat-button-toggle-checked บนตัว <mat-button-toggle> เอง
+  // ยอมรับสัญญาณนี้เพิ่มเป็นทางเลือกที่สาม เพื่อให้ฟังก์ชันเดียวใช้ได้กับทั้งสองรูปแบบ
+  const classAttr = await loc.getAttribute("class");
+  const classChecked = classAttr?.includes("mat-button-toggle-checked") ?? false;
+  if (checked !== "true" && selfSelected !== "true" && !classChecked) {
     throw new FlowStepError(
       step,
       "selector_drift",
-      `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"})`
+      `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"} class=${classAttr ?? "null"})`
     );
   }
 }
@@ -246,17 +251,56 @@ export async function runRound(
     });
 
     /**
-     * เปิดแผงตั้งค่าแบบ idempotent — เปิดอยู่แล้วไม่ต้องกดซ้ำ (กดซ้ำ = ปิด)
-     * โฮสต์ที่ไม่ได้ประกาศ settingsPanelOpen ยังกด trigger ทุกครั้งเหมือนเดิม
+     * เปิดแผงตั้งค่าแบบ idempotent — เปิดอยู่แล้วไม่ต้องกดซ้ำ (กดซ้ำ = ปิด บนโฮสต์ที่ panel เป็น
+     * .cdk-overlay-pane ลอย — ดู closeSettingsButton ถ้า panel เป็นแบบฝังถาวรที่กด trigger ซ้ำ
+     * ไม่ toggle ปิด) โฮสต์ที่ไม่ได้ประกาศ settingsPanelOpen ยังกด trigger ทุกครั้งเหมือนเดิม
+     *
+     * แก้ 2026-09-23: หลังเปิด/ยืนยันว่าเปิดอยู่แล้ว ถ้าโฮสต์ประกาศ confirmPolicyNever ให้กดเสมอ
+     * (กดซ้ำที่ตัวเลือกที่เลือกอยู่แล้วของ radio button ไม่มีผลข้างเคียง ปลอดภัยที่จะกดทุกครั้ง) —
+     * กันแผงเจนที่ต้องกดยืนยันก่อนทุกครั้งซึ่งบอทไม่รู้จักหน้านั้น
      */
     async function openSettings(name: FlowStep): Promise<void> {
+      // ต้องปิด Agent mode ก่อนเสมอ — ตัว modeTrigger (.settings-trigger-button) ถูกซ่อนด้วย
+      // hidden="" ตอน Agent ON (ปุ่มที่โชว์แทนคือ .agent-action-button คนละตัว) ถ้าไม่ปิดก่อน
+      // firstVisible ด้านล่างจะ timeout เจอ element แต่ไม่ visible
+      await ensureAgentModeOff();
       if (sel.settingsPanelOpen) {
         const open = await page.locator(sel.settingsPanelOpen).first().isVisible().catch(() => false);
-        if (open) return;
+        if (open) {
+          await ensureConfirmPolicyNever();
+          return;
+        }
       }
       const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
       await humanClick(page, trigger, cfg);
       await sleepMs(randInt([600, 1000]));
+      await ensureConfirmPolicyNever();
+    }
+
+    /**
+     * ปิด Agent mode (แชท AI) ก่อนเริ่มงานเสมอ — ตั้งใจเลี่ยงไม่ใช้โหมดนี้เลย เพราะยืนยันจริงแล้ว
+     * ว่าไม่รับประกันว่าฟังค่า default ที่ตั้งไว้ (ตั้ง count=4 ถูกต้อง แต่ Agent generate ได้แค่
+     * ~1 ภาพ) เช็ก aria-pressed ก่อนกด — ปลอดภัยที่จะเรียกซ้ำได้ทุกรอบ (ค่านี้ผูกระดับบัญชี/
+     * session ไม่ใช่ต่อโปรเจกต์ ยืนยันสด 2026-09-23 ว่าติดข้าม New project ด้วย จึงน่าจะต้องกด
+     * แค่ครั้งแรกที่เจอ ON เท่านั้น แต่เช็กทุกรอบไว้เพื่อความปลอดภัย ต้นทุนต่ำมาก)
+     */
+    async function ensureAgentModeOff(): Promise<void> {
+      if (!sel.agentModeChip) return;
+      const chip = page.locator(sel.agentModeChip).first();
+      const pressed = await chip.getAttribute("aria-pressed").catch(() => null);
+      if (pressed === "true") {
+        await humanClick(page, chip, cfg);
+        await sleepMs(randInt([500, 900]));
+      }
+    }
+
+    async function ensureConfirmPolicyNever(): Promise<void> {
+      if (!sel.confirmPolicyNever) return;
+      const never = page.locator(sel.confirmPolicyNever).first();
+      if (await never.isVisible().catch(() => false)) {
+        await humanClick(page, never, cfg);
+        await sleepMs(randInt([200, 400]));
+      }
     }
 
     /** ปิดแผงตั้งค่า — ดูคอมเมนต์ settingsPanelOpen ใน flow-selectors ว่าทำไมห้าม Escape */
@@ -268,8 +312,15 @@ export async function runRound(
       }
       const pane = page.locator(sel.settingsPanelOpen).first();
       if (await pane.isVisible().catch(() => false)) {
-        const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
-        await humanClick(page, trigger, cfg);
+        if (sel.closeSettingsButton) {
+          // panel ฝังถาวร (ไม่ใช่ .cdk-overlay-pane) — กด trigger ซ้ำไม่รับประกันว่า toggle ปิด
+          // ใช้ปุ่มปิดเฉพาะที่ประกาศไว้แทน (เช่นปุ่ม Back)
+          const closeBtn = await firstVisible(page, name, sel.closeSettingsButton, cfg.selectorTimeoutMs);
+          await humanClick(page, closeBtn, cfg);
+        } else {
+          const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
+          await humanClick(page, trigger, cfg);
+        }
         await pane.waitFor({ state: "hidden", timeout: cfg.selectorTimeoutMs });
       }
       await sleepMs(randInt([400, 800]));
@@ -277,11 +328,15 @@ export async function runRound(
 
     await step("switch-image-mode", async () => {
       await openSettings("switch-image-mode");
-      const tab = await firstVisible(page, "switch-image-mode", sel.imageTab, cfg.selectorTimeoutMs);
-      await humanClick(page, tab, cfg);
-      await sleepMs(randInt([900, 1500]));
-      // อ่านกลับก่อนปิดแผง — โหมดผิดแปลว่าได้วิดีโอแทนรูปทั้งรอบ
-      await assertSelected(tab, "switch-image-mode", "โหมดรูป");
+      // แก้ 2026-09-23: โฮสต์ที่ไม่ประกาศ imageTab (migrated ตั้งแต่รอบนี้) ไม่มีปุ่มสลับโหมด
+      // Image/Video แยกให้กดอีกแล้ว — แผงใหม่โชว์ทั้งสอง section พร้อมกัน ข้ามการคลิก+ยืนยันไปเลย
+      if (sel.imageTab) {
+        const tab = await firstVisible(page, "switch-image-mode", sel.imageTab, cfg.selectorTimeoutMs);
+        await humanClick(page, tab, cfg);
+        await sleepMs(randInt([900, 1500]));
+        // อ่านกลับก่อนปิดแผง — โหมดผิดแปลว่าได้วิดีโอแทนรูปทั้งรอบ
+        await assertSelected(tab, "switch-image-mode", "โหมดรูป");
+      }
       // โฮสต์ที่ประกาศ settingsPanelOpen (migrated) ไม่ปิดแผงตรงนี้ — 3 ขั้นถัดไป
       // (โมเดล/สัดส่วน/จำนวน) ใช้แผงเดียวกันต่อ ส่วน labs ยังปิดเมนูด้วย Escape
       // แล้วให้ set-model เปิดใหม่เหมือนเดิม
