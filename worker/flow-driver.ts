@@ -95,21 +95,32 @@ async function firstVisible(
  * Radix (labs) ใช้ aria-selected ส่วน Angular Material (migrated) ใช้ aria-checked
  * จึงยอมรับทั้งสองตัว ตัวไหนเป็น "true" ก็ถือว่าผ่าน
  */
+/**
+ * เช็คว่า locator นี้อยู่ในสถานะ "ถูกเลือก" ไหม โดยไม่โยน error — ใช้ทั้งใน assertSelected
+ * (ยืนยันหลังคลิก) และเป็น pre-check ก่อนคลิกเพื่อข้ามการคลิก+รอที่ไม่จำเป็น (แก้ 2026-09-23:
+ * ค่าตั้งค่า image/aspect/count ยืนยันสดแล้วว่าติดข้ามโปรเจกต์ใหม่จริง — รอบที่ 2 เป็นต้นไปของ
+ * worker session เดียวกันจึงมักไม่ต้องคลิกอะไรเลยในขั้นเหล่านี้ ประหยัดเวลาได้จริงไม่ใช่แค่ลด
+ * ความหน่วงที่จงใจใส่ไว้ — ต่างจาก actionDelayMs/typeCharDelayMs/dwellAfterResultsMs ที่ลดแล้ว
+ * มีผลเรื่องความเสี่ยงโดนตรวจจับบอท อันนี้คือการตัดงานซ้ำที่ไม่จำเป็นล้วนๆ)
+ */
+async function isChecked(loc: Locator): Promise<boolean> {
+  const checked = await loc.getAttribute("aria-checked").catch(() => null);
+  const selfSelected = await loc.getAttribute("aria-selected").catch(() => null);
+  const classAttr = await loc.getAttribute("class").catch(() => null);
+  const classChecked = classAttr?.includes("mat-button-toggle-checked") ?? false;
+  return checked === "true" || selfSelected === "true" || classChecked;
+}
+
 async function assertSelected(loc: Locator, step: FlowStep, what: string): Promise<void> {
+  if (await isChecked(loc)) return;
   const checked = await loc.getAttribute("aria-checked");
   const selfSelected = await loc.getAttribute("aria-selected");
-  // popover ตั้งค่าเร็วตอน Agent=OFF (migrated, ยืนยันสด 2026-09-23) ไม่ใช้ aria-checked เลย —
-  // สถานะ "ถูกเลือก" อยู่ที่ class mat-button-toggle-checked บนตัว <mat-button-toggle> เอง
-  // ยอมรับสัญญาณนี้เพิ่มเป็นทางเลือกที่สาม เพื่อให้ฟังก์ชันเดียวใช้ได้กับทั้งสองรูปแบบ
   const classAttr = await loc.getAttribute("class");
-  const classChecked = classAttr?.includes("mat-button-toggle-checked") ?? false;
-  if (checked !== "true" && selfSelected !== "true" && !classChecked) {
-    throw new FlowStepError(
-      step,
-      "selector_drift",
-      `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"} class=${classAttr ?? "null"})`
-    );
-  }
+  throw new FlowStepError(
+    step,
+    "selector_drift",
+    `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"} class=${classAttr ?? "null"})`
+  );
 }
 
 /** สัญญาณอันตรายที่ต้องเช็กก่อนทุกขั้น — login หลุด / captcha / modal ที่กิน pointer events */
@@ -332,9 +343,11 @@ export async function runRound(
       // Image/Video แยกให้กดอีกแล้ว — แผงใหม่โชว์ทั้งสอง section พร้อมกัน ข้ามการคลิก+ยืนยันไปเลย
       if (sel.imageTab) {
         const tab = await firstVisible(page, "switch-image-mode", sel.imageTab, cfg.selectorTimeoutMs);
-        await humanClick(page, tab, cfg);
-        await sleepMs(randInt([900, 1500]));
-        // อ่านกลับก่อนปิดแผง — โหมดผิดแปลว่าได้วิดีโอแทนรูปทั้งรอบ
+        if (!(await isChecked(tab))) {
+          await humanClick(page, tab, cfg);
+          await sleepMs(randInt([900, 1500]));
+        }
+        // อ่านกลับก่อนปิดแผง — โหมดผิดแปลว่าได้วิดีโอแทนรูปทั้งรอบ (เช็คเสมอไม่ว่าจะข้ามคลิกไปหรือไม่)
         await assertSelected(tab, "switch-image-mode", "โหมดรูป");
       }
       // โฮสต์ที่ประกาศ settingsPanelOpen (migrated) ไม่ปิดแผงตรงนี้ — 3 ขั้นถัดไป
@@ -349,6 +362,10 @@ export async function runRound(
     await step("set-model", async () => {
       await openSettings("set-model");
       const modelBtn = await firstVisible(page, "set-model", sel.modelTrigger, cfg.selectorTimeoutMs);
+      // ปุ่มนี้โชว์ label ของโมเดลที่เลือกอยู่ในตัวเอง (เช่น "🍌 Nano Banana 2 ...") — เช็คข้อความ
+      // ก่อนเปิดเมนูเลย ถ้าถูกอยู่แล้วข้ามการเปิดเมนู+คลิก+ปิดทั้งชุด (ประหยัดสุดในบรรดา 4 ขั้นนี้)
+      const currentLabel = (await modelBtn.innerText().catch(() => "")).trim();
+      if (/Nano Banana 2(?!\s*(Lite|Pro))/.test(currentLabel)) return;
       await humanClick(page, modelBtn, cfg);
       await sleepMs(randInt([500, 900]));
       const option = page.locator(sel.modelOptionNanoBanana2);
@@ -364,8 +381,10 @@ export async function runRound(
     await step("set-aspect-3-4", async () => {
       const tab = page.locator(sel.aspectTab(ASPECT)).first();
       await tab.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-      await humanClick(page, tab, cfg);
-      await sleepMs(randInt([400, 800]));
+      if (!(await isChecked(tab))) {
+        await humanClick(page, tab, cfg);
+        await sleepMs(randInt([400, 800]));
+      }
       await assertSelected(tab, "set-aspect-3-4", ASPECT);
     });
 
@@ -373,8 +392,10 @@ export async function runRound(
       const tabs = page.locator(sel.countTabs).filter({ hasText: sel.countTabPattern });
       const target = tabs.nth(COUNT - 1);
       await target.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-      await humanClick(page, target, cfg);
-      await sleepMs(randInt([400, 800]));
+      if (!(await isChecked(target))) {
+        await humanClick(page, target, cfg);
+        await sleepMs(randInt([400, 800]));
+      }
       await assertSelected(target, "set-count-4", "x4");
       await closeSettings("set-count-4");
     });
