@@ -29,7 +29,12 @@ export type ScannerMessage =
    * ใช้เมื่อรู้ว่ามีสินค้าใหม่เพิ่มมาไม่กี่หน้า ไม่ต้องการเดินสแกนทั้ง Showcase ทุกครั้งเพื่อลดความเสี่ยง
    * ต่อ TikTok server (ผู้ใช้เป็นคนสั่งเอง ไม่ใช่พฤติกรรมอัตโนมัติที่ตั้งใจซ่อนไว้)
    */
-  | { readonly type: 'run.start'; readonly maxPages: number | null }
+  /**
+   * `knownProductIds` เป็น required เสมอเหมือน `maxPages` ด้านบน — `null` = ไม่ใช้ auto-stop
+   * (ปิดฟีเจอร์ สแกนตามปกติ) ไม่ใช่ array ว่างที่แปลว่า "รู้ว่าไม่มี ID ไหนรู้จักเลย" (ต่างความหมายกัน
+   * แม้ผลจะเหมือนกันก็ตาม) มาจาก dashboard ที่ query แอปหลักเอง ดู core/runner.ts สำหรับความหมายเต็ม
+   */
+  | { readonly type: 'run.start'; readonly maxPages: number | null; readonly knownProductIds: readonly string[] | null }
   | { readonly type: 'run.cancel' }
   | { readonly type: 'run.status' }
   | { readonly type: 'run.export'; readonly selectedIds: readonly string[] }
@@ -45,7 +50,7 @@ export const ALLOWED_KEYS: Readonly<Record<ScannerMessageType, readonly string[]
   'app.info': ['type'],
   'status.get': ['type'],
   'adapter.probe': ['type', 'offset', 'count'],
-  'run.start': ['type', 'maxPages'],
+  'run.start': ['type', 'maxPages', 'knownProductIds'],
   'run.cancel': ['type'],
   'run.status': ['type'],
   'run.export': ['type', 'selectedIds'],

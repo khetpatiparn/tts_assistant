@@ -43,6 +43,19 @@ export interface RunRequest {
    * (validate.ts บังคับให้ ScannerMessage ของ run.start ส่ง field นี้มาเสมอ ไม่มี default ที่ซ่อนอยู่)
    */
   readonly maxPages?: number | null
+
+  /**
+   * ID สินค้าที่ "รู้อยู่แล้วว่ามีในระบบ" (จากแอปหลัก pooling_prompt ไม่ใช่จากประวัติของ extension
+   * เอง — ดูเหตุผลใน dashboard/main.ts) ใช้หยุดสแกนอัตโนมัติทันทีที่หน้าใดหน้าหนึ่งมีแต่ ID ที่รู้จัก
+   * อยู่แล้ว**ทั้งหน้า** (ไม่ใช่แค่บางตัว — กันเคสที่ TikTok แทรกสินค้าเก่ากลับมาปนกับของใหม่)
+   * `null`/ไม่ระบุ = ปิดฟีเจอร์นี้ สแกนตามปกติ (พฤติกรรมเดิมทุกจุด)
+   *
+   * ปลอดภัยแม้ Showcase จะไม่ได้เรียงสินค้าใหม่ไว้หน้าแรกเสมอ: อย่างแย่ที่สุดคือหยุดช้ากว่าที่ควร
+   * (ไม่ประหยัด request) ไม่มีทางทำให้พลาดสินค้าใหม่จริง เพราะเงื่อนไข "ทั้งหน้า" กันไม่ให้หยุดกลางที่
+   * ยังมีของใหม่ปนอยู่ เป็น optional เหมือน `maxPages` เพราะเป็นชั้นภายใน ไม่ใช่ wire message ที่ต้อง
+   * เข้มงวด (validate.ts บังคับให้ ScannerMessage ของ run.start ส่ง field นี้มาเสมอเช่นกัน)
+   */
+  readonly knownProductIds?: readonly string[] | null
 }
 
 export interface RunnerDeps {
@@ -75,6 +88,7 @@ export type StopReason =
   | 'request_limit_reached'
   | 'product_limit_reached'
   | 'page_limit_reached'
+  | 'known_ids_reached'
 
 export type ScanCoverage = 'reached_endpoint_end' | 'partial' | 'unknown'
 export type DataQuality = 'clean' | 'warnings' | 'rejected_rows'
@@ -168,6 +182,8 @@ const readMetadataFrom = (bodyText: string): ReturnType<typeof readPaginationMet
 export async function runImport(request: RunRequest, deps: RunnerDeps): Promise<RunReport> {
   const budget = request.budget ?? DEFAULT_BUDGET
   const maxPages = request.maxPages ?? null
+  const knownProductIds = request.knownProductIds ?? null
+  const knownIdSet = knownProductIds !== null ? new Set(knownProductIds) : null
   const startedAt = deps.now()
   const accumulator = createProductAccumulator({ maxProducts: budget.maxProducts })
   const warnings = new Set<string>()
@@ -467,6 +483,14 @@ export async function runImport(request: RunRequest, deps: RunnerDeps): Promise<
       // เสียทั้งหมด (invalid ไม่ใช่ duplicate) ไม่ใช่ stalled ยังเดินหน้าต่อได้ตามปกติ
       if (page.products.length > 0 && added.newIds === 0 && added.changedIds === 0) {
         return finish('pagination_stalled')
+      }
+
+      // ทางเลือกที่แม่นกว่า maxPages เมื่อรู้ ID ที่ "มีอยู่แล้วในระบบจริง" (จากแอปหลัก ไม่ใช่เดา
+      // จำนวนหน้าเอง) — เช็คทั้งหน้า ไม่ใช่แค่บางตัว เพราะถ้ามีของใหม่ปนอยู่แม้ตัวเดียวก็ยังต้องสแกน
+      // ต่อ เช็คหลัง pagination_stalled/endpoint_end/conflict เสมอ เพื่อให้เหตุผลที่แม่นยำกว่าชนะ
+      // ถ้าหน้านี้บังเอิญเป็นหน้าสุดท้ายจริงของ Showcase พอดี ต้องรายงาน endpoint_end ไม่ใช่ known_ids_reached
+      if (knownIdSet !== null && page.products.length > 0 && page.products.every((p) => knownIdSet.has(p.productId))) {
+        return finish('known_ids_reached')
       }
 
       // ผู้ใช้ตั้งใจจำกัดจำนวนหน้าเอง (ลดความเสี่ยงต่อ TikTok server เมื่อรู้ว่ามีแค่ไม่กี่หน้าที่

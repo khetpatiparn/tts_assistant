@@ -287,6 +287,41 @@ describe('maxPages — ผู้ใช้จำกัดจำนวนหน้
   })
 })
 
+describe('knownProductIds — หยุดอัตโนมัติเมื่อเจอหน้าที่มีแต่สินค้าที่รู้จักอยู่แล้วทั้งหน้า', () => {
+  it('หน้าที่ 3 (index 12-17) รู้จักครบทุกตัว — หยุดที่หน้านั้นทันที ไม่ยิง request หน้าว่างต่อ', async () => {
+    const report = await start(catalogPages(18, 6), { knownProductIds: expectedIds(18).slice(12) })
+    expect(report.stopReason).toBe('known_ids_reached')
+    expect(report.scanCoverage).toBe('partial')
+    // ต้องเก็บทั้ง 3 หน้าไว้ (รวมหน้าที่ทำให้หยุดด้วย) ไม่ใช่แค่หน้าก่อนหน้า
+    expect(report.counters.uniqueValidProducts).toBe(18)
+    expect(report.productIds).toEqual(expectedIds(18))
+    // ไม่ยิง request หน้าว่างสุดท้าย (offset=18) เพราะหยุดตั้งแต่หน้าที่ 3 แล้ว
+    expect(report.counters.requests).toBe(3)
+  })
+
+  it('หน้ามี ID รู้จักปนกับ ID ใหม่ (ไม่ครบทั้งหน้า) — ต้องสแกนต่อ ไม่หยุดกลางคัน', async () => {
+    // page 1 (index 0-5) มีแค่ index 0 ที่ "รู้จักแล้ว" ที่เหลือใหม่หมด — ต้องไม่หยุดที่หน้านี้
+    const report = await start(catalogPages(18, 6), { knownProductIds: [catalogId(0)] })
+    expect(report.stopReason).toBe('endpoint_end')
+    expect(report.counters.uniqueValidProducts).toBe(18)
+  })
+
+  it('knownProductIds: null (ไม่ระบุ) เท่ากับปิดฟีเจอร์ — พฤติกรรมเดิมทุกจุด', async () => {
+    const report = await start(catalogPages(18, 6), { knownProductIds: null })
+    expect(report.stopReason).toBe('endpoint_end')
+  })
+
+  it('maxPages ถึงก่อน known_ids_reached — เหตุผลที่หยุดจริงต้องชนะ (ทั้งคู่ใช้ร่วมกันได้)', async () => {
+    // known ids ครอบคลุมหน้า 3 แต่ maxPages=1 ทำให้หยุดตั้งแต่หน้าแรกซึ่งยังไม่รู้จักเลย
+    const report = await start(catalogPages(18, 6), {
+      maxPages: 1,
+      knownProductIds: expectedIds(18).slice(12),
+    })
+    expect(report.stopReason).toBe('page_limit_reached')
+    expect(report.counters.uniqueValidProducts).toBe(6)
+  })
+})
+
 describe('PG11 — retry ที่ runner จริงต้องจำกัดจำนวนครั้งต่อ offset (R09)', () => {
   it('5xx ที่ offset เดิมตลอด ต้อง retry ไม่เกิน maxAttemptsPerOffset แล้ว giveup ไม่ใช่วนไม่จบ', async () => {
     const calls: number[] = []

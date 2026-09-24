@@ -1,5 +1,5 @@
 import type { QuarantinedRecord, RunReport } from '../core/runner.js'
-import { SHOWCASE_HOST_PERMISSION_ORIGIN } from '../domain/permissions.js'
+import { APP_HOST_PERMISSION_ORIGIN, SHOWCASE_HOST_PERMISSION_ORIGIN } from '../domain/permissions.js'
 import type { NormalizedProduct } from '../domain/product.js'
 import { buildProbeExport } from '../export/json.js'
 import type { ScannerMessage, ScannerMessageType, ResponseMap } from '../messaging/schema.js'
@@ -93,6 +93,63 @@ grantPermissionButton.addEventListener('click', () => {
     .request({ origins: [SHOWCASE_HOST_PERMISSION_ORIGIN] })
     .then(() => refreshPermissionStatus())
 })
+
+// ---------- สิทธิ์เข้าถึงแอปหลัก (pooling_prompt เอง — สำหรับ auto-stop known-ids) ----------
+//
+// รูปแบบเดียวกับ shop.tiktok.com ด้านบนทุกประการ (เหตุผล user-gesture เดียวกัน) แต่คนละ origin
+// และคนละความเสี่ยง — origin นี้คือ localhost ของผู้ใช้เอง ไม่ใช่ third-party
+
+const appPermissionStatusEl = requireElement('app-permission-status')
+const grantAppPermissionButton = requireElement('grant-app-permission-button') as HTMLButtonElement
+
+async function refreshAppPermissionStatus(): Promise<void> {
+  const granted = await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] })
+  clearChildren(appPermissionStatusEl)
+  if (granted) {
+    setText(appPermissionStatusEl, '✅ เชื่อมต่อแอปหลักแล้ว')
+    grantAppPermissionButton.hidden = true
+  } else {
+    setText(appPermissionStatusEl, 'ยังไม่ได้เชื่อมต่อแอปหลัก — auto-stop จะปิดอยู่จนกว่าจะกดเชื่อมต่อ')
+    grantAppPermissionButton.hidden = false
+  }
+}
+
+grantAppPermissionButton.addEventListener('click', () => {
+  // เหตุผลเดียวกับ grantPermissionButton ด้านบน — request ต้องเป็นบรรทัดแรก ไม่มี await คั่นก่อน
+  void chrome.permissions
+    .request({ origins: [APP_HOST_PERMISSION_ORIGIN] })
+    .then(() => refreshAppPermissionStatus())
+})
+
+/**
+ * ที่มาของ product ID "รู้จักอยู่แล้ว" — ต้องเป็นแอปหลัก (ความจริงของระบบ) ไม่ใช่ IndexedDB ของ
+ * extension เอง เพราะผู้ใช้อาจไม่ได้ export/import ทุกรอบสแกนเข้าแอปจริง ๆ (เพิ่งเริ่มใช้ฟีเจอร์นี้
+ * เป็นครั้งแรก ยังไม่มีประวัติให้เชื่อ) — ถ้า extension "จำ" ว่าเคยเห็น ID นี้ทั้งที่ไม่เคย import สำเร็จ
+ * จริง จะข้ามสินค้าใหม่ไปเงียบ ๆ โดยไม่มีใครรู้ ซึ่งแย่กว่าการสแกนซ้ำเสียอีก
+ *
+ * ต้องไม่มีทางบล็อกการสแกน — ไม่ว่าจะเพราะยังไม่ได้ให้สิทธิ์ แอปหลักไม่ได้เปิดอยู่ (ยังไม่ได้รัน
+ * start.bat) หรือตอบกลับผิดรูป ทุกเส้นทางล้มเหลวคืน null (ปิดฟีเจอร์เฉพาะรอบนี้) ให้ผู้ใช้ fallback
+ * ไปใช้ปุ่มจำกัดจำนวนหน้าด้านล่างแทนได้เสมอ ไม่มีการ throw ออกจากฟังก์ชันนี้เด็ดขาด
+ */
+const APP_KNOWN_IDS_URL = 'http://localhost:3000/api/showcase-import/known-ids'
+
+async function resolveKnownProductIds(): Promise<readonly string[] | null> {
+  const checkbox = requireElement('auto-stop-known-checkbox') as HTMLInputElement
+  if (!checkbox.checked) return null
+  if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) return null
+
+  try {
+    const response = await fetch(APP_KNOWN_IDS_URL, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return null
+    const body = (await response.json()) as { productIds?: unknown }
+    if (!Array.isArray(body.productIds) || !body.productIds.every((id) => typeof id === 'string')) {
+      return null
+    }
+    return body.productIds
+  } catch {
+    return null
+  }
+}
 
 // ---------- ทดสอบอ่านหนึ่งหน้า (probe, §14.1) ----------
 
@@ -459,7 +516,8 @@ for (const [id, value] of [
 
 startButton.addEventListener('click', () => {
   void (async () => {
-    const result = await send({ type: 'run.start', maxPages: readMaxPages() })
+    const knownProductIds = await resolveKnownProductIds()
+    const result = await send({ type: 'run.start', maxPages: readMaxPages(), knownProductIds })
     if (!result.ok) {
       showIdle(`เริ่มสแกนไม่ได้: ${result.code}`)
       return
@@ -548,4 +606,5 @@ exportButton.addEventListener('click', () => {
 renderChannelBanner()
 void renderBuildInfo()
 void refreshPermissionStatus()
+void refreshAppPermissionStatus()
 void pollStatus()

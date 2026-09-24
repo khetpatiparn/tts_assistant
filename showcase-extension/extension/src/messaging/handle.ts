@@ -235,6 +235,7 @@ export async function handleMessage(
             pageSize: DEFAULT_RUN_PAGE_SIZE,
             signal: controller.signal,
             maxPages: message.maxPages,
+            knownProductIds: message.knownProductIds,
           },
           { adapter: ctx.adapter, store: run.store, now: run.now, sleep: run.sleep },
         )

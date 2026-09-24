@@ -70,9 +70,10 @@ export function validateMessage(
   }
 
   if (type === 'run.start') {
-    const { maxPages } = raw
+    const { maxPages, knownProductIds } = raw
     if (maxPages !== null && !isSafePositiveInteger(maxPages)) throw new ScannerError('msg_malformed')
-    return { type, maxPages }
+    if (knownProductIds !== null && !isStringArray(knownProductIds)) throw new ScannerError('msg_malformed')
+    return { type, maxPages, knownProductIds }
   }
 
   return {

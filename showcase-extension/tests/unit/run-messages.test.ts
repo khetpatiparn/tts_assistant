@@ -39,29 +39,56 @@ describe('message validation — run.* (R02/R11)', () => {
   })
 
   it('run.start ต้องมี maxPages เสมอ (ไม่ optional) — null = ไม่จำกัด, จำนวนเต็มบวก = จำกัดจริง', () => {
-    expect(validateMessage({ type: 'run.start', maxPages: null }, sender, SELF)).toEqual({
+    expect(validateMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, sender, SELF)).toEqual({
       type: 'run.start',
       maxPages: null,
+      knownProductIds: null,
     })
-    expect(validateMessage({ type: 'run.start', maxPages: 1 }, sender, SELF)).toEqual({
+    expect(validateMessage({ type: 'run.start', maxPages: 1, knownProductIds: null }, sender, SELF)).toEqual({
       type: 'run.start',
       maxPages: 1,
+      knownProductIds: null,
     })
-    expect(validateMessage({ type: 'run.start', maxPages: 34 }, sender, SELF)).toEqual({
+    expect(validateMessage({ type: 'run.start', maxPages: 34, knownProductIds: null }, sender, SELF)).toEqual({
       type: 'run.start',
       maxPages: 34,
+      knownProductIds: null,
     })
   })
 
   it('run.start ไม่มี maxPages เลยถูกปฏิเสธ — ไม่มี default ที่ซ่อนอยู่ฝั่ง worker', () => {
-    expect(() => validateMessage({ type: 'run.start' }, sender, SELF)).toThrow(/msg_forbidden_field/)
+    expect(() => validateMessage({ type: 'run.start', knownProductIds: null }, sender, SELF)).toThrow(
+      /msg_forbidden_field/,
+    )
   })
 
   it('run.start ปฏิเสธ maxPages ที่ไม่ใช่ null หรือจำนวนเต็มบวก', () => {
     for (const bad of [0, -1, 1.5, '2', true, undefined, NaN, Infinity]) {
-      expect(() => validateMessage({ type: 'run.start', maxPages: bad }, sender, SELF), String(bad)).toThrow(
-        /msg_malformed/,
-      )
+      expect(
+        () => validateMessage({ type: 'run.start', maxPages: bad, knownProductIds: null }, sender, SELF),
+        String(bad),
+      ).toThrow(/msg_malformed/)
+    }
+  })
+
+  it('run.start ต้องมี knownProductIds เสมอเหมือน maxPages — null = ปิด auto-stop, array ของ string = เปิด', () => {
+    expect(
+      validateMessage({ type: 'run.start', maxPages: null, knownProductIds: ['a', 'b'] }, sender, SELF),
+    ).toEqual({ type: 'run.start', maxPages: null, knownProductIds: ['a', 'b'] })
+  })
+
+  it('run.start ไม่มี knownProductIds เลยก็ถูกปฏิเสธเหมือนไม่มี maxPages', () => {
+    expect(() => validateMessage({ type: 'run.start', maxPages: null }, sender, SELF)).toThrow(
+      /msg_forbidden_field/,
+    )
+  })
+
+  it('run.start ปฏิเสธ knownProductIds ที่ไม่ใช่ null หรือ array ของ string', () => {
+    for (const bad of ['a', 1, true, [1, 2], [null]]) {
+      expect(
+        () => validateMessage({ type: 'run.start', maxPages: null, knownProductIds: bad }, sender, SELF),
+        JSON.stringify(bad),
+      ).toThrow(/msg_malformed/)
     }
   })
 
@@ -116,7 +143,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   })
 
   it('run.start เริ่ม run แบบ fire-and-forget แล้ว run.status เห็นว่ากำลังทำงาน', async () => {
-    const started = await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    const started = await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     expect(started).toMatchObject({ ok: true, started: true })
 
     const status = (await handleMessage({ type: 'run.status' }, ctx)) as RunStatusResponse
@@ -124,13 +151,13 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   })
 
   it('LC01 — run.start ซ้อนขณะยังทำงานอยู่ถูกปฏิเสธ', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
-    const second = await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
+    const second = await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     expect(second).toMatchObject({ ok: false, code: 'already_running' })
   })
 
   it('run จบแล้ว run.status เป็น finished พร้อม report', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
 
     const status = (await handleMessage({ type: 'run.status' }, ctx)) as RunStatusResponse
@@ -140,7 +167,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   })
 
   it('run.cancel ยกเลิก run ที่กำลังทำงาน', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     const cancelled = await handleMessage({ type: 'run.cancel' }, ctx)
     expect(cancelled).toMatchObject({ ok: true })
     expect(registry.currentController?.signal.aborted).toBe(true)
@@ -152,7 +179,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   })
 
   it('UI02/UI03 — run.export คืนเฉพาะสินค้าที่เลือกพร้อม metadata จริง', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
 
     const exported = await handleMessage(
@@ -171,7 +198,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   })
 
   it('run.export ไม่หลุด body/headers ออกมา (R11)', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
     const exported = await handleMessage(
       { type: 'run.export', selectedIds: [catalogId(0)] },
@@ -222,7 +249,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
 
     const orphanRegistry: RunRegistry = { currentController: null, currentReport: null }
     const started = await handleMessage(
-      { type: 'run.start', maxPages: null },
+      { type: 'run.start', maxPages: null, knownProductIds: null },
       {
         adapter: ctx.adapter,
         store,
@@ -246,7 +273,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
   it('LC01 ยังบังคับได้ — Start ซ้ำขณะ registry มี run อยู่ ต้องถูกปฏิเสธ', async () => {
     const blockedRegistry: RunRegistry = { currentController: new AbortController(), currentReport: null }
     const second = await handleMessage(
-      { type: 'run.start', maxPages: null },
+      { type: 'run.start', maxPages: null, knownProductIds: null },
       {
         adapter: ctx.adapter,
         store,
@@ -273,8 +300,8 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
     }
 
     const [first, second] = await Promise.all([
-      handleMessage({ type: 'run.start', maxPages: null }, raceCtx),
-      handleMessage({ type: 'run.start', maxPages: null }, raceCtx),
+      handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, raceCtx),
+      handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, raceCtx),
     ])
 
     const results = [first, second]
@@ -302,7 +329,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
     }
     const failingCtx: HandlerContext = { ...ctx, store: failingStore }
 
-    const started = await handleMessage({ type: 'run.start', maxPages: null }, failingCtx)
+    const started = await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, failingCtx)
     expect(started).toEqual({ ok: true, started: true })
     // claim เป็น synchronous ทันทีก่อน guard ด้านบนนี้ — ต้องเห็นว่าจองไว้แล้วก่อนที่ IIFE จะ reject
     expect(registry.currentController).not.toBeNull()
@@ -311,7 +338,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
     expect(registry.currentController).toBeNull()
 
     // ต้องกู้คืนได้จริง ไม่ใช่แค่ตัวแปรว่างเฉย ๆ — run.start ถัดไปด้วย store ปกติต้องไม่ติด already_running
-    const second = await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    const second = await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     expect(second).toEqual({ ok: true, started: true })
     await waitForRunCompletion(registry)
     expect(registry.currentReport?.state).toBe('ready_complete')
@@ -324,7 +351,7 @@ describe('run.* handlers (LC01/LC02/UI02/UI03)', () => {
     }
     const failingCtx: HandlerContext = { ...ctx, store: failingStore }
 
-    await handleMessage({ type: 'run.start', maxPages: null }, failingCtx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, failingCtx)
     await waitForControllerReset(registry)
 
     // data.clear ปฏิเสธเมื่อ currentController !== null (guard เดียวกับ run.start) — ถ้า reset ไม่ทำงาน
@@ -405,7 +432,7 @@ describe('D5 — ผลของ run ที่จบแล้วต้องร�
   }
 
   it('run.status หลัง "service worker ตาย" ยัง fallback ไปอ่านผลจาก IndexedDB ได้ ไม่ใช่ idle เฉย ๆ', async () => {
-    const started = await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    const started = await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     if (!('started' in started) || !started.started) throw new Error('run.start ต้องเริ่มได้')
     await waitForRunCompletion(registry)
     expect(registry.currentReport?.state).toBe('ready_complete')
@@ -421,7 +448,7 @@ describe('D5 — ผลของ run ที่จบแล้วต้องร�
   })
 
   it('run.export หลัง "service worker ตาย" ยัง export ได้จริง ไม่ใช่ no_report (บั๊กที่พบจากการใช้งานจริง)', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
 
     const exported = await handleMessage(
@@ -436,7 +463,7 @@ describe('D5 — ผลของ run ที่จบแล้วต้องร�
 
   it('run.export ไม่หยิบผลของ run ก่อนหน้าถ้ามี run ใหม่ค้างอยู่จริง (running/interrupted) — ต้อง run_active ไม่ใช่ผลเก่า', async () => {
     // จบ run แรกให้เสร็จสมบูรณ์ก่อน เพื่อมี finished report ของจริงอยู่ใน store
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
     expect(registry.currentReport?.runId).toBeDefined()
 
@@ -456,14 +483,14 @@ describe('D5 — ผลของ run ที่จบแล้วต้องร�
   })
 
   it('run.start ใหม่ล้างผลของ run ก่อนหน้าออกจาก store — export หลังจบ run ใหม่ต้องไม่ใช่ของเก่า', async () => {
-    await handleMessage({ type: 'run.start', maxPages: null }, ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, ctx)
     await waitForRunCompletion(registry)
     const oldRunId = registry.currentReport?.runId
     expect(oldRunId).toBeDefined()
 
     // registry ใหม่ (จำลอง service worker คนละตัว) เริ่ม run ใหม่ทับ sourceRef เดียวกัน
     const second = freshWorkerContext()
-    await handleMessage({ type: 'run.start', maxPages: null }, second.ctx)
+    await handleMessage({ type: 'run.start', maxPages: null, knownProductIds: null }, second.ctx)
     await waitForRunCompletion(second.registry)
 
     const newRunId = second.registry.currentReport?.runId

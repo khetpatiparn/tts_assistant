@@ -44,10 +44,22 @@
 
       <section aria-labelledby="run-heading">
         <h2 id="run-heading">สแกน Showcase</h2>
+
         <p class="hint">
-          จำกัดจำนวนหน้าได้ (เช่น เพิ่งเพิ่มสินค้าใหม่ 12 ชิ้น = 2 หน้า ไม่ต้องสแกนทั้งหมดซ้ำ) —
-          เว้นว่างไว้ = สแกนจนจบทั้ง Showcase ตามปกติ <strong>ยังไม่มีหลักฐานว่าสินค้าใหม่ขึ้นหน้าแรก
-          เสมอ</strong> ถ้าใช้ครั้งแรกควรตรวจเองก่อนว่าได้สินค้าที่ต้องการจริง
+          เชื่อมต่อแอปหลัก (pooling_prompt) เพื่อให้สแกนหยุดเองทันทีที่เจอหน้าที่มีแต่สินค้าที่นำเข้า
+          ระบบไปแล้วทั้งหน้า — ปลอดภัยแม้ไม่แน่ใจว่าสินค้าใหม่ขึ้นหน้าแรกเสมอไหม เพราะอย่างแย่ที่สุดคือ
+          หยุดช้ากว่าที่ควร ไม่มีทางพลาดสินค้าใหม่ไปได้
+        </p>
+        <div id="app-permission-status" class="rows" role="status" aria-live="polite">กำลังตรวจสิทธิ์…</div>
+        <button id="grant-app-permission-button" type="button" hidden>เชื่อมต่อแอปหลัก</button>
+        <label>
+          <input id="auto-stop-known-checkbox" type="checkbox" checked />
+          หยุดอัตโนมัติเมื่อเจอสินค้าที่มีอยู่แล้วในระบบ (แนะนำ)
+        </label>
+
+        <p class="hint">
+          หรือจำกัดจำนวนหน้าเองก็ได้ (เช่น เพิ่งเพิ่มสินค้าใหม่ 12 ชิ้น = 2 หน้า) — เว้นว่างไว้ = สแกนจนจบ
+          ทั้ง Showcase ตามปกติ ใช้ร่วมกับ auto-stop ด้านบนได้ อันไหนถึงก่อนก็หยุดก่อน
         </p>
         <label for="max-pages-input">จำนวนหน้าที่จะสแกน</label>
         <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
