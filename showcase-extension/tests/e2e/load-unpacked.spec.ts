@@ -25,7 +25,9 @@ test('dashboard เปิดได้ แสดง banner mock-only และ bu
 test('popup เปิดได้และแสดงสถานะจาก service worker', async ({ context, extensionId }) => {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/popup/index.html`)
-  await expect(page.locator('#status')).toContainText('idle')
+  // ใช้ run.status (สถานะจริง) แทน status.get เดิม (hardcode 'idle' ตายตัว) — ไม่มี run ใด ๆ
+  // เคยเริ่มในโปรไฟล์ทดสอบนี้เลย จึงต้องได้ข้อความ idle แบบไม่มี resume ค้าง
+  await expect(page.locator('#status')).toContainText('พร้อมสแกน')
 })
 
 test('.product-image-gallery[hidden] ซ่อนจริงในเบราว์เซอร์จริง (ไม่ใช่แค่ attribute)', async ({

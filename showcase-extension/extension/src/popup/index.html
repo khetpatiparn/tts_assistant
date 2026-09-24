@@ -6,8 +6,15 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <p class="banner">MOCK-ONLY — ยังไม่เชื่อมต่อบริการภายนอกจริง</p>
-    <p id="status" role="status">กำลังตรวจสถานะ…</p>
+    <header class="header">
+      <img src="../icons/icon32.png" alt="" class="logo" />
+      <h1>Showcase Scanner</h1>
+    </header>
+    <p id="channel-banner" class="banner">MOCK-ONLY — ยังไม่เชื่อมต่อบริการภายนอกจริง</p>
+    <div class="status-card">
+      <span id="status-dot" class="status-dot"></span>
+      <p id="status" role="status">กำลังตรวจสถานะ…</p>
+    </div>
     <button id="open-dashboard" type="button">เปิดหน้าจัดการ</button>
     <script type="module" src="main.js"></script>
   </body>
