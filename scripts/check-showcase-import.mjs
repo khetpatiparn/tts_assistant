@@ -49,21 +49,26 @@ try {
   const { rows, skipped } = m.parseShowcasePayload(fixture);
 
   check("3 usable rows parsed", rows.length, 3);
-  check("1 row skipped (missing product_id)", skipped, 1);
+  check("2 rows skipped (missing productId + hasStatusPopup)", skipped, 2);
   check("first row sourceProductId", rows[0].sourceProductId, "1736476547228075452");
   check("first row name", rows[0].name, "ชั้นวางของในครัว 2 ชั้น");
   check("price parsed from display string", rows[0].price, 128.71);
-  check("commission_rate 1200 -> 12", rows[0].commission, 12);
-  check("categoryLabel from category_info.name", rows[0].categoryLabel, "เครื่องครัว");
-  checkDeep("imageUrls = cover + images flattened", rows[0].imageUrls, [
-    "https://p16-oec-sg.ibyteimg.com/example-cover.jpeg?sig=abc",
-    "https://p16-oec-sg.ibyteimg.com/example-1.jpeg?sig=abc",
-    "https://p16-oec-sg.ibyteimg.com/example-2.jpeg?sig=abc",
+  check("commissionRate 1200 -> 12", rows[0].commission, 12);
+  check("categoryLabel ส่งตรงจาก field categoryLabel", rows[0].categoryLabel, "เครื่องครัว");
+  checkDeep("imageUrls ส่งตรงจาก field imageUrls (extension flatten ให้แล้ว)", rows[0].imageUrls, [
+    "https://p16-oec-sg.ibyteimg.com/example-cover.jpeg",
+    "https://p16-oec-sg.ibyteimg.com/example-1.jpeg",
+    "https://p16-oec-sg.ibyteimg.com/example-2.jpeg",
   ]);
-  check("second row (PETLUSCI, no cover/images) has empty imageUrls", rows[1].imageUrls.length, 0);
-  check("commission_rate 1600 -> 16", rows[1].commission, 16);
-  check("third row (no affiliate_info at all) commission falls back to 0", rows[2].commission, 0);
-  check("third row (no category_info) categoryLabel falls back to empty string", rows[2].categoryLabel, "");
+  check("second row (PETLUSCI, no imageUrls field) has empty imageUrls", rows[1].imageUrls.length, 0);
+  check("commissionRate 1600 -> 16", rows[1].commission, 16);
+  check("third row (no commissionRate field) commission falls back to 0", rows[2].commission, 0);
+  check("third row (no categoryLabel field) categoryLabel falls back to empty string", rows[2].categoryLabel, "");
+  check(
+    "hasStatusPopup=true (สินค้าที่ผู้ขายลบไปแล้ว) ถูกกรองออก ไม่ปนกับ rows",
+    rows.some((r) => r.sourceProductId === "1736686332743353868"),
+    false,
+  );
 
   let threw = false;
   try {
@@ -72,6 +77,14 @@ try {
     threw = true;
   }
   check("malformed payload (no products array) throws", threw, true);
+
+  let threwProbe = false;
+  try {
+    m.parseShowcasePayload({ resultKind: "single_page_probe", products: [] });
+  } catch {
+    threwProbe = true;
+  }
+  check("resultKind ที่ไม่ใช่ full_scan (เช่น single_page_probe) ถูกปฏิเสธ", threwProbe, true);
 
   // --- Fix 1 (final-review 2026-09-22): commissionBahtFromPercent ---
   // price=128.71, commission=12 (เปอร์เซ็นต์ — เหมือนแถวแรกของ fixture ด้านบน) ต้องได้บาทต่อชิ้น
@@ -98,8 +111,8 @@ try {
   // normalizeName ตัวจริงจาก lib/candidates.ts (compile คู่กันด้านบน) ไม่ใช่ก๊อปสูตรมาเขียนซ้ำ
   const duplicateTitlePayload = {
     products: [
-      { product_id: "aaa111", title: "ที่ลับเล็บแมว", format_available_price: "฿29.00" },
-      { product_id: "bbb222", title: "ที่ลับเล็บแมว", format_available_price: "฿35.00" },
+      { productId: "aaa111", title: "ที่ลับเล็บแมว", priceDisplay: "฿29.00" },
+      { productId: "bbb222", title: "ที่ลับเล็บแมว", priceDisplay: "฿35.00" },
     ],
   };
   const { rows: dupRows } = m.parseShowcasePayload(duplicateTitlePayload);

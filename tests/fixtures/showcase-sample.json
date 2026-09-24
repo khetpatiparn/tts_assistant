@@ -1,34 +1,42 @@
 {
+  "resultKind": "full_scan",
   "products": [
     {
-      "product_id": "1736476547228075452",
+      "productId": "1736476547228075452",
       "title": "ชั้นวางของในครัว 2 ชั้น",
-      "format_available_price": "฿128.71",
-      "seller_info": { "shop_name": "exampleshop_" },
-      "affiliate_info": { "commission_rate": 1200 },
-      "category_info": { "name": "เครื่องครัว" },
-      "cover": { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-cover.jpeg?sig=abc"] },
-      "images": [
-        { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-1.jpeg?sig=abc"] },
-        { "url_list": ["https://p16-oec-sg.ibyteimg.com/example-2.jpeg?sig=abc"] }
+      "priceDisplay": "฿128.71",
+      "shopName": "exampleshop_",
+      "commissionRate": 1200,
+      "categoryLabel": "เครื่องครัว",
+      "imageUrls": [
+        "https://p16-oec-sg.ibyteimg.com/example-cover.jpeg",
+        "https://p16-oec-sg.ibyteimg.com/example-1.jpeg",
+        "https://p16-oec-sg.ibyteimg.com/example-2.jpeg"
       ]
     },
     {
-      "product_id": "",
+      "productId": "",
       "title": "สินค้าไม่มี ID",
-      "format_available_price": "฿50.00"
+      "priceDisplay": "฿50.00"
     },
     {
-      "product_id": "1736141205259257672",
+      "productId": "1736141205259257672",
       "title": "PETLUSCI แผ่นลับเล็บแมว",
-      "format_available_price": "฿70.00",
-      "affiliate_info": { "commission_rate": 1600 },
-      "category_info": { "name": "สัตว์เลี้ยง" }
+      "priceDisplay": "฿70.00",
+      "commissionRate": 1600,
+      "categoryLabel": "สัตว์เลี้ยง"
     },
     {
-      "product_id": "1735661139711723379",
+      "productId": "1735661139711723379",
       "title": "ชั้นวางของในครัว 1 ชั้น",
-      "format_available_price": "฿99.00"
+      "priceDisplay": "฿99.00"
+    },
+    {
+      "productId": "1736686332743353868",
+      "title": "สินค้าที่ผู้ขายลบไปแล้ว",
+      "priceDisplay": "฿199.00",
+      "categoryLabel": "เครื่องครัว",
+      "hasStatusPopup": true
     }
   ]
 }
