@@ -29,6 +29,8 @@ const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   'cover',
   'seller_info',
   'affiliate_info',
+  'category_info',
+  'status_popup',
 ])
 
 /** inventory มีขอบเขตเพราะจำนวน key เป็นสิ่งที่ฝั่งตรงข้ามควบคุมได้ */

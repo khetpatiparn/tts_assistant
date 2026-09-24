@@ -19,6 +19,8 @@ const product = (id: string, overrides: Partial<NormalizedProduct> = {}): Normal
   commissionRate: null,
   eligibility: 'unknown',
   eligibilityBasis: 'adapter-rule-v1-unverified',
+  categoryLabel: null,
+  hasStatusPopup: false,
   imageUrls: [],
   shopName: null,
   observedAt: '2026-09-19T10:00:00Z',

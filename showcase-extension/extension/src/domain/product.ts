@@ -38,6 +38,17 @@ export interface NormalizedProduct {
   readonly commissionRate: number | string | null
   readonly eligibility: Eligibility
   readonly eligibilityBasis: string
+  /** observed: `category_info.name` (docs/api-observations.md §2) — `null` เมื่อไม่มี field นี้ */
+  readonly categoryLabel: string | null
+  /**
+   * observed (docs/api-observations.md §2.3) — object นี้ปรากฏเฉพาะสินค้าที่ TikTok เองขึ้นว่า
+   * "Unavailable" เท่านั้น (2/2 ที่สังเกตได้ ไม่ปรากฏในรายการอื่นเลย) มี `reason_code` ที่อ่านออก
+   * ความหมายตรงตัว (11 = ผู้ขายลบสินค้า, 14 = ไม่ใช่สินค้า affiliate แล้ว) — **แค่การมีอยู่ของ
+   * object นี้คือสัญญาณที่ปลอดภัยพอจะใช้ตัดสินใจได้จริง** ต่างจาก stock_status/review_status
+   * ที่ยังเป็น enum ไม่ทราบความหมาย (ดู resolveEligibility — เก็บแค่ boolean ไม่เก็บทั้ง object
+   * เพราะ eligibility ของ M1 ยังไม่ต้องการ reason_code แค่ต้องรู้ว่า "ตายแน่ๆ" หรือไม่)
+   */
+  readonly hasStatusPopup: boolean
   /**
    * observed 2026-09-20 (docs/api-observations.md §10) — สินค้าจริงมีหลายรูปใน `images[]`
    * (7–9 รูปที่เคยสังเกต, มุมกล้องต่างกัน) เก็บทุกรูปที่ผ่าน allowlist ไว้ ไม่ใช่แค่รูปเดียว
@@ -252,6 +263,9 @@ export function normalizeProduct(raw: unknown, ctx: NormalizeContext): RowResult
   if (canAddRaw === false) warnings.push('can_add_false_conflicts')
   const eligibility: Eligibility = canAddRaw === false ? 'unknown' : verdict.eligibility
 
+  const categoryLabel = optionalString(dig(raw, 'category_info', 'name'))
+  const hasStatusPopup = isRecord(raw['status_popup'])
+
   return {
     status: 'accepted',
     product: {
@@ -270,6 +284,8 @@ export function normalizeProduct(raw: unknown, ctx: NormalizeContext): RowResult
       commissionRate: rawEnum(dig(raw, 'affiliate_info', 'commission_rate')),
       eligibility,
       eligibilityBasis: verdict.basis,
+      categoryLabel,
+      hasStatusPopup,
       imageUrls,
       shopName: optionalString(dig(raw, 'seller_info', 'shop_name')),
       observedAt: ctx.observedAt,

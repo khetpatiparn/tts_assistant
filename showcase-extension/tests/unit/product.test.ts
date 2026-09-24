@@ -243,6 +243,50 @@ describe('UT06/UT11 — สถานะและ eligibility (V06/R07, §8.3)', 
   })
 })
 
+describe('categoryLabel / hasStatusPopup (docs/api-observations.md §2, §2.3)', () => {
+  it('category_info.name ถูกอ่านเข้า categoryLabel', () => {
+    const p = normalizeProduct(
+      {
+        product_id: '9400000000000000002',
+        title: 'มีหมวดหมู่',
+        format_available_price: '฿1.00',
+        category_info: { name: 'เครื่องครัว' },
+      },
+      CTX,
+    )
+    expect(accepted(p).categoryLabel).toBe('เครื่องครัว')
+  })
+
+  it('ไม่มี category_info เลย -> categoryLabel เป็น null ไม่ใช่ข้อความว่าง', () => {
+    const p = normalizeProduct(
+      { product_id: '9400000000000000003', title: 'ไม่มีหมวดหมู่', format_available_price: '฿1.00' },
+      CTX,
+    )
+    expect(accepted(p).categoryLabel).toBeNull()
+  })
+
+  it('มี status_popup -> hasStatusPopup true ไม่ว่า reason_code จะเป็นอะไร', () => {
+    const p = normalizeProduct(
+      {
+        product_id: '9400000000000000004',
+        title: 'สินค้าที่ผู้ขายลบไปแล้ว',
+        format_available_price: '฿1.00',
+        status_popup: { title: 'Product not available', content: '', button: '', reason_code: 11 },
+      },
+      CTX,
+    )
+    expect(accepted(p).hasStatusPopup).toBe(true)
+  })
+
+  it('ไม่มี status_popup -> hasStatusPopup false', () => {
+    const p = normalizeProduct(
+      { product_id: '9400000000000000005', title: 'สินค้าปกติ', format_available_price: '฿1.00' },
+      CTX,
+    )
+    expect(accepted(p).hasStatusPopup).toBe(false)
+  })
+})
+
 describe('V08 — URL ต้องปลอดภัยและอยู่ใน allowlist', () => {
   const products = normalizeAll('fx10-hostile.json').map(accepted)
 
@@ -378,10 +422,12 @@ describe('V10/R11 — ไม่ส่งออก field ที่ไม่ได
     expect(Object.keys(p).sort()).toEqual(
       [
         'canAddRaw',
+        'categoryLabel',
         'commissionRate',
         'currency',
         'eligibility',
         'eligibilityBasis',
+        'hasStatusPopup',
         'imageUrls',
         'observedAt',
         'priceAmountDecimal',

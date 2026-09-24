@@ -171,6 +171,35 @@ describe('Contract — can_added=true ไม่ยกระดับเป็น
   })
 })
 
+describe('Contract — hasStatusPopup ต้องแยกสินค้าตายแล้วออกได้จริงจากข้อมูลจริง (§2.3)', () => {
+  it('หน้า 34: out-of-stock เป็น false ส่วนสองตัวที่ Unavailable เป็น true', () => {
+    const result = validatePage(page(PAGE_34), CTX)
+    if (result.outcome !== 'ok') throw new Error(result.outcome)
+    expect(result.products[0]?.hasStatusPopup).toBe(false)
+    expect(result.products[1]?.hasStatusPopup).toBe(true)
+    expect(result.products[2]?.hasStatusPopup).toBe(true)
+  })
+
+  it('หน้า 1/2 (สินค้าปกติทั้งหมด) ไม่มีตัวไหนเป็น true เลย', () => {
+    for (const body of [PAGE_1, PAGE_2]) {
+      const result = validatePage(page(body), CTX)
+      if (result.outcome !== 'ok') throw new Error(result.outcome)
+      for (const product of result.products) expect(product.hasStatusPopup).toBe(false)
+    }
+  })
+
+  it('categoryLabel อ่านได้จริงทุกแถวที่สังเกตได้ทั้ง 15 ตัว', () => {
+    for (const body of ALL_PAGES) {
+      const result = validatePage(page(body), CTX)
+      if (result.outcome !== 'ok') throw new Error(result.outcome)
+      for (const product of result.products) {
+        expect(product.categoryLabel).not.toBeNull()
+        expect(product.categoryLabel?.length).toBeGreaterThan(0)
+      }
+    }
+  })
+})
+
 describe('Contract — missing / null / 0 ต้องไม่ถูกยุบรวมกัน (V05)', () => {
   it('หน้าสุดท้ายมีครบทั้งสามกรณีในหน้าเดียว: stock_num=0, ไม่มี field เลย, และค่าสูงมาก', () => {
     const [outOfStock, deletedBySeller, noLongerAffiliate] = rawProducts(PAGE_34)
@@ -346,11 +375,11 @@ describe('Contract — mapping field ตรงกับ observed evidence แล
   it('field ที่ normalizer อ่านจริงแล้วไม่เข้า schemaInventory อีกต่อไป (V10)', () => {
     const result = validatePage(page(PAGE_1), CTX)
     if (result.outcome !== 'ok') throw new Error(result.outcome)
-    for (const known of ['format_available_price', 'stock_num', 'seller_info', 'affiliate_info', 'cover']) {
+    for (const known of ['format_available_price', 'stock_num', 'seller_info', 'affiliate_info', 'cover', 'category_info']) {
       expect(result.schemaInventory).not.toContain(known)
     }
     // field ที่ยังไม่ได้ใช้จริง (แม้จะเป็น nested container ที่รู้จักบางส่วน) ยังต้องเข้า inventory เหมือนเดิม
-    for (const unused of ['category_info', 'labels', 'is_hide', 'source', 'images']) {
+    for (const unused of ['labels', 'is_hide', 'source', 'images']) {
       expect(result.schemaInventory).toContain(unused)
     }
   })
