@@ -58,6 +58,16 @@
         </label>
 
         <p class="hint">
+          Secret สำหรับปุ่ม "ส่งเข้าระบบเลย" ด้านล่าง (ไม่เกี่ยวกับ auto-stop ด้านบน) — คัดลอกค่าจาก
+          <code>SHOWCASE_IMPORT_SECRET</code> ในไฟล์ <code>.env</code> ของแอปหลัก มาวางแล้วกดบันทึกครั้งเดียว
+        </p>
+        <div class="row-buttons">
+          <input id="app-secret-input" type="text" autocomplete="off" placeholder="วาง secret ที่นี่" />
+          <button id="save-app-secret-button" type="button">บันทึก secret</button>
+        </div>
+        <div id="app-secret-status" class="hint" role="status" aria-live="polite"></div>
+
+        <p class="hint">
           หรือจำกัดจำนวนหน้าเองก็ได้ (เช่น เพิ่งเพิ่มสินค้าใหม่ 12 ชิ้น = 2 หน้า) — เว้นว่างไว้ = สแกนจนจบ
           ทั้ง Showcase ตามปกติ ใช้ร่วมกับ auto-stop ด้านบนได้ อันไหนถึงก่อนก็หยุดก่อน
         </p>
@@ -105,6 +115,8 @@
         </div>
 
         <button id="export-button" type="button">Export JSON</button>
+        <button id="push-button" type="button">ส่งเข้าระบบเลย (pooling_prompt)</button>
+        <div id="push-result" class="rows" role="status" aria-live="polite"></div>
       </section>
     </main>
     <script type="module" src="main.js"></script>

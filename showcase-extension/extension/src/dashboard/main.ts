@@ -94,7 +94,8 @@ grantPermissionButton.addEventListener('click', () => {
     .then(() => refreshPermissionStatus())
 })
 
-// ---------- สิทธิ์เข้าถึงแอปหลัก (pooling_prompt เอง — สำหรับ auto-stop known-ids) ----------
+// ---------- สิทธิ์เข้าถึงแอปหลัก (pooling_prompt เอง — ใช้ทั้ง auto-stop known-ids และปุ่ม "ส่ง
+// เข้าระบบเลย" ด้านล่าง) ----------
 //
 // รูปแบบเดียวกับ shop.tiktok.com ด้านบนทุกประการ (เหตุผล user-gesture เดียวกัน) แต่คนละ origin
 // และคนละความเสี่ยง — origin นี้คือ localhost ของผู้ใช้เอง ไม่ใช่ third-party
@@ -150,6 +151,40 @@ async function resolveKnownProductIds(): Promise<readonly string[] | null> {
     return null
   }
 }
+
+// ---------- ส่งเข้าระบบเลย (POST ตรงไปที่แอปหลัก แทน export ไฟล์แล้วอัปโหลดมือ) ----------
+//
+// endpoint POST /api/showcase-import (app/api/showcase-import/route.ts) ต้องมี header
+// x-showcase-secret ตรงกับ SHOWCASE_IMPORT_SECRET ใน .env ของแอปหลักเสมอ — endpoint นี้เขียนข้อมูล
+// เข้า DB ได้ (ต่างจาก known-ids ด้านบนที่แค่อ่าน) เก็บ secret ไว้ที่ chrome.storage.local เท่านั้น
+// (ไม่ใช่ .sync — PK02 ห้ามไว้) ผู้ใช้ต้องคัดลอกมาวางเองครั้งเดียว ไม่มีทางที่ extension จะรู้ค่านี้เอง
+// โดยไม่ต้องพึ่งผู้ใช้ เพราะถ้ามี endpoint ให้ถามค่านี้แบบไม่ต้องยืนยันตัวตน จะเปิดช่องให้เว็บอื่นแอบ
+// ถามค่าแทนได้เหมือนกัน (ทำลายจุดประสงค์ของ secret ไปเลย)
+const APP_SECRET_STORAGE_KEY = 'showcaseImportSecret'
+const APP_IMPORT_URL = 'http://localhost:3000/api/showcase-import'
+
+const appSecretInput = requireElement('app-secret-input') as HTMLInputElement
+const saveAppSecretButton = requireElement('save-app-secret-button') as HTMLButtonElement
+const appSecretStatusEl = requireElement('app-secret-status')
+
+async function getSavedAppSecret(): Promise<string> {
+  const stored = (await chrome.storage.local.get(APP_SECRET_STORAGE_KEY)) as Record<string, unknown>
+  const value = stored[APP_SECRET_STORAGE_KEY]
+  return typeof value === 'string' ? value : ''
+}
+
+async function refreshAppSecretStatus(): Promise<void> {
+  const secret = await getSavedAppSecret()
+  setText(appSecretStatusEl, secret === '' ? 'ยังไม่ได้บันทึก secret' : '✅ บันทึก secret แล้ว')
+}
+
+saveAppSecretButton.addEventListener('click', () => {
+  void (async () => {
+    await chrome.storage.local.set({ [APP_SECRET_STORAGE_KEY]: appSecretInput.value })
+    appSecretInput.value = ''
+    await refreshAppSecretStatus()
+  })()
+})
 
 // ---------- ทดสอบอ่านหนึ่งหน้า (probe, §14.1) ----------
 
@@ -309,6 +344,8 @@ const prevPageButton = requireElement('prev-page-button') as HTMLButtonElement
 const nextPageButton = requireElement('next-page-button') as HTMLButtonElement
 const pageIndicatorEl = requireElement('page-indicator')
 const exportButton = requireElement('export-button') as HTMLButtonElement
+const pushButton = requireElement('push-button') as HTMLButtonElement
+const pushResultEl = requireElement('push-result')
 const tabButtons = [...document.querySelectorAll('.tab-button')] as HTMLButtonElement[]
 
 function downloadJson(filename: string, payload: unknown): void {
@@ -603,8 +640,56 @@ exportButton.addEventListener('click', () => {
   })()
 })
 
+pushButton.addEventListener('click', () => {
+  void (async () => {
+    setText(pushResultEl, 'กำลังส่ง…')
+
+    const secret = await getSavedAppSecret()
+    if (secret === '') {
+      setText(pushResultEl, 'ยังไม่ได้บันทึก secret — ใส่ค่าจาก .env (SHOWCASE_IMPORT_SECRET) ที่ช่องด้านบนก่อน')
+      return
+    }
+    if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) {
+      setText(pushResultEl, 'ยังไม่ได้เชื่อมต่อแอปหลัก — กดปุ่ม "เชื่อมต่อแอปหลัก" ด้านบนก่อน')
+      return
+    }
+
+    const result = await send({ type: 'run.export', selectedIds: [...state.selected] })
+    if (!result.ok) {
+      setText(pushResultEl, `เตรียมข้อมูลไม่สำเร็จ: ${result.code}`)
+      return
+    }
+
+    try {
+      const response = await fetch(APP_IMPORT_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-showcase-secret': secret },
+        body: JSON.stringify(result.payload),
+        signal: AbortSignal.timeout(30_000),
+      })
+      const body = (await response.json().catch(() => null)) as {
+        added?: number
+        skipped?: number
+        imagesFailed?: number
+        error?: string
+      } | null
+
+      if (!response.ok) {
+        setText(pushResultEl, `ส่งไม่สำเร็จ (${String(response.status)}): ${body?.error ?? 'ไม่ทราบสาเหตุ'}`)
+        return
+      }
+      const skippedNote = body?.skipped ? ` · ข้าม ${String(body.skipped)}` : ''
+      const failedNote = body?.imagesFailed ? ` · โหลดรูปพลาด ${String(body.imagesFailed)}` : ''
+      setText(pushResultEl, `✅ ส่งเข้าระบบสำเร็จ — เพิ่ม ${String(body?.added ?? 0)} รายการ${skippedNote}${failedNote}`)
+    } catch {
+      setText(pushResultEl, 'เชื่อมต่อแอปหลักไม่ได้ — เช็คว่า start.bat เปิดอยู่ไหม')
+    }
+  })()
+})
+
 renderChannelBanner()
 void renderBuildInfo()
 void refreshPermissionStatus()
 void refreshAppPermissionStatus()
+void refreshAppSecretStatus()
 void pollStatus()
