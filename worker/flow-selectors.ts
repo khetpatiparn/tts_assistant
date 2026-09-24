@@ -35,6 +35,11 @@ export type SelectorSet = {
    * ไม่ใส่ = โฮสต์นี้ไม่มี concept นี้ (labs)
    */
   agentModeChip?: string;
+  /**
+   * การ์ดผลลัพธ์ที่ Flow วาดไม่สำเร็จ ("Sorry, this image failed to generate") — ไม่มี role=alert
+   * จึงไม่ถูกจับโดยเช็ก alert เดิม ถ้าไม่ระบุ wait-results จะนั่งรอจนหมด generationTimeoutMs
+   */
+  errorTile?: string;
   /** ปุ่มเปิดเมนูโหมด/ตั้งค่า (ไอคอน crop_*) */
   modeTrigger: string[];
   /**
@@ -239,6 +244,9 @@ const MIGRATED: SelectorSet = {
   // (aria-pressed สลับ true/false ตรงกับสถานะ ไม่ผูกภาษา UI เลย ต่างจาก aria-label ที่เจอว่า
   // เปลี่ยนเป็นไทยได้ในบางเซสชัน — ห้ามพึ่ง aria-label เป็นหลักอีกต่อไปสำหรับปุ่มนี้)
   agentModeChip: "button.agent-mode-chip",
+  // custom element ของ Flow เอง ไม่ผูกภาษา UI เลย — ยืนยันจาก page.html ของหลักฐานจริง
+  // (uploads/_flow-failures/cmuatn0ud0005mkp72j2t1bgn-1790233471875, 2026-09-24)
+  errorTile: "flow-error-tile",
   // ปุ่ม "รูปภาพ/วิดีโอ" ใน popover ใหม่ — mat-button-toggle มี mat-icon ligature "image"/"videocam"
   // ข้างใน ยืนยันสดตรงกับที่คาดไว้ scope ด้วย <flow-prompt-box-settings> กันชนกับ toggle กลุ่มอื่น
   // ในหน้าเดียวกัน (อัตราส่วน/จำนวน ก็เป็น mat-button-toggle เหมือนกันหมด)

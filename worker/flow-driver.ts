@@ -462,6 +462,9 @@ export async function runRound(
     });
 
     const beforeImgs = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
+    // ต้องนับ "ก่อนกด" เพราะ ensure-project ใช้โปรเจกต์เดิมซ้ำได้ (รอบ retry) — การ์ด Failed เก่า
+    // จากความพยายามก่อนหน้ายังค้างอยู่ในหน้า ถ้าไม่หักออกจะเข้าใจผิดว่ารอบนี้พังทันทีตั้งแต่ยังไม่ทันวาด
+    const beforeErrorTiles = sel.errorTile ? await page.locator(sel.errorTile).count() : 0;
 
     await step("click-generate", async () => {
       const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
@@ -472,6 +475,7 @@ export async function runRound(
     const urls = await step("wait-results", async () => {
       const deadline = Date.now() + cfg.generationTimeoutMs;
       while (Date.now() < deadline) {
+        let goodCount = 0;
         if (sel.results.strategy === "network") {
           const fresh = responses.filter((r) => r.at >= submitAt);
           for (const r of fresh) {
@@ -482,6 +486,7 @@ export async function runRound(
             }
           }
           const found = collectImageUrls(fresh.map((r) => r.body), sel.results.imageUrlHosts);
+          goodCount = found.length;
           if (found.length >= COUNT) {
             await sleepMs(2500); // เผื่อ response ที่มาช้า (straggler)
             return collectImageUrls(responses.filter((r) => r.at >= submitAt).map((r) => r.body), sel.results.imageUrlHosts);
@@ -490,9 +495,23 @@ export async function runRound(
           const now = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
           const fresh = now.filter((s) => !beforeImgs.includes(s));
           const good = collectImageUrls(fresh, sel.results.imageUrlHosts);
+          goodCount = good.length;
           if (good.length >= COUNT) {
             await sleepMs(2500);
             return good;
+          }
+        }
+        // การ์ด "Failed — Sorry, this image failed to generate" ของ Flow เอง (ไม่เสียเครดิต) —
+        // ไม่มี role=alert จึงไม่ถูกจับด้วยเช็ก alert ด้านล่าง ถ้าทุกช่องที่ขอ (COUNT) จบแล้วแต่ไม่ครบ
+        // เป็นรูปดี ต้องหยุดทันที ไม่ใช่นั่งรอจน generationTimeoutMs แล้วรายงานผิดว่า "ช้า"
+        if (sel.errorTile) {
+          const freshFailed = (await page.locator(sel.errorTile).count()) - beforeErrorTiles;
+          if (freshFailed > 0 && freshFailed + goodCount >= COUNT) {
+            throw new FlowStepError(
+              "wait-results",
+              "flow_error",
+              `Flow วาดไม่สำเร็จ ${String(freshFailed)}/${String(COUNT)} รูป (failed to generate — ไม่เสียเครดิต)`,
+            );
           }
         }
         const alert = page.locator("[role='alert'], [aria-live='assertive']");
