@@ -106,6 +106,13 @@ for (const page of ['dashboard', 'popup']) {
   }
 }
 
+// icons/*.png ที่ manifest.json อ้างถึง (icons + action.default_icon) — .svg เป็นไฟล์ source
+// เก็บไว้แก้ต่อได้เท่านั้น ไม่ต้องอยู่ใน bundle เพราะไม่มีที่ไหนอ้างถึงมันเลย
+await mkdir(join(outDir, 'icons'), { recursive: true })
+for (const asset of await readdir(join(SRC, 'icons'))) {
+  if (asset.endsWith('.png')) await cp(join(SRC, 'icons', asset), join(outDir, 'icons', asset))
+}
+
 await writeFile(
   join(outDir, 'build-info.json'),
   `${JSON.stringify(
