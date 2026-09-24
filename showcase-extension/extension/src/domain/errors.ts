@@ -1,4 +1,4 @@
-export type FlowAErrorCode =
+export type ScannerErrorCode =
   | 'aborted'
   | 'already_running'
   | 'adapter_body_too_large'
@@ -19,12 +19,12 @@ export type FlowAErrorCode =
   | 'run_context_unavailable'
 
 /** message ถูกประกอบจาก code เท่านั้น ไม่รับข้อมูลจากภายนอกมาต่อท้าย (§10: ไม่มี token/session ใน log) */
-export class FlowAError extends Error {
-  readonly code: FlowAErrorCode
+export class ScannerError extends Error {
+  readonly code: ScannerErrorCode
 
-  constructor(code: FlowAErrorCode) {
+  constructor(code: ScannerErrorCode) {
     super(code)
-    this.name = 'FlowAError'
+    this.name = 'ScannerError'
     this.code = code
   }
 }

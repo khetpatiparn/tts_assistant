@@ -28,7 +28,7 @@ describe('PK02/PK03 — release bundle (R11/R15)', () => {
   })
 
   it('PK03 (รอง): grep ไม่พบ mock adapter, fixture หรือ mock mode ใน release bundle', () => {
-    expect(release).toContain('Flow A') // positive control — พิสูจน์ว่า scanner อ่าน byte จริง
+    expect(release).toContain('Showcase Scanner') // positive control — พิสูจน์ว่า scanner อ่าน byte จริง
     for (const marker of [
       'createMockShowcaseAdapter',
       'mock-v0',

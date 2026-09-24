@@ -1,15 +1,15 @@
 import { resolveAdapter } from '#adapter'
-import { FlowAError } from './domain/errors.js'
+import { ScannerError } from './domain/errors.js'
 import { handleMessage } from './messaging/handle.js'
 import { validateMessage } from './messaging/validate.js'
 import { openCheckpointStore } from './storage/checkpoints.js'
 import type { AdapterPurpose } from './adapters/types.js'
 import type { ProbeRegistry, RunRegistry } from './messaging/handle.js'
-import type { FlowAMessageType, FlowAResponse } from './messaging/schema.js'
+import type { ScannerMessageType, ScannerResponse } from './messaging/schema.js'
 
 /** §2.2 — หนึ่งบัญชีต่อ browser profile; ยังไม่มี UI ตั้งค่าใน M1 จึงคงที่ไว้ก่อน */
 const SOURCE_REF = 'local-profile-01'
-const STORE_NAME = 'flow-a-checkpoints'
+const STORE_NAME = 'showcase-scanner-checkpoints'
 
 // เริ่มเปิด IndexedDB ทันทีตอน module โหลด ไม่รอ message แรก — ไม่ block การลงทะเบียน listener
 // เพราะเก็บไว้เป็น promise แล้ว await ทีหลังในนี้
@@ -27,7 +27,7 @@ const probeRegistry: ProbeRegistry = { inFlight: false }
  * message ที่ไม่ต้องอ่านข้อมูลจริงใช้ `metadata_only` เพื่อให้ dashboard ของ live build
  * ใช้ส่วนที่ไม่แตะ network ได้ตามปกติ แทนที่จะพังทั้งหน้าเพราะ gate ของ full scan
  */
-const PURPOSE_BY_TYPE: Partial<Record<FlowAMessageType, AdapterPurpose>> = {
+const PURPOSE_BY_TYPE: Partial<Record<ScannerMessageType, AdapterPurpose>> = {
   'adapter.probe': 'manual_probe',
   // `manual_scan` ไม่ใช่ `full_scan` — อ่านข้อมูลชุดเดียวกันแต่ยืนอยู่บนการอนุญาตของเจ้าของโปรเจกต์
   // บนบัญชีตนเองเท่านั้น ไม่ใช่ `G0_VERIFIED` ซึ่งยังรอการอนุญาตจาก TikTok (ดู domain/version.ts)
@@ -55,7 +55,7 @@ const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
 // เมื่อ service worker ถูกปลุกใหม่ (spec §10)
 chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
   void (async (): Promise<void> => {
-    let response: FlowAResponse
+    let response: ScannerResponse
     try {
       const message = validateMessage(raw, { id: sender.id, url: sender.url }, chrome.runtime.id)
       const store = await storePromise
@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
         sleep,
       })
     } catch (error) {
-      response = { ok: false, code: error instanceof FlowAError ? error.code : 'msg_malformed' }
+      response = { ok: false, code: error instanceof ScannerError ? error.code : 'msg_malformed' }
     }
     sendResponse(response)
   })()

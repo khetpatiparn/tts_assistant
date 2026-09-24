@@ -1,4 +1,4 @@
-import { FlowAError } from '../domain/errors.js'
+import { ScannerError } from '../domain/errors.js'
 import { ADAPTER_VERSION_LIVE } from '../domain/version.js'
 import type { ShowcaseAdapter, ShowcasePageRequest, ShowcaseRawPage } from './types.js'
 import type { LiveTransport } from './live-transport.js'
@@ -23,8 +23,8 @@ export interface BuiltShowcaseRequest {
  */
 export function buildShowcaseRequest(request: ShowcasePageRequest): BuiltShowcaseRequest {
   const { offset, count } = request
-  if (!Number.isSafeInteger(offset) || offset < 0) throw new FlowAError('adapter_invalid_request')
-  if (!Number.isSafeInteger(count) || count <= 0) throw new FlowAError('adapter_invalid_request')
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new ScannerError('adapter_invalid_request')
+  if (!Number.isSafeInteger(count) || count <= 0) throw new ScannerError('adapter_invalid_request')
 
   const url = new URL(ENDPOINT_PATH, ENDPOINT_ORIGIN)
   url.searchParams.set('offset', String(offset))
@@ -53,11 +53,11 @@ export function createLiveShowcaseAdapter(deps: LiveAdapterDeps): ShowcaseAdapte
     adapterVersion: ADAPTER_VERSION_LIVE,
     mode: 'live',
     async fetchPage(request: ShowcasePageRequest, signal: AbortSignal): Promise<ShowcaseRawPage> {
-      if (signal.aborted) throw new FlowAError('aborted')
+      if (signal.aborted) throw new ScannerError('aborted')
 
       // ตรวจ permission prerequisite ก่อนยิง request เสมอ — ไม่เพิ่มสิทธิ์เกิน spec (ดู manifest.json
       // optional_host_permissions) และไม่เดาว่ามีสิทธิ์แล้วเพียงเพราะ G0_VERIFIED เป็น true
-      if (!(await deps.hasHostPermission())) throw new FlowAError('permission_required')
+      if (!(await deps.hasHostPermission())) throw new ScannerError('permission_required')
 
       const built = buildShowcaseRequest(request)
       const outcome = await deps.transport.send({ method: built.method, url: built.url, signal })
@@ -66,15 +66,15 @@ export function createLiveShowcaseAdapter(deps: LiveAdapterDeps): ShowcaseAdapte
         case 'response':
           return { httpStatus: outcome.httpStatus, headers: outcome.headers, bodyText: outcome.bodyText }
         case 'redirect_blocked':
-          throw new FlowAError('adapter_redirect_blocked')
+          throw new ScannerError('adapter_redirect_blocked')
         case 'timeout':
-          throw new FlowAError('adapter_timeout')
+          throw new ScannerError('adapter_timeout')
         case 'aborted':
-          throw new FlowAError('aborted')
+          throw new ScannerError('aborted')
         case 'network_error':
-          throw new FlowAError('adapter_network_error')
+          throw new ScannerError('adapter_network_error')
         case 'body_too_large':
-          throw new FlowAError('adapter_body_too_large')
+          throw new ScannerError('adapter_body_too_large')
       }
     },
   }

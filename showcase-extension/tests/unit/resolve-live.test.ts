@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resolveAdapter } from '../../extension/src/adapters/resolve.live.js'
-import { FlowAError } from '../../extension/src/domain/errors.js'
+import { ScannerError } from '../../extension/src/domain/errors.js'
 import {
   ADAPTER_VERSION_LIVE,
   G0_TECHNICAL_EVIDENCE_COMPLETE,
@@ -39,12 +39,12 @@ describe('ค่า gate ทั้งสามตัวต้องเป็น�
 
 describe('resolveAdapter — gate แยกตาม purpose ไม่ใช่ค่าเดียวคุมทุกอย่าง', () => {
   it('full_scan ถูกปฏิเสธด้วย g0_not_verified (TikTok ยังไม่อนุญาต)', () => {
-    expect(() => resolveAdapter('full_scan')).toThrow(FlowAError)
+    expect(() => resolveAdapter('full_scan')).toThrow(ScannerError)
     try {
       resolveAdapter('full_scan')
       throw new Error('ต้อง throw ก่อนถึงบรรทัดนี้')
     } catch (error) {
-      expect((error as FlowAError).code).toBe('g0_not_verified')
+      expect((error as ScannerError).code).toBe('g0_not_verified')
     }
   })
 

@@ -2,7 +2,7 @@ import type { QuarantinedRecord, RunReport } from '../core/runner.js'
 import { SHOWCASE_HOST_PERMISSION_ORIGIN } from '../domain/permissions.js'
 import type { NormalizedProduct } from '../domain/product.js'
 import { buildProbeExport } from '../export/json.js'
-import type { FlowAMessage, FlowAMessageType, ResponseMap } from '../messaging/schema.js'
+import type { ScannerMessage, ScannerMessageType, ResponseMap } from '../messaging/schema.js'
 import { appendLabeledRow, clearChildren, setText } from './dom.js'
 import { DEFAULT_PAGE_SIZE, renderPreviewPage, totalPages } from './preview.js'
 import type { SelectableFilter } from './selection.js'
@@ -20,8 +20,8 @@ declare const __BUILD_HASH__: string
 /** §16 — progress ต้องแสดงภายใน 1 วินาทีหลัง commit; คาบ poll ต้องต่ำกว่างบอย่างมีระยะเผื่อ */
 const POLL_INTERVAL_MS = 250
 
-const send = <T extends FlowAMessageType>(
-  message: Extract<FlowAMessage, { type: T }>,
+const send = <T extends ScannerMessageType>(
+  message: Extract<ScannerMessage, { type: T }>,
 ): Promise<ResponseMap[T]> => chrome.runtime.sendMessage(message) as Promise<ResponseMap[T]>
 
 const requireElement = (id: string): HTMLElement => {

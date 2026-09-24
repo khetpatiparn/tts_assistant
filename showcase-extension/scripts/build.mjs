@@ -92,7 +92,7 @@ await writeFile(join(outDir, 'meta.json'), `${JSON.stringify(result.metafile, nu
 
 const manifest = JSON.parse(await readFile(join(ROOT, 'extension', 'manifest.json'), 'utf8'))
 if (mode === 'mock') {
-  manifest.name = 'Flow A Showcase Importer (DEV MOCK, not live-ready)'
+  manifest.name = 'Showcase Scanner (DEV MOCK, not live-ready)'
   manifest.description =
     'อ่านรายการสินค้าใน Showcase ของบัญชีตนเองเพื่อ preview และ export JSON — build นี้ใช้ fixture สังเคราะห์ล้วน ไม่แตะเครือข่ายเลย'
 }

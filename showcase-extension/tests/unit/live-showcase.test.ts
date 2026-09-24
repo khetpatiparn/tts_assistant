@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildShowcaseRequest, createLiveShowcaseAdapter } from '../../extension/src/adapters/live-showcase.js'
 import { ADAPTER_VERSION_LIVE } from '../../extension/src/domain/version.js'
-import { FlowAError } from '../../extension/src/domain/errors.js'
+import { ScannerError } from '../../extension/src/domain/errors.js'
 import type { LiveTransport, LiveTransportOutcome, LiveTransportRequest } from '../../extension/src/adapters/live-transport.js'
 
 /**
@@ -100,7 +100,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     expect(transport.calls[0]?.method).toBe('GET')
   })
 
-  it('redirect_blocked จาก transport กลายเป็น FlowAError adapter_redirect_blocked', async () => {
+  it('redirect_blocked จาก transport กลายเป็น ScannerError adapter_redirect_blocked', async () => {
     const adapter = createLiveShowcaseAdapter({
       transport: fakeTransport(() => ({ kind: 'redirect_blocked' })),
       hasHostPermission: granted,
@@ -110,7 +110,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     )
   })
 
-  it('timeout จาก transport กลายเป็น FlowAError adapter_timeout', async () => {
+  it('timeout จาก transport กลายเป็น ScannerError adapter_timeout', async () => {
     const adapter = createLiveShowcaseAdapter({
       transport: fakeTransport(() => ({ kind: 'timeout' })),
       hasHostPermission: granted,
@@ -120,7 +120,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     )
   })
 
-  it('network_error จาก transport กลายเป็น FlowAError adapter_network_error', async () => {
+  it('network_error จาก transport กลายเป็น ScannerError adapter_network_error', async () => {
     const adapter = createLiveShowcaseAdapter({
       transport: fakeTransport(() => ({ kind: 'network_error' })),
       hasHostPermission: granted,
@@ -130,7 +130,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     )
   })
 
-  it('body_too_large จาก transport กลายเป็น FlowAError adapter_body_too_large', async () => {
+  it('body_too_large จาก transport กลายเป็น ScannerError adapter_body_too_large', async () => {
     const adapter = createLiveShowcaseAdapter({
       transport: fakeTransport(() => ({ kind: 'body_too_large' })),
       hasHostPermission: granted,
@@ -140,7 +140,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     )
   })
 
-  it('aborted จาก transport กลายเป็น FlowAError aborted', async () => {
+  it('aborted จาก transport กลายเป็น ScannerError aborted', async () => {
     const adapter = createLiveShowcaseAdapter({
       transport: fakeTransport(() => ({ kind: 'aborted' })),
       hasHostPermission: granted,
@@ -165,7 +165,7 @@ describe('createLiveShowcaseAdapter — แปล transport outcome เป็น
     const transport = fakeTransport(() => ({ kind: 'response', httpStatus: 200, headers: {}, bodyText: '{}' }))
     const adapter = createLiveShowcaseAdapter({ transport, hasHostPermission: granted })
     await expect(adapter.fetchPage({ offset: -1, count: 6 }, new AbortController().signal)).rejects.toBeInstanceOf(
-      FlowAError,
+      ScannerError,
     )
     expect(transport.calls).toHaveLength(0)
   })

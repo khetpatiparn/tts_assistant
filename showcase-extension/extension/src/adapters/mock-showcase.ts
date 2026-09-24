@@ -1,4 +1,4 @@
-import { FlowAError } from '../domain/errors.js'
+import { ScannerError } from '../domain/errors.js'
 import { ADAPTER_VERSION_MOCK } from '../domain/version.js'
 import type { ShowcaseAdapter, ShowcasePageRequest, ShowcaseRawPage } from './types.js'
 
@@ -111,10 +111,10 @@ export function createMockShowcaseAdapter(options: MockShowcaseOptions = {}): Sh
     adapterVersion: ADAPTER_VERSION_MOCK,
     mode: 'mock',
     fetchPage(_request: ShowcasePageRequest, signal: AbortSignal): Promise<ShowcaseRawPage> {
-      if (signal.aborted) return Promise.reject(new FlowAError('aborted'))
+      if (signal.aborted) return Promise.reject(new ScannerError('aborted'))
 
       const page = pages[cursor]
-      if (page === undefined) return Promise.reject(new FlowAError('mock_script_exhausted'))
+      if (page === undefined) return Promise.reject(new ScannerError('mock_script_exhausted'))
       cursor += 1
 
       return Promise.resolve({

@@ -1,4 +1,4 @@
-# Flow A — Showcase Importer
+# Showcase Scanner
 
 MV3 browser extension สำหรับอ่านรายการสินค้าใน Showcase ของบัญชีผู้ใช้เอง → preview → เลือก → export JSON
 

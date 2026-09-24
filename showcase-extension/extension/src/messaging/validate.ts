@@ -1,5 +1,5 @@
-import { FlowAError } from '../domain/errors.js'
-import { ALLOWED_KEYS, ALLOWED_TYPES, type FlowAMessage, type FlowAMessageType } from './schema.js'
+import { ScannerError } from '../domain/errors.js'
+import { ALLOWED_KEYS, ALLOWED_TYPES, type ScannerMessage, type ScannerMessageType } from './schema.js'
 
 export interface MessageSenderInfo {
   readonly id?: string | undefined
@@ -38,40 +38,40 @@ export function validateMessage(
   raw: unknown,
   sender: MessageSenderInfo,
   selfId: string,
-): FlowAMessage {
-  if (!isPlainObject(raw)) throw new FlowAError('msg_malformed')
+): ScannerMessage {
+  if (!isPlainObject(raw)) throw new ScannerError('msg_malformed')
 
-  if (sender.id !== selfId) throw new FlowAError('msg_forbidden_sender')
+  if (sender.id !== selfId) throw new ScannerError('msg_forbidden_sender')
   if (sender.url !== undefined && !sender.url.startsWith(`chrome-extension://${selfId}/`)) {
-    throw new FlowAError('msg_forbidden_sender')
+    throw new ScannerError('msg_forbidden_sender')
   }
 
   const type = raw['type']
-  if (typeof type !== 'string' || !ALLOWED_TYPES.has(type)) throw new FlowAError('msg_unknown_type')
+  if (typeof type !== 'string' || !ALLOWED_TYPES.has(type)) throw new ScannerError('msg_unknown_type')
 
-  const allowed = ALLOWED_KEYS[type as FlowAMessageType]
+  const allowed = ALLOWED_KEYS[type as ScannerMessageType]
   const actual = Object.keys(raw)
   if (actual.length !== allowed.length || !actual.every((key) => allowed.includes(key))) {
-    throw new FlowAError('msg_forbidden_field')
+    throw new ScannerError('msg_forbidden_field')
   }
 
   if (type === 'adapter.probe') {
     const { offset, count } = raw
     if (!isSafeNonNegativeInteger(offset) || !isSafeNonNegativeInteger(count)) {
-      throw new FlowAError('msg_malformed')
+      throw new ScannerError('msg_malformed')
     }
     return { type, offset, count }
   }
 
   if (type === 'run.export') {
     const { selectedIds } = raw
-    if (!isStringArray(selectedIds)) throw new FlowAError('msg_malformed')
+    if (!isStringArray(selectedIds)) throw new ScannerError('msg_malformed')
     return { type, selectedIds }
   }
 
   if (type === 'run.start') {
     const { maxPages } = raw
-    if (maxPages !== null && !isSafePositiveInteger(maxPages)) throw new FlowAError('msg_malformed')
+    if (maxPages !== null && !isSafePositiveInteger(maxPages)) throw new ScannerError('msg_malformed')
     return { type, maxPages }
   }
 

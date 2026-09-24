@@ -1,6 +1,6 @@
 import type { ShowcaseAdapter, ShowcaseRawPage } from '../adapters/types.js'
 import { validateEnvelope } from '../domain/envelope.js'
-import { FlowAError } from '../domain/errors.js'
+import { ScannerError } from '../domain/errors.js'
 import { validatePage } from '../domain/page.js'
 import type { QuarantineReason } from '../domain/product.js'
 import type { NormalizedProduct } from '../domain/product.js'
@@ -40,7 +40,7 @@ export interface RunRequest {
    * ตามปกติ (ค่าเริ่มต้น) ผู้ใช้เป็นคนสั่งเองผ่าน UI เพื่อลดจำนวน request ไป TikTok เมื่อรู้ว่ามีแค่
    * ไม่กี่หน้าที่เปลี่ยน ไม่ใช่ค่าความปลอดภัย (ต่างจาก budget.maxRequests ที่กันไม่ให้ run วิ่งเกินควบคุม)
    * เป็น optional ในอินเทอร์เฟซนี้เหมือน `budget` เพราะเป็นชั้นภายใน ไม่ใช่ wire message ที่ต้องเข้มงวด
-   * (validate.ts บังคับให้ FlowAMessage ของ run.start ส่ง field นี้มาเสมอ ไม่มี default ที่ซ่อนอยู่)
+   * (validate.ts บังคับให้ ScannerMessage ของ run.start ส่ง field นี้มาเสมอ ไม่มี default ที่ซ่อนอยู่)
    */
   readonly maxPages?: number | null
 }
@@ -313,7 +313,7 @@ export async function runImport(request: RunRequest, deps: RunnerDeps): Promise<
       } catch (error) {
         if (request.signal.aborted) return finish('cancelled')
 
-        if (error instanceof FlowAError) {
+        if (error instanceof ScannerError) {
           // §9.2 ข้อ 4 — redirect ที่หลุดจาก endpoint contract ต้องหยุดเพื่อยืนยัน ไม่ retry เพื่อ
           // พยายามผ่าน (ต่างจาก network error/timeout ด้านล่างที่เป็นความผิดพลาดชั่วคราวจริง ๆ)
           if (error.code === 'adapter_redirect_blocked') return finish('redirect_blocked')

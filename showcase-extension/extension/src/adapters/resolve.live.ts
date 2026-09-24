@@ -1,4 +1,4 @@
-import { FlowAError } from '../domain/errors.js'
+import { ScannerError } from '../domain/errors.js'
 import { SHOWCASE_HOST_PERMISSION_ORIGIN } from '../domain/permissions.js'
 import {
   ADAPTER_VERSION_LIVE,
@@ -27,7 +27,7 @@ const hasHostPermission = (): Promise<boolean> =>
 const metadataOnlyAdapter = (): ShowcaseAdapter => ({
   adapterVersion: ADAPTER_VERSION_LIVE,
   mode: 'live',
-  fetchPage: () => Promise.reject(new FlowAError('g0_not_verified')),
+  fetchPage: () => Promise.reject(new ScannerError('g0_not_verified')),
 })
 
 /**
@@ -51,16 +51,16 @@ export function resolveAdapter(purpose: AdapterPurpose = 'full_scan'): ShowcaseA
 
   if (purpose === 'full_scan') {
     // full scan ยังต้องรอ G0 ครบทุกด้าน รวมถึงการอนุญาตจาก TikTok ที่ยังไม่มี
-    if (!G0_VERIFIED) throw new FlowAError('g0_not_verified')
+    if (!G0_VERIFIED) throw new ScannerError('g0_not_verified')
   } else {
     // manual_probe / manual_scan — ทั้งคู่ต้องมีหลักฐานเทคนิคครบก่อนเสมอ
-    if (!G0_TECHNICAL_EVIDENCE_COMPLETE) throw new FlowAError('g0_not_verified')
+    if (!G0_TECHNICAL_EVIDENCE_COMPLETE) throw new ScannerError('g0_not_verified')
     if (purpose === 'manual_scan') {
       // ทดลองหลายหน้าจนจบที่ผู้ใช้กดเอง
-      if (!OWNER_MANUAL_SCAN_AUTHORIZED) throw new FlowAError('manual_scan_not_authorized')
+      if (!OWNER_MANUAL_SCAN_AUTHORIZED) throw new ScannerError('manual_scan_not_authorized')
     } else {
       // ทดลองหนึ่งหน้าที่ผู้ใช้กดเอง (spec §14.1)
-      if (!OWNER_MANUAL_PROBE_AUTHORIZED) throw new FlowAError('manual_probe_not_authorized')
+      if (!OWNER_MANUAL_PROBE_AUTHORIZED) throw new ScannerError('manual_probe_not_authorized')
     }
   }
 

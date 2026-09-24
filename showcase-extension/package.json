@@ -1,9 +1,9 @@
 {
-  "name": "flow-a-showcase-importer",
+  "name": "showcase-scanner",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Flow A — TikTok Showcase Importer (MV3 extension, mock-only prototype)",
+  "description": "Showcase Scanner — TikTok Showcase Importer (MV3 extension, mock-only prototype)",
   "scripts": {
     "build": "node scripts/build.mjs --mode=live --out=dist-release",
     "build:mock": "node scripts/build.mjs --mode=mock --out=dist",

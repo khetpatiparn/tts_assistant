@@ -2,14 +2,14 @@ import type { ShowcaseAdapter } from '../adapters/types.js'
 import { resumeDashboardState } from '../dashboard/resume.js'
 import type { ResumeState } from '../dashboard/resume.js'
 import { validateEnvelope } from '../domain/envelope.js'
-import { FlowAError } from '../domain/errors.js'
+import { ScannerError } from '../domain/errors.js'
 import { validatePage } from '../domain/page.js'
 import { G0_VERIFIED, SCHEMA_VERSION } from '../domain/version.js'
 import { buildExport } from '../export/json.js'
 import { runImport } from '../core/runner.js'
 import type { RunReport } from '../core/runner.js'
 import type { CheckpointStore } from '../storage/checkpoints.js'
-import type { FlowAMessage, FlowAResponse } from './schema.js'
+import type { ScannerMessage, ScannerResponse } from './schema.js'
 
 /** §9.4 default budget ใช้ค่ามาตรฐานจาก runner; page size คงที่ตาม fixture ของ mock ใน M1 */
 export const DEFAULT_RUN_PAGE_SIZE = 6
@@ -65,7 +65,7 @@ interface ProbeContext {
  */
 const requireProbeContext = (ctx: HandlerContext): ProbeContext => {
   if (ctx.sourceRef === undefined || ctx.now === undefined || ctx.probeRegistry === undefined) {
-    throw new FlowAError('run_context_unavailable')
+    throw new ScannerError('run_context_unavailable')
   }
   return { sourceRef: ctx.sourceRef, probeRegistry: ctx.probeRegistry, now: ctx.now }
 }
@@ -78,7 +78,7 @@ const requireRunContext = (ctx: HandlerContext): RunContext => {
     ctx.now === undefined ||
     ctx.sleep === undefined
   ) {
-    throw new FlowAError('run_context_unavailable')
+    throw new ScannerError('run_context_unavailable')
   }
   return {
     store: ctx.store,
@@ -90,9 +90,9 @@ const requireRunContext = (ctx: HandlerContext): RunContext => {
 }
 
 export async function handleMessage(
-  message: FlowAMessage,
+  message: ScannerMessage,
   ctx: HandlerContext,
-): Promise<FlowAResponse> {
+): Promise<ScannerResponse> {
   switch (message.type) {
     case 'app.info':
       return {

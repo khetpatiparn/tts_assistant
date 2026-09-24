@@ -19,7 +19,7 @@ export type JobState =
   | 'cancelled'
   | 'failed'
 
-export type FlowAMessage =
+export type ScannerMessage =
   | { readonly type: 'app.info' }
   | { readonly type: 'status.get' }
   | { readonly type: 'adapter.probe'; readonly offset: number; readonly count: number }
@@ -35,13 +35,13 @@ export type FlowAMessage =
   | { readonly type: 'run.export'; readonly selectedIds: readonly string[] }
   | { readonly type: 'data.clear' }
 
-export type FlowAMessageType = FlowAMessage['type']
+export type ScannerMessageType = ScannerMessage['type']
 
 /**
  * key ที่อนุญาตของแต่ละ type — validator ใช้ set equality ไม่ใช่ denylist
  * ทำให้ message ที่แนบ url/headers/method ถูกปฏิเสธโดยอัตโนมัติ โดยไม่ต้องมีกฎเฉพาะทาง
  */
-export const ALLOWED_KEYS: Readonly<Record<FlowAMessageType, readonly string[]>> = Object.freeze({
+export const ALLOWED_KEYS: Readonly<Record<ScannerMessageType, readonly string[]>> = Object.freeze({
   'app.info': ['type'],
   'status.get': ['type'],
   'adapter.probe': ['type', 'offset', 'count'],
@@ -132,7 +132,7 @@ export interface DataClearResponse {
   readonly cleared: true
 }
 
-export type FlowAResponse =
+export type ScannerResponse =
   | AppInfoResponse
   | StatusResponse
   | ProbeResponse

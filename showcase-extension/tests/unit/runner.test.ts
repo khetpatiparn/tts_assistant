@@ -9,7 +9,7 @@ import { createMockShowcaseAdapter } from '../../extension/src/adapters/mock-sho
 import type { MockPageScript } from '../../extension/src/adapters/mock-showcase.js'
 import type { ShowcaseAdapter } from '../../extension/src/adapters/types.js'
 import { RETRY_POLICY } from '../../extension/src/core/retry.js'
-import { FlowAError } from '../../extension/src/domain/errors.js'
+import { ScannerError } from '../../extension/src/domain/errors.js'
 import { catalogId, createCatalogServer, expectedIds } from '../helpers/synthetic-catalog.js'
 
 let store: CheckpointStore
@@ -559,7 +559,7 @@ describe('adapter_redirect_blocked — redirect ที่หลุดจาก c
       mode: 'mock',
       fetchPage: (req) => {
         calls.push(req.offset)
-        return Promise.reject(new FlowAError('adapter_redirect_blocked'))
+        return Promise.reject(new ScannerError('adapter_redirect_blocked'))
       },
     }
     const report = await runImport(
@@ -579,7 +579,7 @@ describe('adapter_invalid_request — บั๊กภายในไม่ใช
       mode: 'mock',
       fetchPage: (req) => {
         calls.push(req.offset)
-        return Promise.reject(new FlowAError('adapter_invalid_request'))
+        return Promise.reject(new ScannerError('adapter_invalid_request'))
       },
     }
     const report = await runImport(
@@ -597,7 +597,7 @@ describe('adapter_body_too_large — จาก transport เอง เข้า�
     const adapter: ShowcaseAdapter = {
       adapterVersion: 'mock-v0',
       mode: 'mock',
-      fetchPage: () => Promise.reject(new FlowAError('adapter_body_too_large')),
+      fetchPage: () => Promise.reject(new ScannerError('adapter_body_too_large')),
     }
     const report = await runImport(
       { runId: 'run-1', sourceRef: 'local-profile-01', pageSize: 6, signal: new AbortController().signal },
@@ -615,7 +615,7 @@ describe('permission_required — host permission ยังไม่ได้ร
       mode: 'mock',
       fetchPage: (req) => {
         calls.push(req.offset)
-        return Promise.reject(new FlowAError('permission_required'))
+        return Promise.reject(new ScannerError('permission_required'))
       },
     }
     const report = await runImport(
@@ -642,7 +642,7 @@ describe('permission_required — host permission ยังไม่ได้ร
             bodyText: firstPage.bodyText,
           })
         }
-        return Promise.reject(new FlowAError('permission_required'))
+        return Promise.reject(new ScannerError('permission_required'))
       },
     }
     const report = await runImport(
@@ -656,14 +656,14 @@ describe('permission_required — host permission ยังไม่ได้ร
 })
 
 describe('adapter_network_error/adapter_timeout — ยังเข้ากฎ retry เดียวกับ network error ทั่วไป (§9.4)', () => {
-  it('network_error retry ได้ตามปกติแล้วค่อยหยุดเมื่อครบจำนวนครั้ง เหมือน error ที่ไม่มี FlowAError code', async () => {
+  it('network_error retry ได้ตามปกติแล้วค่อยหยุดเมื่อครบจำนวนครั้ง เหมือน error ที่ไม่มี ScannerError code', async () => {
     let attempts = 0
     const adapter: ShowcaseAdapter = {
       adapterVersion: 'mock-v0',
       mode: 'mock',
       fetchPage: () => {
         attempts += 1
-        return Promise.reject(new FlowAError('adapter_network_error'))
+        return Promise.reject(new ScannerError('adapter_network_error'))
       },
     }
     const report = await runImport(
@@ -682,7 +682,7 @@ describe('adapter_network_error/adapter_timeout — ยังเข้ากฎ 
       mode: 'mock',
       fetchPage: () => {
         attempts += 1
-        return Promise.reject(new FlowAError('adapter_timeout'))
+        return Promise.reject(new ScannerError('adapter_timeout'))
       },
     }
     const report = await runImport(
