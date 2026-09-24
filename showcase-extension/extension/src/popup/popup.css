@@ -1,6 +1,26 @@
+/* ธีมเดียวกับ dashboard.css (ยืมโทน navy/brass จากแอปหลัก) — ดูคอมเมนต์อธิบายที่มาเต็มๆ ที่นั่น */
 :root {
-  color-scheme: light dark;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+
+  --navy-900: oklch(0.19 0.018 250);
+  --navy-850: oklch(0.25 0.02 250);
+  --navy-600: oklch(0.52 0.018 250);
+  --navy-500: oklch(0.62 0.012 250);
+  --navy-300: oklch(0.87 0.01 250);
+  --navy-50: oklch(0.965 0.006 250);
+  --navy-25: oklch(0.99 0.003 250);
+  --navy-accent: oklch(0.38 0.07 250);
+  --red-600: oklch(0.5 0.17 25);
+  --red-50: oklch(0.97 0.02 25);
+
+  --background: var(--navy-50);
+  --foreground: var(--navy-850);
+  --primary: var(--navy-accent);
+  --border-interactive: var(--navy-500);
+  --destructive: var(--red-600);
+  --destructive-bg: var(--red-50);
+
+  font-family: "Noto Sans Thai", "Leelawadee UI", "Segoe UI", system-ui, sans-serif;
 }
 
 body {
@@ -8,15 +28,18 @@ body {
   padding: 16px;
   width: 260px;
   font-size: 0.875rem;
+  line-height: 1.6;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 .banner {
   margin: 0 0 12px;
   padding: 8px 10px;
-  border: 1px solid #b45309;
+  border: 1px solid var(--destructive);
   border-radius: 4px;
-  background: #fef3c7;
-  color: #7c2d12;
+  background: var(--destructive-bg);
+  color: var(--destructive);
   font-weight: 600;
   font-size: 0.75rem;
 }
@@ -28,15 +51,20 @@ p {
 button {
   font: inherit;
   width: 100%;
+  min-height: 40px;
   padding: 8px 12px;
-  border: 1px solid currentColor;
+  border: 1px solid var(--border-interactive);
   border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  background: var(--navy-25);
+  color: var(--foreground);
   cursor: pointer;
 }
 
+button:hover {
+  border-color: var(--primary);
+}
+
 button:focus-visible {
-  outline: 3px solid #2563eb;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }

@@ -1,39 +1,93 @@
+/**
+ * ธีมยืมจาก token OKLCH ของแอปหลัก (pooling_prompt: app/globals.css, ชุด navy/brass — เลือกค่า
+ * โหมดสว่างเป็นค่าเดียวที่ใช้ ไม่ทำ dark-mode toggle เพราะเป็นหน้าเครื่องมือเปิดใช้สั้นๆ ไม่คุ้ม
+ * ความซับซ้อนของกลไกสลับธีมแบบแอปหลัก) — คัดลอกค่าตัวเลขมาโดยตรง ไม่ import ไฟล์แอปหลักเพราะ
+ * extension นี้ build แยกเป็นเอกเทศ (esbuild ของตัวเอง ไม่มี Next.js/Tailwind)
+ *
+ * ฟอนต์: ไม่ดึงจาก Google Fonts CDN (ต่างจากแอปหลักที่ใช้ next/font ซึ่ง self-host ตอน build) —
+ * extension นี้ตั้งใจไม่มีการเรียก network ใดๆ นอกเหนือจาก endpoint ที่ได้รับอนุญาตแล้วเพียงจุดเดียว
+ * (ดู README "ขอบเขตสิทธิ์") จึงใช้ font stack ที่พึ่งฟอนต์ไทยที่มักติดตั้งอยู่แล้วในเครื่องแทน
+ */
 :root {
-  color-scheme: light dark;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+
+  /* primitive OKLCH — คัดลอกจาก app/globals.css (โหมดสว่าง) */
+  --navy-950: oklch(0.16 0.02 250);
+  --navy-900: oklch(0.19 0.018 250);
+  --navy-850: oklch(0.25 0.02 250);
+  --navy-700: oklch(0.34 0.018 250);
+  --navy-600: oklch(0.52 0.018 250);
+  --navy-500: oklch(0.62 0.012 250);
+  --navy-300: oklch(0.87 0.01 250);
+  --navy-100: oklch(0.945 0.006 250);
+  --navy-50: oklch(0.965 0.006 250);
+  --navy-25: oklch(0.99 0.003 250);
+  --navy-accent: oklch(0.38 0.07 250);
+  --brass-500: oklch(0.72 0.12 85);
+  --brass-600: oklch(0.55 0.12 85);
+  --red-600: oklch(0.5 0.17 25);
+  --red-50: oklch(0.97 0.02 25);
+
+  /* semantic — ตั้งชื่อตามหน้าที่ ไม่ใช่ตามสี (กฎเดียวกับแอปหลัก) */
+  --background: var(--navy-50);
+  --foreground: var(--navy-850);
+  --surface: var(--navy-25);
+  --muted-foreground: var(--navy-600);
+  --primary: var(--navy-accent);
+  --primary-foreground: var(--navy-25);
+  --accent: var(--brass-500);
+  --accent-foreground: var(--navy-950);
+  /* --border = เส้นคั่นตกแต่ง · --border-interactive = ขอบของสิ่งที่กดได้ (แยกหน้าที่ชัดเจน
+     เหมือนแอปหลัก ห้ามใช้ปนกัน) */
+  --border: var(--navy-300);
+  --border-interactive: var(--navy-500);
+  --destructive: var(--red-600);
+  --destructive-bg: var(--red-50);
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  font-family: "Noto Sans Thai", "Leelawadee UI", "Segoe UI", system-ui, sans-serif;
 }
 
 body {
   margin: 0;
-  padding: 24px;
-  max-width: 720px;
+  padding: 28px;
+  max-width: 760px;
+  background: var(--background);
+  color: var(--foreground);
+  line-height: 1.6; /* ข้อความไทยขั้นต่ำ 1.6 เหมือนกฎของแอปหลัก */
 }
 
 .banner {
   margin: 0 0 20px;
   padding: 12px 16px;
-  border: 2px solid #b45309;
-  border-radius: 6px;
-  background: #fef3c7;
-  color: #7c2d12;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted-foreground);
   font-weight: 600;
 }
 
 /* ข้อมูลไม่ครบ — ต้องเด่นกว่า banner ปกติเพราะเป็นคำเตือนเกี่ยวกับตัวข้อมูลที่กำลังจะถูก export */
 .banner-warning {
-  border-color: #b91c1c;
-  background: #fee2e2;
-  color: #7f1d1d;
+  border-color: var(--destructive);
+  background: var(--destructive-bg);
+  color: var(--destructive);
 }
 
 h1 {
-  font-size: 1.35rem;
+  font-size: 1.375rem;
   margin: 0 0 24px;
+  color: var(--navy-900);
+  font-weight: 700;
 }
 
 h2 {
   font-size: 1rem;
   margin: 0 0 8px;
+  color: var(--navy-900);
+  font-weight: 600;
 }
 
 section {
@@ -43,7 +97,7 @@ section {
 .hint {
   margin: 0 0 12px;
   font-size: 0.875rem;
-  opacity: 0.75;
+  color: var(--muted-foreground);
 }
 
 .rows {
@@ -53,13 +107,13 @@ section {
 .row {
   display: flex;
   gap: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgb(128 128 128 / 0.25);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .row-label {
   flex: 0 0 180px;
-  opacity: 0.75;
+  color: var(--muted-foreground);
 }
 
 .row-value {
@@ -69,17 +123,42 @@ section {
 
 button {
   font: inherit;
-  padding: 8px 16px;
-  border: 1px solid currentColor;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
   cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover {
+  border-color: var(--primary);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ปุ่มหลักของแต่ละหัวข้อ (เริ่มสแกน / Export) — ใช้สี accent (brass) ให้เด่นแยกจากปุ่มรอง */
+#run-start,
+#run-export {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+#run-start:hover,
+#run-export:hover {
+  filter: brightness(1.05);
 }
 
 button:focus-visible,
 input:focus-visible {
-  outline: 3px solid #2563eb;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -91,9 +170,9 @@ input:focus-visible {
 }
 
 .tab-button[aria-selected="true"] {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
 }
 
 .selection-controls {
@@ -109,8 +188,8 @@ input:focus-visible {
   grid-template-columns: 1fr auto auto auto;
   gap: 12px;
   align-items: center;
-  padding: 6px 0;
-  border-bottom: 1px solid rgb(128 128 128 / 0.2);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .product-row label {
@@ -128,7 +207,7 @@ input:focus-visible {
 .product-shop,
 .product-image {
   font-size: 0.85rem;
-  opacity: 0.8;
+  color: var(--muted-foreground);
   white-space: nowrap;
 }
 
@@ -140,11 +219,13 @@ input:focus-visible {
   background: none;
   cursor: pointer;
   line-height: 0;
+  min-height: 0;
 }
 
 .product-image-toggle img {
   max-height: 40px;
   display: block;
+  border-radius: 4px;
 }
 
 .product-image-count {
@@ -152,8 +233,8 @@ input:focus-visible {
   bottom: -4px;
   right: -4px;
   font-size: 0.65rem;
-  background: rgb(0 0 0 / 0.7);
-  color: #fff;
+  background: var(--navy-900);
+  color: var(--navy-25);
   border-radius: 8px;
   padding: 1px 4px;
   white-space: nowrap;
@@ -174,6 +255,8 @@ input:focus-visible {
 
 .product-image-gallery img {
   max-height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
 }
 
 .pagination {
@@ -184,7 +267,8 @@ input:focus-visible {
 }
 
 .quarantine-row {
-  padding: 4px 0;
-  border-bottom: 1px solid rgb(128 128 128 / 0.2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
+  color: var(--muted-foreground);
 }
