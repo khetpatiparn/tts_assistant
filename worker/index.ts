@@ -237,11 +237,31 @@ async function main() {
     process.exit(code);
   }
 
-  let host: string;
-  try {
-    ({ host } = await openFlowAndSettle(page, cfg));
-  } catch (e) {
-    return pauseAndExit("host_unsupported", `เปิด Flow ไม่ได้: ${String(e)}`, 1);
+  // ตอนเพิ่งเข้า Windows (start.bat silent จาก Startup) เน็ตมักยังไม่ต่อ — goto พังด้วย net::ERR_*
+  // ซึ่งยังไม่ได้แตะ Google เลย จึงรอแล้วลองใหม่ได้โดยไม่ขัดกฎ "ไม่ retry กับหน้าที่พัง" · ถ้าครบแล้ว
+  // ยังไม่มีเน็ต ให้ออกเฉยๆ ไม่ pause คิว (ไม่ใช่ความผิดของงานไหน และไม่มีงานพังให้กด "รันต่อ")
+  // error อื่นหยุดทันทีเหมือนเดิม
+  const NET_RETRY_MS = 30_000;
+  const NET_MAX_TRIES = 10;
+  let host = "";
+  for (let attempt = 1; ; attempt++) {
+    try {
+      ({ host } = await openFlowAndSettle(page, cfg));
+      break;
+    } catch (e) {
+      if (!String(e).includes("net::ERR_")) {
+        return pauseAndExit("host_unsupported", `เปิด Flow ไม่ได้: ${String(e)}`, 1);
+      }
+      if (attempt >= NET_MAX_TRIES || stopRequested()) {
+        log(`ต่อเน็ตไม่ได้ครบ ${attempt} ครั้ง — ปิดบอท (ไม่ได้หยุดคิว) เปิด start.bat ใหม่เมื่อเน็ตมา`);
+        notify("บอท Flow ปิดตัวแล้ว", "ต่อเน็ตไม่ได้ — เปิด start.bat ใหม่เมื่อเน็ตมา");
+        clearInterval(heartbeat);
+        await context.close();
+        process.exit(0);
+      }
+      log(`ยังต่อเน็ตไม่ได้ (${attempt}/${NET_MAX_TRIES}) — รอ ${NET_RETRY_MS / 1000} วิแล้วลองใหม่`);
+      await sleepMs(NET_RETRY_MS);
+    }
   }
   // เช็ก login ก่อน selectorSetForHost — หน้า login ของ Google ไม่ใช่โฮสต์ที่รู้จัก ถ้าเช็กทีหลังจะถูก
   // รายงานผิดเป็น host_unsupported (ตรรกะเดียวกับ assertPageUsable ใน flow-driver.ts) · ปิดตัวเอง

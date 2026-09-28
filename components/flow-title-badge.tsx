@@ -6,6 +6,22 @@ const POLL_MS = 30_000;
 // prefix ที่ตัวนี้ใส่เอง — ต้องลอกออกก่อนใส่ใหม่ทุกครั้ง ไม่งั้นซ้อนกันเป็น "(2) (1) Angle"
 const OWN_PREFIX = /^(⚠ )?(\(\d+\) )?/;
 
+type BadgingNavigator = Navigator & {
+  setAppBadge?: (contents?: number) => Promise<void>;
+  clearAppBadge?: () => Promise<void>;
+};
+
+/**
+ * ตัวเลขบนไอคอน taskbar — ทำงานเฉพาะตอนติดตั้งเป็นแอปแล้ว (app/manifest.ts) ในแท็บธรรมดา
+ * เบราว์เซอร์ไม่สนใจ · บอทหยุดแต่ไม่มีงานรอเลือก = จุดเปล่า (setAppBadge ไม่ใส่ตัวเลข)
+ */
+function setTaskbarBadge(waitingUser: number, paused: boolean): void {
+  const nav = navigator as BadgingNavigator;
+  if (!nav.setAppBadge || !nav.clearAppBadge) return;
+  const done = waitingUser > 0 ? nav.setAppBadge(waitingUser) : paused ? nav.setAppBadge() : nav.clearAppBadge();
+  done.catch(() => undefined);
+}
+
 /**
  * ใส่ตัวเลขงานที่รอคุณเลือกรูปไว้หน้าชื่อแท็บ เช่น "(3) Angle" และ "⚠" เมื่อบอท Flow หยุด —
  * เห็นได้จากแถบแท็บโดยไม่ต้องเปิดหน้า /flow (คู่กับ toast ของ worker/notify.ts ที่เด้งเฉพาะ
@@ -25,6 +41,7 @@ export function FlowTitleBadge() {
         const s = (await res.json()) as { waitingUser: number; paused: boolean };
         prefix = (s.paused ? "⚠ " : "") + (s.waitingUser > 0 ? `(${s.waitingUser}) ` : "");
         apply();
+        setTaskbarBadge(s.waitingUser, s.paused);
       } catch {
         // server ปิดอยู่ / เน็ตสะดุด — คง prefix เดิมไว้ รอรอบหน้า
       }

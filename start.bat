@@ -2,12 +2,17 @@
 setlocal
 cd /d "%~dp0"
 
+rem "start.bat silent" = run at Windows sign-in (Startup shortcut): start the server and the
+rem Flow bot but do not open a browser tab - the app is opened from its installed taskbar icon
+set SILENT=0
+if /i "%~1"=="silent" set SILENT=1
+
 curl -s -o "%temp%\pp_check.txt" -w "%%{http_code}" http://localhost:3000 > "%temp%\pp_status.txt" 2>nul
 set /p STATUS=<"%temp%\pp_status.txt"
 if "%STATUS%"=="200" (
   echo Pooling Prompt is already running.
   call :startworker
-  start http://localhost:3000
+  call :openapp
   goto :eof
 )
 
@@ -32,6 +37,11 @@ if errorlevel 1 (
 )
 
 call :startworker
+call :openapp
+goto :eof
+
+:openapp
+if "%SILENT%"=="1" goto :eof
 start http://localhost:3000
 goto :eof
 
