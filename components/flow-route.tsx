@@ -91,7 +91,8 @@ export function FlowRoute({
             </span>
           ) : (
             <span className="text-muted-foreground">
-              บอทไม่ได้เปิดอยู่ (เห็นล่าสุด {minutesAgo(worker.lastSeenAt, now)}) — เปิดด้วย flow-worker.bat
+              บอทไม่ได้เปิดอยู่ (เห็นล่าสุด {minutesAgo(worker.lastSeenAt, now)}) — เปิดด้วย start.bat
+              (ถ้าหน้าต่าง Flow Login ยังเปิดค้างอยู่ ให้ปิดก่อน)
             </span>
           )}
         </div>

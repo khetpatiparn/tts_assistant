@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
+import { FlowTitleBadge } from "@/components/flow-title-badge";
 
 // Noto Sans Thai คุมทั้งข้อความไทยและละติน จึงต้องโหลด subset ทั้งสองชุด
 // ถ้าใส่แค่ ["thai"] ตัวอักษรละตินจะไม่มี glyph แล้วตกไปใช้ฟอนต์ระบบแบบควบคุมไม่ได้
@@ -62,6 +63,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
+        <FlowTitleBadge />
         {children}
       </body>
     </html>

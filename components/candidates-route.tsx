@@ -559,6 +559,11 @@ export function CandidatesRoute({
                           key={img.id}
                           src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
                           alt=""
+                          // lazy จำเป็นทั้งสองชุด (การ์ดมือถือ + ตาราง) — รายการนี้ render ซ้ำ 2 ชุดแล้ว
+                          // ซ่อนชุดหนึ่งด้วย CSS ถ้าไม่ lazy เบราว์เซอร์โหลดรูปของทุกแถวทั้งสองชุดทันที
+                          // (วัดจริง 2026-09-29: 350 request / 5.7 MB ทั้งที่รูปโชว์แค่ 40px)
+                          loading="lazy"
+                          decoding="async"
                           className="size-10 rounded border border-border object-cover"
                         />
                       ))}
@@ -709,6 +714,8 @@ export function CandidatesRoute({
                               key={img.id}
                               src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
                               alt=""
+                              loading="lazy"
+                              decoding="async"
                               className="size-10 rounded border border-border object-cover"
                             />
                           ))}

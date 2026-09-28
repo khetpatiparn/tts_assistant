@@ -6,6 +6,7 @@ curl -s -o "%temp%\pp_check.txt" -w "%%{http_code}" http://localhost:3000 > "%te
 set /p STATUS=<"%temp%\pp_status.txt"
 if "%STATUS%"=="200" (
   echo Pooling Prompt is already running.
+  call :startworker
   start http://localhost:3000
   goto :eof
 )
@@ -30,4 +31,13 @@ if errorlevel 1 (
   goto waitloop
 )
 
+call :startworker
 start http://localhost:3000
+goto :eof
+
+:startworker
+rem Flow bot starts with the app. Safe to run while a bot is already running: the new one
+rem exits by itself because the Chrome profile is locked (see worker/index.ts main()).
+echo Starting Flow worker in background (log: flow-worker.log)...
+start "Flow Worker" /min cmd /c "npm run flow-worker >> flow-worker.log 2>&1"
+goto :eof

@@ -8,10 +8,12 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  FLOW_STATUS, WORKER_STATE_ID, candidateFilename, queuedStatus, reviewStatus, runningStatus, type FlowRound,
+  ERROR_KIND_LABELS, FLOW_STATUS, WORKER_STATE_ID, candidateFilename, queuedStatus, reviewStatus, runningStatus,
+  type FlowRound,
 } from "@/lib/flow-jobs";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
-import { launchFlowBrowser, openFlowAndSettle } from "./browser";
+import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
+import { notify } from "./notify";
 import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
 import { runRound } from "./flow-driver";
 import { StepLog, captureFailure } from "./failure";
@@ -54,6 +56,7 @@ async function sleepUntil(target: number): Promise<void> {
 
 async function pauseWorker(reason: ErrorKind): Promise<void> {
   await upsertState({ pausedReason: reason, pausedAt: new Date(), currentJobId: null, nextWakeAt: null });
+  notify("บอท Flow หยุดแล้ว", ERROR_KIND_LABELS[reason] ?? reason);
 }
 
 /**
@@ -164,6 +167,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       });
     });
     log(`งาน ${job.id} รอบ ${round} เสร็จ → รอผู้ใช้เลือก`);
+    notify("รูปพร้อมให้เลือก", `${job.entry.productName} · รอบ ${round}`);
     return true;
   } catch (e) {
     const step = isFlowStepError(e) ? e.step : "unknown";
@@ -197,6 +201,19 @@ async function main() {
   const cfg = loadWorkerConfig();
   if (existsSync(STOP_FILE)) unlinkSync(STOP_FILE);
 
+  // เปิด Chrome ก่อนแตะ DB เสมอ — โปรไฟล์ .flow-profile เปิดได้ทีละโปรเซส จึงใช้เป็นตัวกันบอทซ้อน
+  // (start.bat เปิดบอทให้ทุกครั้ง แม้มีตัวหนึ่งรันอยู่แล้ว) ถ้าเปิดไม่ได้ = มีบอทอีกตัวถือโปรไฟล์อยู่
+  // หรือหน้าต่าง Flow Login ยังไม่ปิด → ออกเงียบๆ ห้ามทำ stale sweep ข้างล่าง (จะไปทำให้งานที่บอท
+  // ตัวจริงกำลังวาดอยู่กลายเป็น failed) และห้าม pause คิว
+  let launched: Awaited<ReturnType<typeof launchFlowBrowser>>;
+  try {
+    launched = await launchFlowBrowser(cfg);
+  } catch (e) {
+    log(`เปิด Chrome ของบอทไม่ได้ — มีบอทตัวอื่นทำงานอยู่แล้ว หรือหน้าต่าง Flow Login ยังเปิดค้าง (ไม่แตะคิว): ${String(e).split("\n")[0]}`);
+    process.exit(0);
+  }
+  const { context, page } = launched;
+
   // งานที่ค้าง running_* = worker รอบก่อนตายกลางคัน → พัง ไม่ reset เป็น queued เอง (กัน loop)
   const stale = await prisma.flowJob.updateMany({
     where: { status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2] } },
@@ -212,18 +229,46 @@ async function main() {
     upsertState({ lastSeenAt: new Date() }).catch((e) => log(`heartbeat ล้มเหลว: ${String(e)}`));
   }, cfg.heartbeatMs);
 
-  const { context, page } = await launchFlowBrowser(cfg);
-  let sel: SelectorSet;
-  try {
-    const { host } = await openFlowAndSettle(page, cfg);
-    sel = selectorSetForHost(host);
-    log(`เปิด Flow แล้ว host=${host} selectorSet=${sel.name}`);
-  } catch (e) {
-    await pauseWorker("host_unsupported");
-    log(`เปิด Flow ไม่ได้: ${String(e)}`);
+  async function pauseAndExit(reason: ErrorKind, message: string, code: number): Promise<never> {
+    await pauseWorker(reason);
+    log(message);
     clearInterval(heartbeat);
     await context.close();
-    process.exit(1);
+    process.exit(code);
+  }
+
+  let host: string;
+  try {
+    ({ host } = await openFlowAndSettle(page, cfg));
+  } catch (e) {
+    return pauseAndExit("host_unsupported", `เปิด Flow ไม่ได้: ${String(e)}`, 1);
+  }
+  // เช็ก login ก่อน selectorSetForHost — หน้า login ของ Google ไม่ใช่โฮสต์ที่รู้จัก ถ้าเช็กทีหลังจะถูก
+  // รายงานผิดเป็น host_unsupported (ตรรกะเดียวกับ assertPageUsable ใน flow-driver.ts) · ปิดตัวเอง
+  // เพื่อคืนโปรไฟล์ เพราะ Flow Login ต้องเปิดโปรไฟล์เดียวกันด้วย Chrome จริง (ดู flow-login.bat)
+  if (host.includes("accounts.google.com") || (await hasSignInButton(page))) {
+    return pauseAndExit("login_required", "session หลุด — หยุดคิวแล้วปิดบอท รอ login ใหม่ด้วย flow-login.bat", 0);
+  }
+  let sel: SelectorSet;
+  try {
+    sel = selectorSetForHost(host);
+  } catch (e) {
+    return pauseAndExit("host_unsupported", `เปิด Flow ไม่ได้: ${String(e)}`, 1);
+  }
+  log(`เปิด Flow แล้ว host=${host} selectorSet=${sel.name}`);
+
+  // มาถึงตรงนี้ = session ใช้ได้ ถ้ารอบก่อนหยุดเพราะ session หลุด แปลว่าผู้ใช้ login ใหม่แล้ว
+  // (การเปิดบอทใหม่คือการกระทำของคน ไม่ใช่บอท retry เอง) → ปลดการหยุด และคืนงานที่พังเพราะ
+  // login_required กลับเข้าคิวรอบเดิม แบบเดียวกับกด "รันต่อ" (resumeFlowWorker ใน app/actions.ts)
+  if ((await readState())?.pausedReason === "login_required") {
+    for (const round of [1, 2] as FlowRound[]) {
+      await prisma.flowJob.updateMany({
+        where: { status: FLOW_STATUS.FAILED, errorKind: "login_required", round },
+        data: { status: queuedStatus(round), failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
+      });
+    }
+    await upsertState({ pausedReason: "", pausedAt: null });
+    log("session กลับมาใช้ได้แล้ว — ปลดการหยุดและคืนงานที่ค้างเพราะ login เข้าคิว");
   }
 
   let longBreakTarget = pickLongBreakTarget(cfg.longBreakEvery);
@@ -270,7 +315,15 @@ async function main() {
     }
 
     const ok = await processJob(page, job, cfg, sel, lastBatchAt);
-    if (!ok) continue;
+    if (!ok) {
+      // session หลุดกลางคิว → ปิดบอทเพื่อคืนโปรไฟล์ให้ Flow Login (หยุดรออยู่เฉยๆ ก็ login ไม่ได้
+      // เพราะโปรไฟล์ถูกบอทถือไว้) พอเปิดบอทใหม่หลัง login ส่วนต้นของ main() จะคืนงานเข้าคิวเอง
+      if ((await readState())?.pausedReason === "login_required") {
+        log("session หลุดกลางคิว — ปิดบอทเพื่อให้ login ใหม่ได้");
+        break;
+      }
+      continue;
+    }
 
     lastBatchAt = Date.now();
     await prisma.flowWorkerState.update({
@@ -294,7 +347,7 @@ async function main() {
     await sleepUntil(Date.now() + pause);
   }
 
-  log("ได้รับคำสั่งหยุด — ปิด browser");
+  log("ออกจาก loop หลัก — ปิด browser");
   clearInterval(heartbeat);
   await upsertState({ currentJobId: null, nextWakeAt: null });
   await context.close();

@@ -133,7 +133,8 @@ export const STEP_LABELS: Record<string, string> = {
 
 export const ERROR_KIND_LABELS: Record<string, string> = {
   selector_drift: "หาปุ่ม/ช่องไม่เจอ — Flow อาจเปลี่ยนหน้า",
-  login_required: "session หลุด — ต้อง login ใหม่ด้วย flow-login.bat",
+  login_required:
+    "session หลุด — บอทปิดตัวเองแล้ว: เปิด Flow Login ล็อกอินบัญชีสำรอง → ปิด Chrome → เปิด start.bat ใหม่ (งานที่ค้างจะรันต่อเอง)",
   captcha: "โดน captcha / ถูกปฏิเสธ (403) — พักอย่างน้อย 1 ชั่วโมงก่อนรันต่อ",
   generation_timeout: "รอผลนานเกินกำหนด",
   flow_error: "Flow แจ้ง error",
