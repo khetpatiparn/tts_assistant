@@ -24,6 +24,7 @@ import {
 import { normalizeName, parseCandidateRows } from "@/lib/candidates";
 import { commissionBahtFromPercent, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
+import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { parseCaptionOutput } from "@/lib/caption";
 import { parseExtractOutput } from "@/lib/extract";
@@ -130,7 +131,7 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
               ? "heif"
               : "jpg";
     const filename = `${crypto.randomUUID()}.${ext}`;
-    await writeFile(path.join(UPLOAD_ROOT, created.id, filename), data);
+    await writeFile(joinPath(UPLOAD_ROOT, created.id, filename), data);
     await prisma.productImage.create({
       data: {
         entryId: created.id,
@@ -265,7 +266,6 @@ export async function setActiveCorePrompt(id: string) {
   revalidatePath("/core-prompt");
 }
 
-const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -322,7 +322,7 @@ export async function uploadProductImages(formData: FormData) {
     const filename = `${crypto.randomUUID()}.${ext}`;
 
     await writeFile(
-      path.join(UPLOAD_ROOT, entryId, filename),
+      joinPath(UPLOAD_ROOT, entryId, filename),
       Buffer.from(await file.arrayBuffer())
     );
 
@@ -1167,7 +1167,6 @@ export async function createEntryFromCandidateWithImages(
   return { entryId: created.id, flowEnqueueError };
 }
 
-const CANDIDATE_IMAGE_ROOT = path.join(process.cwd(), "uploads", "_candidates");
 
 /**
  * นำเข้า Showcase JSON (จาก extension ภายนอก หรือไฟล์ที่อัปโหลดมือ) → CandidateBatch ใหม่
@@ -1257,7 +1256,7 @@ export async function importShowcaseBatch(
       }
       await mkdir(dir, { recursive: true });
       const filename = `${crypto.randomUUID()}.${downloaded.ext}`;
-      await writeFile(path.join(dir, filename), downloaded.buffer);
+      await writeFile(joinPath(dir, filename), downloaded.buffer);
       await prisma.candidateImage.create({
         data: {
           candidateId,
@@ -1399,7 +1398,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string): Promi
       for (const [i, { img, round }] of picks.entries()) {
         const ext = path.extname(img.filename).slice(1) || "png";
         const filename = `${crypto.randomUUID()}.${ext}`;
-        const destPath = path.join(UPLOAD_ROOT, job.entryId, filename);
+        const destPath = joinPath(UPLOAD_ROOT, job.entryId, filename);
         await copyFile(path.join(UPLOAD_ROOT, job.entryId, "flow", img.filename), destPath);
         copiedPaths.push(destPath);
         await tx.productImage.create({

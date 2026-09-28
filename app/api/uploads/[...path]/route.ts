@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-
-const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
+import { UPLOAD_ROOT } from "@/lib/upload-paths";
 
 const MIME_BY_EXT: Record<string, string> = {
   ".jpg": "image/jpeg",

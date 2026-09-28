@@ -10,8 +10,8 @@ if "%STATUS%"=="200" (
   goto :eof
 )
 
-echo Building app...
-call npm run build
+rem Rebuilds only when app code changed since the last build (see scripts\build-if-changed.mjs)
+call node scripts\build-if-changed.mjs
 if errorlevel 1 (
   echo Build failed. See errors above.
   pause
@@ -19,7 +19,8 @@ if errorlevel 1 (
 )
 
 echo Starting server in background...
-start "Pooling Prompt Server" /min cmd /c "npm run start"
+rem Server output goes to pp-server.log; otherwise errors only exist in the minimized window
+start "Pooling Prompt Server" /min cmd /c "npm run start >> pp-server.log 2>&1"
 
 echo Waiting for server to be ready...
 :waitloop

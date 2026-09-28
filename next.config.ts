@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   // (NEXT_DIST_DIR=.next-dev) กับ production server ที่ผู้ใช้เปิดด้วย start.bat
   // เขียนคนละโฟลเดอร์ ไม่ทับกันจนพัง — ผู้ใช้จะได้ใช้แอปทำคลิปต่อได้ระหว่างที่ยังพัฒนาอยู่
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  // uploads/ คือไฟล์ที่ผู้ใช้อัปตอนรันจริง (รูปสินค้า/รูปจาก Flow ~3,700 ไฟล์ 400+ MB) ไม่ใช่ของที่
+  // route ต้องพกไปด้วย — ไม่ตัดออก ตัว trace จะลากทั้งโฟลเดอร์เข้าไปในทุก route ที่ import actions
+  outputFileTracingExcludes: {
+    "/*": ["./uploads/**/*"],
+  },
   experimental: {
     serverActions: {
       // Product photos are uploaded through a Server Action, and the default cap

@@ -18,6 +18,10 @@ No test runner is configured in this project.
 
 `start.bat` / `stop.bat` ที่ root ของ repo ใช้ build+รัน / หยุด production server แบบ background ให้ใช้งานได้โดยไม่ต้องเปิด terminal
 
+**`start.bat` build ใหม่เฉพาะเมื่อโค้ดของแอปเปลี่ยน (2026-09-29)** ผ่าน `scripts/build-if-changed.mjs` — ลายนิ้วมือคิดจาก git tree + diff + ไฟล์ใหม่ที่ยังไม่ track เฉพาะ path ที่ Next build ใช้ (`app/ components/ lib/ prisma/ public/` + config ที่ root) เก็บที่ `.next/build-fingerprint.txt` · แก้แค่ `docs/`/`worker/`/`showcase-extension/` ไม่ทำให้ build ใหม่ · **อยากบังคับ build ใหม่ให้ลบ `.next`** (จำเป็นหลัง `npx prisma generate` ที่ schema ไม่เปลี่ยน เพราะ `lib/generated/` ถูก gitignore จึงไม่อยู่ในลายนิ้วมือ) · output ของ server ไปที่ `pp-server.log` (gitignore) — หา error ของ production server ที่นั่น · ทดสอบสคริปต์ได้โดยไม่แตะ `.next` จริงด้วย `NEXT_DIST_DIR=.next-test node scripts/build-if-changed.mjs --dry-run`
+
+**path ของ `uploads/` ต้องมาจาก `lib/upload-paths.ts` เท่านั้น** (`UPLOAD_ROOT`, `CANDIDATE_IMAGE_ROOT`, `joinPath`) — ถ้าเขียน `path.join(process.cwd(), "uploads", ...)` หรือ `${uuid}.${ext}` ตรงใน `writeFile`/`copyFile` Turbopack จะไล่ไฟล์ทั้งโฟลเดอร์ (หลายหมื่นไฟล์) ขึ้น warning "Overly broad patterns" และลากไฟล์อัปโหลดทั้งหมดเข้า trace ของทุก route · `next.config.ts` ตั้ง `outputFileTracingExcludes` ตัด `uploads/` ไว้อีกชั้น (ก่อนแก้ trace ต่อ route 3,874 ไฟล์ หลังแก้ 206) · **build ด้วย `NEXT_DIST_DIR` อื่นที่ไม่ใช่ `.next`/`.next-dev` จะทำให้ Next แก้ `tsconfig.json` เอง** (เพิ่ม `<dist>/types/**` ใน include) — `git checkout -- tsconfig.json` ทุกครั้งหลังทดสอบ
+
 **ห้ามรัน `npm run build`/`npm run dev` ซ้อนกันบน `.next` โฟลเดอร์เดียวกัน** — จะเขียนทับกันจนพังแบบ `Cannot find module 'better-sqlite3-...'` ตอน `npm run start` ถ้าเจอ ให้ `rm -rf .next` แล้ว build ใหม่
 
 **แต่ไม่ต้องให้ผู้ใช้ปิด `start.bat` เพื่อให้ agent ทำงาน** — เขาใช้แอปนี้ทำคลิปหาเงินอยู่ทุกวัน การบล็อกเขาคือการทำให้เขาเสียรายได้ ใช้ลำดับนี้แทน:
