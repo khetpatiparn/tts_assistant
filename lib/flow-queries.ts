@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { loadWorkerConfig } from "@/worker/config";
-import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, summarizeQueue } from "@/lib/flow-jobs";
+import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 
 export type FlowImageRow = {
   id: string;
@@ -43,6 +43,11 @@ export type FlowJobRow = {
   candidates: FlowImageRow[];
   chosenRound1: FlowImageRow | null;
   chosenRound2: FlowImageRow | null;
+  /**
+   * คลิปของงาน (Render) — มีได้แถวเดียว: ตัวอย่าง 720p ของ attempt ปัจจุบัน หรือไฟล์ 1080p ของคลิปที่ผ่าน (chosen)
+   * null = ยังไม่ได้ Render / เพิ่งกดเรนเดอร์ใหม่ (ตัวอย่างเก่าถูกลบ)
+   */
+  video: FlowImageRow | null;
 };
 
 export type FlowWorkerView = {
@@ -52,6 +57,8 @@ export type FlowWorkerView = {
   pausedAt: Date | null;
   todayBatches: number;
   dailyBatchCap: number;
+  todayRenders: number;
+  videoDailyCap: number;
   nextWakeAt: Date | null;
   currentJobId: string | null;
 };
@@ -88,11 +95,12 @@ async function listCheckpoints(entryId: string): Promise<FlowCheckpoint[]> {
     .map((p) => ({ label: CHECKPOINT_LABELS[p.name] ?? p.name, path: `${entryId}/flow/checkpoints/${p.file}` }));
 }
 
-/** ลำดับแสดง: รอคุณเลือกก่อน (คนต้องทำ) → พัง → รอบอท/กำลังทำ → เสร็จ/ข้าม */
+/** ลำดับแสดง: รอคุณเลือก/ดูคลิปก่อน (คนต้องทำ) → พัง → รอบอท/กำลังทำ/รอพรอมต์ → เสร็จ/ข้าม */
 function rank(status: string): number {
-  if (status.startsWith("review_")) return 0;
-  if (status === FLOW_STATUS.FAILED) return 1;
-  if (status.startsWith("queued_") || status.startsWith("running_")) return 2;
+  const cat = queueCategory(status);
+  if (cat === "waitingUser") return 0;
+  if (cat === "failed") return 1;
+  if (cat === "waitingBot") return 2;
   return 3;
 }
 
@@ -145,6 +153,7 @@ export async function getFlowQueueData(): Promise<{
         candidates: imgs.filter((i) => i.kind === "candidate" && i.round === j.round && i.attempt === j.attempt),
         chosenRound1: imgs.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen) ?? null,
         chosenRound2: imgs.find((i) => i.kind === "candidate" && i.round === 2 && i.chosen) ?? null,
+        video: imgs.find((i) => i.kind === "video") ?? null,
       };
     })
     .sort((a, b) => rank(a.status) - rank(b.status) || a.createdAt.getTime() - b.createdAt.getTime());
@@ -163,6 +172,8 @@ export async function getFlowQueueData(): Promise<{
     pausedAt: state?.pausedAt ?? null,
     todayBatches: state?.todayBatches ?? 0,
     dailyBatchCap: cfg.dailyBatchCap,
+    todayRenders: state?.todayRenders ?? 0,
+    videoDailyCap: cfg.videoDailyCap,
     nextWakeAt: state?.nextWakeAt ?? null,
     currentJobId: state?.currentJobId ?? null,
   };
@@ -179,4 +190,27 @@ export async function getOpenFlowJobForEntry(
     select: { id: true, status: true, round: true, attempt: true },
   });
   return job;
+}
+
+/**
+ * คลิปที่บอท Render ของ entry นี้ (หน้า entry แท็บผลลัพธ์) — เลือกไฟล์ 1080p ของคลิปที่ผ่านก่อน (ล่าสุด)
+ * ไม่มีก็เอาคลิปตัวอย่าง 720p ล่าสุด · stage บอกว่าเป็นไฟล์ไหน ให้หน้าเว็บเขียนป้ายได้ถูก
+ * (entry เดียวมีงาน Flow ได้หลายงานถ้าเคยข้าม/เลือกรูปใหม่ — งานที่ถูกข้ามไม่นับ)
+ */
+export type EntryRenderVideo = {
+  path: string;
+  stage: "final" | "approved" | "preview";
+};
+
+export async function getRenderVideoForEntry(entryId: string): Promise<EntryRenderVideo | null> {
+  const rows = await prisma.flowJobImage.findMany({
+    where: { kind: "video", job: { entryId, status: { not: FLOW_STATUS.SKIPPED } } },
+    include: { job: { select: { status: true, round: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  const pick = rows.find((r) => r.chosen) ?? rows[0];
+  if (pick === undefined) return null;
+  // round 4 = ผู้ใช้กดผ่านแล้ว บอทกำลัง/จะโหลด 1080p (รวมตอนที่การโหลดพังค้างอยู่)
+  const stage = pick.chosen ? "final" : pick.job.round === 4 ? "approved" : "preview";
+  return { path: `${entryId}/flow/${pick.filename}`, stage };
 }

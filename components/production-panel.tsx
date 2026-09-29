@@ -1,15 +1,25 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, Download, ExternalLink } from "lucide-react";
 
 import { updateProduction } from "@/app/actions";
 import { copyInBrowser } from "@/lib/clipboard";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePickerField } from "@/components/date-picker-field";
 import type { PromptEntry } from "@/components/entry-workspace";
+import type { EntryRenderVideo } from "@/lib/flow-queries";
+import { videoDownloadName } from "@/lib/flow-jobs";
+
+/** ป้ายของคลิปที่บอท Render — ผู้ใช้ต้องรู้ว่าไฟล์ที่เห็นเป็นตัวจริง 1080p หรือแค่ตัวอย่าง */
+const RENDER_STAGE_LABEL: Record<EntryRenderVideo["stage"], string> = {
+  final: "คลิปที่บอททำ · 1080p",
+  approved: "ตัวอย่าง 720p (ผ่านแล้ว กำลังโหลด 1080p)",
+  preview: "ตัวอย่าง 720p (ยังไม่กดผ่าน)",
+};
 
 function isSafeHttpUrl(value: string) {
   try {
@@ -37,7 +47,13 @@ function toLocalDateInputValue(value: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function ProductionPanel({ entry }: { entry: PromptEntry }) {
+export function ProductionPanel({
+  entry,
+  renderVideo = null,
+}: {
+  entry: PromptEntry;
+  renderVideo?: EntryRenderVideo | null;
+}) {
   // Keyed on entry.id by the parent, so this initial state is correct on switch.
   const [chatgptOutput, setChatgptOutput] = useState(entry.chatgptOutput);
   const [videoUrl, setVideoUrl] = useState(entry.videoUrl);
@@ -116,6 +132,28 @@ export function ProductionPanel({ entry }: { entry: PromptEntry }) {
           เบราว์เซอร์นี้คัดลอกให้อัตโนมัติไม่ได้ (เปิดผ่าน HTTP) — กดค้างที่กล่องข้อความแล้วเลือก
           &quot;เลือกทั้งหมด&quot; เพื่อคัดลอกเอง
         </p>
+      )}
+
+      {/* คลิปจากบอท Flow — เล็กๆ บนสุด ดาวน์โหลดไปโพสต์เอง (บอทยังไม่โพสต์ TikTok ให้) */}
+      {renderVideo && (
+        <div className="flex flex-wrap items-end gap-3">
+          <video
+            src={`/api/uploads/${renderVideo.path}`}
+            controls
+            preload="metadata"
+            className="aspect-[9/16] w-32 rounded-md border border-border bg-surface-2 lg:w-40"
+          />
+          <div className="flex flex-col gap-2">
+            <p className="text-sm leading-relaxed text-foreground">{RENDER_STAGE_LABEL[renderVideo.stage]}</p>
+            <a
+              href={`/api/uploads/${renderVideo.path}`}
+              download={videoDownloadName(entry.productName)}
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "self-start")}
+            >
+              <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
+            </a>
+          </div>
+        </div>
       )}
 
       <form action={action} className="flex flex-1 flex-col gap-5">

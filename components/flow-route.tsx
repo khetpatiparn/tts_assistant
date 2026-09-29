@@ -4,27 +4,19 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
-import { ERROR_KIND_LABELS, FLOW_STATUS, summarizeQueue } from "@/lib/flow-jobs";
+import { ERROR_KIND_LABELS, queueCategory, summarizeQueue, type QueueCategory } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import { FlowReviewRow } from "@/components/flow-review-row";
 
 const REFRESH_MS = 30_000;
 
-type FilterCategory = "waitingBot" | "waitingUser" | "done" | "failed";
-
-/** ตรรกะเดียวกับ summarizeQueue ใน lib/flow-jobs.ts — งาน "skipped" ไม่เข้าหมวดไหนเลย
+/** หมวดเดียวกับ summarizeQueue (queueCategory ใน lib/flow-jobs.ts) — งาน "skipped" ไม่เข้าหมวดไหนเลย
  * ตั้งใจ (เห็นเฉพาะตอนไม่กรอง) เหมือนที่ summarizeQueue เองก็ไม่นับ skipped ในสรุปด้วย */
-function categorize(status: string): FilterCategory | null {
-  if (status.startsWith("queued_") || status.startsWith("running_")) return "waitingBot";
-  if (status.startsWith("review_")) return "waitingUser";
-  if (status === FLOW_STATUS.DONE) return "done";
-  if (status === FLOW_STATUS.FAILED) return "failed";
-  return null;
-}
+type FilterCategory = QueueCategory;
 
 const FILTER_META: Record<FilterCategory, { label: string; barClass: string; dotClass: string }> = {
   waitingBot: { label: "รอบอท", barClass: "bg-status-neutral/60 hover:bg-status-neutral/75", dotClass: "bg-status-neutral" },
-  waitingUser: { label: "รอคุณเลือก", barClass: "bg-status-warning hover:bg-status-warning/85", dotClass: "bg-status-warning" },
+  waitingUser: { label: "รอคุณเลือก/ดูคลิป", barClass: "bg-status-warning hover:bg-status-warning/85", dotClass: "bg-status-warning" },
   done: { label: "เสร็จ", barClass: "bg-status-success hover:bg-status-success/85", dotClass: "bg-status-success" },
   failed: { label: "พัง", barClass: "bg-status-danger hover:bg-status-danger/85", dotClass: "bg-status-danger" },
 };
@@ -63,7 +55,7 @@ export function FlowRoute({
 
   const paused = worker.pausedReason !== "";
   const wake = minutesUntil(worker.nextWakeAt, now);
-  const visibleJobs = filter === null ? jobs : jobs.filter((j) => categorize(j.status) === filter);
+  const visibleJobs = filter === null ? jobs : jobs.filter((j) => queueCategory(j.status) === filter);
 
   return (
     <section className="flex flex-col gap-4">
@@ -91,6 +83,7 @@ export function FlowRoute({
           ) : worker.alive ? (
             <span className="text-foreground">
               บอททำงานอยู่ · เห็นล่าสุด {minutesAgo(worker.lastSeenAt, now)} · วันนี้วาดไป {worker.todayBatches}/{worker.dailyBatchCap} ชุด
+              · ทำคลิป {worker.todayRenders}/{worker.videoDailyCap}
               {wake ? ` · ${wake}` : ""}
             </span>
           ) : (

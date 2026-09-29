@@ -3,9 +3,10 @@
 import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Eraser, RotateCcw, SkipForward, Play } from "lucide-react";
+import { Check, Download, Eraser, RotateCcw, SkipForward, Play } from "lucide-react";
 
 import {
+  approveFlowRender,
   chooseFlowCandidate,
   generateWithAI,
   redoFlowRound,
@@ -22,12 +23,13 @@ import {
   STEP_LABELS,
   buildFlowPrompt,
   normalizeExtraPrompt,
+  videoDownloadName,
   type FlowStatus,
 } from "@/lib/flow-jobs";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepper } from "@/components/flow-stepper";
 
@@ -41,6 +43,9 @@ function badgeVariant(status: string): BadgeVariant {
 function imgUrl(entryId: string, filename: string): string {
   return `/api/uploads/${entryId}/flow/${filename}`;
 }
+
+/** ชื่อรอบที่โชว์ใต้ชื่อสินค้า — รอบ 3/4 ไม่ใช่ "รอบวาด" จึงเรียกตามงานจริง */
+const ROUND_LABELS: Record<number, string> = { 1: "รอบ 1", 2: "รอบ 2", 3: "ทำคลิป", 4: "โหลด 1080p" };
 
 function timeLabel(d: Date | null): string {
   if (d === null) return "";
@@ -62,7 +67,10 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
   // ย้ายมาเป็น state → useEffect แยกจังหวะออกจาก transition เดิมชัดเจน ปุ่มถึงปลดล็อกไว
   const [autoGenerateEntryId, setAutoGenerateEntryId] = useState<string | null>(null);
 
-  const isReview = job.status.startsWith("review_");
+  // รอบรูป = เลือก 1 ใน 4 · รอบคลิป = ดูตัวอย่างแล้วผ่าน/เรนเดอร์ใหม่ — หน้าตาคนละแบบ
+  const isImageReview = job.status === FLOW_STATUS.REVIEW_R1 || job.status === FLOW_STATUS.REVIEW_R2;
+  const isRenderReview = job.status === FLOW_STATUS.REVIEW_R3;
+  const isUpscale = job.status === FLOW_STATUS.QUEUED_UPSCALE || job.status === FLOW_STATUS.RUNNING_UPSCALE;
   const source = job.sources[0] ?? null;
 
   function run(action: () => Promise<void>) {
@@ -111,8 +119,8 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
       .catch(() => playCompletionSound("error"));
   }, [autoGenerateEntryId]);
 
-  // ข้อความที่ใช้วาดชุดที่โชว์อยู่ (ทุกรูปในชุดเดียวกันใช้ข้อความเดียวกัน)
-  const usedExtra = job.candidates[0]?.promptExtra ?? "";
+  // ข้อความที่ใช้วาดชุดที่โชว์อยู่ (ทุกรูปในชุดเดียวกันใช้ข้อความเดียวกัน) · รอบคลิปดูจากคลิปตัวอย่าง
+  const usedExtra = (isRenderReview ? job.video?.promptExtra : job.candidates[0]?.promptExtra) ?? "";
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
   return (
@@ -128,7 +136,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
           </Link>
           <p className="text-xs leading-relaxed text-muted-foreground">
             เข้าคิว {timeLabel(job.createdAt)}
-            {job.startedAt ? ` · เริ่มรอบ ${job.round} ${timeLabel(job.startedAt)}` : ""}
+            {job.startedAt ? ` · เริ่ม${ROUND_LABELS[job.round] ?? `รอบ ${job.round}`} ${timeLabel(job.startedAt)}` : ""}
             {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
           </p>
         </div>
@@ -138,7 +146,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
       <FlowStepper status={job.status} round={job.round} />
 
       <div className="flex flex-col gap-3">
-        {isReview && (
+        {isImageReview && (
           <>
             <div className="flex flex-wrap items-start gap-3">
               {source && (
@@ -186,36 +194,22 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
             <p className="text-xs leading-relaxed text-muted-foreground">
               {usedExtra === "" ? "ชุดนี้วาดด้วยพรอมต์ตั้งต้น" : `ชุดนี้วาดด้วยข้อความเพิ่มเติม: “${usedExtra}”`}
             </p>
-            <div className="flex flex-col gap-1.5">
-              <label htmlFor={`extra-${job.id}`} className="text-sm leading-relaxed text-foreground">
-                ข้อความเพิ่มเติมถึง Flow (ใช้กับครั้งถัดไป — วาดใหม่ หรือรอบ 2)
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  id={`extra-${job.id}`}
-                  type="text"
-                  value={extra}
-                  maxLength={EXTRA_PROMPT_MAX}
-                  placeholder="เช่น เอาแค่แผ่นเดียว"
-                  onChange={(e) => setExtra(e.target.value)}
-                  className="h-11 min-w-0 flex-1 rounded-md border border-border-interactive bg-background px-3 text-sm lg:h-9"
-                />
-                <Button type="button" variant="outline" disabled={extra === "" || isPending} onClick={() => setExtra("")}>
-                  <Eraser data-icon="inline-start" /> ล้าง กลับเป็นข้อความเดิม
-                </Button>
-              </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                พรอมต์ที่จะส่งถ้ากดวาดใหม่:{" "}
-                {buildFlowPrompt(job.round === 2 ? 2 : 1, job.productName, normalizeExtraPrompt(extra))}
-              </p>
-            </div>
+            <ExtraPromptField
+              id={`extra-${job.id}`}
+              label="ข้อความเพิ่มเติมถึง Flow (ใช้กับครั้งถัดไป — วาดใหม่ หรือรอบ 2)"
+              placeholder="เช่น เอาแค่แผ่นเดียว"
+              value={extra}
+              onChange={setExtra}
+              disabled={isPending}
+              preview={`พรอมต์ที่จะส่งถ้ากดวาดใหม่: ${buildFlowPrompt(job.round === 2 ? 2 : 1, job.productName, normalizeExtraPrompt(extra))}`}
+            />
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 disabled={selected === null || isPending}
                 onClick={() => selected && chooseAndMaybeAutoGenerate(selected)}
               >
-                {job.status === FLOW_STATUS.REVIEW_R1 ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2" : "ใช้รูปนี้ → บันทึกเป็นรูปสินค้า"}
+                {job.status === FLOW_STATUS.REVIEW_R1 ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2" : "ใช้รูปนี้ → สร้างพรอมต์แล้วทำคลิป"}
               </Button>
               <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
                 <RotateCcw data-icon="inline-start" /> ไม่ผ่านสักรูป วาดใหม่
@@ -225,6 +219,59 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
               </Button>
             </div>
           </>
+        )}
+
+        {isRenderReview && (
+          <div className="flex flex-wrap items-start gap-4">
+            {job.video ? (
+              <video
+                src={imgUrl(job.entryId, job.video.filename)}
+                controls
+                preload="metadata"
+                className="aspect-[9/16] w-48 rounded-md border border-border bg-surface-2 lg:w-56"
+              />
+            ) : (
+              <p className="text-sm leading-relaxed text-destructive">ไม่พบไฟล์คลิป — กดเรนเดอร์ใหม่</p>
+            )}
+            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                ตัวอย่าง 720p — กดผ่านแล้วบอทจะโหลดไฟล์ 1080p ให้ ·{" "}
+                {usedExtra === "" ? "ทำจาก 10-part prompt อย่างเดียว" : `ทำจาก 10-part prompt + “${usedExtra}”`}
+              </p>
+              <ExtraPromptField
+                id={`extra-${job.id}`}
+                label="ข้อความเพิ่มเติมต่อท้าย 10-part prompt (ใช้ถ้ากดเรนเดอร์ใหม่)"
+                placeholder="เช่น ห้ามมีคนในฉาก"
+                value={extra}
+                onChange={setExtra}
+                disabled={isPending}
+                preview={`พรอมต์ที่จะส่งถ้ากดเรนเดอร์ใหม่: 10-part prompt ของงานนี้${
+                  normalizeExtraPrompt(extra) === "" ? "" : ` + “${normalizeExtraPrompt(extra)}”`
+                }`}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" disabled={isPending || job.video === null} onClick={() => run(() => approveFlowRender(job.id))}>
+                  <Check data-icon="inline-start" /> ผ่าน
+                </Button>
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
+                  <RotateCcw data-icon="inline-start" /> เรนเดอร์ใหม่
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {job.status === FLOW_STATUS.AWAITING_PROMPT && (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            รอ Angle สร้าง 10-part prompt — ถ้าค้างนาน ไปกด &quot;สร้างด้วย AI&quot; ใน{" "}
+            <Link href={`/entry/${job.entryId}`} className="text-primary underline-offset-4 hover:underline">
+              หน้างาน
+            </Link>
+          </p>
+        )}
+
+        {isUpscale && (
+          <p className="text-sm leading-relaxed text-muted-foreground">ผ่านแล้ว — บอทกำลังโหลดไฟล์ 1080p</p>
         )}
 
         {job.status === FLOW_STATUS.FAILED && (
@@ -269,13 +316,30 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
                 />
               ) : null
             )}
+            {job.video?.chosen && (
+              <div className="flex flex-col gap-2">
+                <video
+                  src={imgUrl(job.entryId, job.video.filename)}
+                  controls
+                  preload="metadata"
+                  className="aspect-[9/16] w-28 rounded-md border-2 border-status-success bg-surface-2 lg:w-36"
+                />
+                <a
+                  href={imgUrl(job.entryId, job.video.filename)}
+                  download={videoDownloadName(job.productName)}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                >
+                  <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
+                </a>
+              </div>
+            )}
             <Link href={`/entry/${job.entryId}`} className="text-sm leading-relaxed text-primary underline-offset-4 hover:underline">
               ไปหน้า entry ดู prompt ที่สร้างให้แล้ว →
             </Link>
           </div>
         )}
 
-        {(job.status.startsWith("queued_") || job.status.startsWith("running_")) && (
+        {!isUpscale && (job.status.startsWith("queued_") || job.status.startsWith("running_")) && (
           <p className="text-sm leading-relaxed text-muted-foreground">
             {job.status.startsWith("running_") ? "บอทกำลังทำอยู่ตอนนี้" : "รอบอทหยิบงาน"}
           </p>
@@ -307,7 +371,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
         {error && <p className="text-xs leading-relaxed text-destructive">{error}</p>}
       </div>
 
-      {lightbox !== null && source && (
+      {lightbox !== null && source && isImageReview && (
         <FlowLightbox
           source={{ src: imgUrl(job.entryId, source.filename), label: "รูปแคปต้นทาง" }}
           items={lightboxItems}
@@ -317,5 +381,50 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
         />
       )}
     </li>
+  );
+}
+
+/**
+ * ช่องข้อความเพิ่มเติมที่ต่อท้ายพรอมต์ของครั้งถัดไป + ปุ่มล้าง + ตัวอย่างพรอมต์ — ใช้ร่วมทั้งรอบรูปและรอบคลิป
+ * (รอบคลิปไม่พิมพ์ 10-part prompt ทั้งก้อน ~3,000 ตัวลงหน้า โชว์แค่ส่วนที่ต่อท้าย)
+ */
+function ExtraPromptField({
+  id,
+  label,
+  placeholder,
+  value,
+  onChange,
+  disabled,
+  preview,
+}: {
+  id: string;
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled: boolean;
+  preview: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm leading-relaxed text-foreground">
+        {label}
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={id}
+          type="text"
+          value={value}
+          maxLength={EXTRA_PROMPT_MAX}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 min-w-0 flex-1 rounded-md border border-border-interactive bg-background px-3 text-sm lg:h-9"
+        />
+        <Button type="button" variant="outline" disabled={value === "" || disabled} onClick={() => onChange("")}>
+          <Eraser data-icon="inline-start" /> ล้าง กลับเป็นข้อความเดิม
+        </Button>
+      </div>
+      <p className="text-xs leading-relaxed text-muted-foreground">{preview}</p>
+    </div>
   );
 }

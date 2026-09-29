@@ -16,6 +16,7 @@ import { playCompletionSound } from "@/lib/completion-sound";
 import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { FlowEnqueuePanel, type FlowJobSummary } from "@/components/flow-enqueue-panel";
+import type { EntryRenderVideo } from "@/lib/flow-queries";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
 import { BriefForm, type FormState } from "@/components/brief-form";
@@ -85,11 +86,14 @@ export function EntryWorkspace({
   rows,
   usedAngles,
   flowJob,
+  renderVideo = null,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
   usedAngles: UsedAngleWithOutcome[];
   flowJob: FlowJobSummary | null;
+  /** คลิปที่บอท Render ให้ entry นี้ (แท็บผลลัพธ์) · หน้า /entry/new ไม่มี */
+  renderVideo?: EntryRenderVideo | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -336,6 +340,7 @@ export function EntryWorkspace({
             <ProductionPanel
               key={entry.id}
               entry={entry}
+              renderVideo={renderVideo}
             />
           </div>
         )}
