@@ -365,11 +365,20 @@ function showRunning(message: string): void {
   previewSection.hidden = true
 }
 
+/**
+ * รายการ "ส่งแล้ว" ที่การสแกนรอบล่าสุดของหน้านี้ใช้ — null = ไม่รู้ (เปิดหน้ามาเจอผลเก่า / ปิดตัวเลือกหยุดเอง)
+ * ใช้เลือกสินค้าใหม่ไว้ให้ล่วงหน้าตอนสแกนจบ ผู้ใช้จริงกด "เริ่มสแกน" แล้วกด "ส่งไปปลายทาง" เลยโดยไม่มีอะไรถูกเลือก
+ * (2026-09-29) จึงไม่มีอะไรเข้าระบบเลย
+ */
+let lastScanKnownIds: readonly string[] | null = null
+
 function showFinished(report: RunReport): void {
   state.report = report
-  state.selected = new Set()
   state.page = 0
-  state.filter = 'candidate'
+  // live build ยังไม่ตัดสิน eligibility ได้ (ทุกแถวเป็น unknown) แท็บ Candidate จึงว่างเสมอ — เปิดแท็บที่มีของจริง
+  state.filter = productsInFilter(report.products, 'candidate').length > 0 ? 'candidate' : 'other'
+  const preselected = lastScanKnownIds === null ? [] : pickNewProductIds(report.products, lastScanKnownIds)
+  state.selected = new Set(preselected)
 
   clearChildren(runStatusEl)
 
@@ -381,7 +390,15 @@ function showFinished(report: RunReport): void {
     // โดน rate limit) ยังเตือนสีแดงเหมือนเดิม เพราะตอนนั้นอาจพลาดสินค้าใหม่ได้จริง
     const note = document.createElement('p')
     note.className = 'notice'
-    setText(note, '✅ หยุดสแกนเองแล้ว — เจอหน้าที่มีแต่สินค้าที่เคยส่งไปแล้ว สินค้าใหม่ทั้งหมดอยู่ในรายการด้านล่าง')
+    setText(
+      note,
+      '✅ หยุดสแกนเองแล้ว — เจอหน้าที่มีแต่สินค้าที่เคยส่งไปแล้ว' +
+        (preselected.length > 0
+          ? ` · เลือกสินค้าใหม่ ${String(preselected.length)} ตัวไว้ให้แล้ว กด "ส่งไปปลายทาง" ด้านล่างได้เลย`
+          : lastScanKnownIds === null
+            ? ''
+            : ' · ไม่มีสินค้าใหม่ที่ต้องส่ง'),
+    )
     runStatusEl.append(note)
   } else if (report.scanCoverage !== 'reached_endpoint_end') {
     const banner = document.createElement('p')
@@ -487,6 +504,7 @@ for (const [id, value] of [
 startButton.addEventListener('click', () => {
   void (async () => {
     const knownProductIds = await resolveKnownProductIds()
+    lastScanKnownIds = knownProductIds
     const result = await send({ type: 'run.start', maxPages: readMaxPages(), knownProductIds })
     if (!result.ok) {
       showIdle(`เริ่มสแกนไม่ได้: ${result.code}`)
@@ -630,6 +648,7 @@ async function runAutoScanAndPush(): Promise<void> {
     return
   }
   const knownProductIds = known.ids
+  lastScanKnownIds = knownProductIds
 
   // ล้างผลเก่าก่อน — ถ้ารอบนี้จบแบบไม่มี report (อ่านสถานะไม่ได้/idle) ต้องไม่หยิบผลสแกนรอบก่อน
   // (ที่ poll รอบแรกโหลดมาโชว์) ไปส่งแทน
