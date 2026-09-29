@@ -73,15 +73,15 @@ test('อ่านทีละหน้า — ปุ่มหน้าถัด
  * ของเบราว์เซอร์ซึ่ง Playwright ไม่มีทางกดผ่านอัตโนมัติได้อย่างน่าเชื่อถือ (ไม่ใช่ DOM element ในหน้า)
  * นี่คือช่องว่างที่บันทึกไว้ตรง ๆ ใน docs/api-observations.md §6 ไม่ใช่สิ่งที่ข้ามไปเงียบ ๆ
  */
-test('permission status แสดงว่ายังไม่มีสิทธิ์ shop.tiktok.com และปุ่มขอสิทธิ์แสดงอยู่ (UI06 พื้นฐาน)', async ({
+test('permission status แสดงว่ามีสิทธิ์ shop.tiktok.com แล้ว (ขอตอนติดตั้ง) ปุ่มขอสิทธิ์ซ่อน (UI06 พื้นฐาน)', async ({
   context,
   extensionId,
 }) => {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
 
-  await expect(page.locator('#permission-status')).toContainText('ยังไม่มีสิทธิ์')
-  await expect(page.locator('#grant-permission-button')).toBeVisible()
+  await expect(page.locator('#permission-status')).toContainText('มีสิทธิ์เข้าถึง https://shop.tiktok.com/*')
+  await expect(page.locator('#grant-permission-button')).not.toBeVisible()
 })
 
 /**

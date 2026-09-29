@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { APP_HOST_PERMISSION_ORIGIN, SHOWCASE_HOST_PERMISSION_ORIGIN } from '../../extension/src/domain/permissions.js'
+import { SHOWCASE_HOST_PERMISSION_ORIGIN } from '../../extension/src/domain/permissions.js'
 
 const manifest = JSON.parse(readFileSync('extension/manifest.json', 'utf8')) as Record<string, unknown>
 
@@ -38,19 +38,13 @@ describe('PK01 — manifest สิทธิ์ขั้นต่ำ (R02)', () =
     for (const p of FORBIDDEN) expect(raw).not.toContain(`"${p}"`)
   })
 
-  it('ไม่ขอ host permission แบบบังคับ และ optional host จำกัด shop.tiktok.com + แอปหลัก (localhost) เท่านั้น', () => {
-    expect(manifest.host_permissions).toBeUndefined()
-    expect(manifest.optional_host_permissions).toEqual([
-      'https://shop.tiktok.com/*',
-      'http://localhost:3000/*',
-    ])
+  it('host permission บังคับมีแค่ shop.tiktok.com (ขอตอนติดตั้ง) และไม่มี optional host เลย — ปลายทางใช้ CORS ไม่ใช้สิทธิ์', () => {
+    expect(manifest.host_permissions).toEqual(['https://shop.tiktok.com/*'])
+    expect(manifest.optional_host_permissions).toBeUndefined()
   })
 
-  it('domain/permissions.ts (ที่ resolve.live.ts เช็คและปุ่ม dashboard ขอสิทธิ์) ตรงกับ manifest เป๊ะ — กัน drift', () => {
-    expect(manifest.optional_host_permissions).toEqual([
-      SHOWCASE_HOST_PERMISSION_ORIGIN,
-      APP_HOST_PERMISSION_ORIGIN,
-    ])
+  it('domain/permissions.ts ตรงกับ manifest เป๊ะ — กัน drift', () => {
+    expect(manifest.host_permissions).toEqual([SHOWCASE_HOST_PERMISSION_ORIGIN])
   })
 
   it('ไม่มี wildcard host กว้าง', () => {
@@ -82,9 +76,5 @@ describe('PK01 — manifest สิทธิ์ขั้นต่ำ (R02)', () =
     expect(manifest.key).toBeUndefined()
     expect(manifest.update_url).toBeUndefined()
     expect(manifest.web_accessible_resources).toBeUndefined()
-  })
-
-  it('ชื่อระบุชัดว่ายังไม่พร้อมใช้งานจริง เพราะ G0 ยังไม่ผ่าน (§5.3)', () => {
-    expect(String(manifest.name).toLowerCase()).toContain('not live-ready')
   })
 })

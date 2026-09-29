@@ -93,6 +93,7 @@ test('export โดยไม่เลือกอะไรได้ไฟล์�
       'dataQuality',
       'exportedAt',
       'products',
+      'protocol',
       'resultKind',
       'runId',
       'scanCoverage',

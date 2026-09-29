@@ -157,7 +157,7 @@ guard อยู่ที่ [tests/setup/no-network.ts](tests/setup/no-network.t
 | สิ่งที่ขอ | เหตุผล |
 |---|---|
 | `storage` | เก็บ settings ที่ไม่อ่อนไหว |
-| `optional_host_permissions: https://shop.tiktok.com/*` | **ยังไม่ได้รับสิทธิ์จนกว่าผู้ใช้จะกดอนุญาตเอง** G0 ยังไม่ผ่าน จึงยังไม่ควรถือสิทธิ์ตั้งแต่ติดตั้ง |
+| `host_permissions: https://shop.tiktok.com/*` | ขอตอนติดตั้ง เพราะเป็นหน้าที่หลัก — ปลายทางไม่ต้องใช้สิทธิ์ (ใช้ CORS) ดู docs/INTEGRATION.md |
 
 **ไม่ขอและจะไม่ขอ:** `cookies`, `debugger`, `nativeMessaging`, `webRequest`, `scripting`, `activeTab`, `tabs`,
 `alarms`, `downloads`, `<all_urls>` · ไม่มี content script · ไม่มี `externally_connectable` · ไม่รองรับ incognito

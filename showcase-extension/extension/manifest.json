@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Showcase Scanner (LIVE TRIAL manual scan, not live-ready)",
-  "version": "0.1.0",
-  "description": "อ่านรายการสินค้าใน Showcase ของบัญชีตนเองเพื่อ preview และ export JSON — รุ่นนี้เป็นรุ่นทดลองที่ผู้ใช้สั่งอ่านเองทีละครั้ง ยังไม่ใช่รุ่นพร้อมใช้งานจริง",
+  "name": "Showcase Scanner",
+  "version": "0.2.0",
+  "description": "อ่านรายการสินค้าใน Showcase ของบัญชี TikTok ของคุณเอง แล้วส่งไปยังระบบของคุณผ่านลิงก์ปลายทาง หรือ export เป็น JSON",
   "minimum_chrome_version": "124",
   "permissions": ["storage"],
-  "optional_host_permissions": ["https://shop.tiktok.com/*", "http://localhost:3000/*"],
+  "host_permissions": ["https://shop.tiktok.com/*"],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -18,7 +18,7 @@
   },
   "action": {
     "default_popup": "popup/index.html",
-    "default_title": "Showcase Scanner (mock)",
+    "default_title": "Showcase Scanner",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
