@@ -83,6 +83,10 @@ export function FlowRoute({
             <span className="font-medium text-foreground">
               บอทหยุดแล้ว — {ERROR_KIND_LABELS[worker.pausedReason] ?? worker.pausedReason}
               {worker.pausedAt ? ` (หยุดเมื่อ ${minutesAgo(worker.pausedAt, now)})` : ""}
+              {/* ไม่มีงานพัง = ไม่มีปุ่ม "รันต่อ" ให้กด บอกทางออกตรงๆ (บอทปลดการหยุดนี้เองตอนเปิดใหม่) */}
+              {summary.failed === 0 && worker.pausedReason !== "login_required"
+                ? " — เปิด start.bat ใหม่แล้วบอทจะทำงานต่อเอง"
+                : ""}
             </span>
           ) : worker.alive ? (
             <span className="text-foreground">

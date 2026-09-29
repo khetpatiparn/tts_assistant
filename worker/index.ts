@@ -214,6 +214,21 @@ async function main() {
   }
   const { context, page } = launched;
 
+  // หน้าต่าง Chrome ของบอทถูกปิดโดยไม่ได้ตั้งใจ (ส่วนใหญ่คือคนกดปิดเพราะไม่รู้ว่าเป็นของบอท — เจอจริง
+  // 2026-09-29 ตอนบอทเพิ่งเปิดเองหลังเข้า Windows) → ออกทันทีโดยไม่หยุดคิว เดิมไหลไปเป็น worker_crash
+  // แล้ว pause ค้างโดยไม่มีงานพังให้กด "รันต่อ" · ทุกจุดที่ปิด browser เองต้องตั้ง closingOnPurpose ก่อน
+  let closingOnPurpose = false;
+  context.on("close", () => {
+    if (closingOnPurpose) return;
+    log("หน้าต่าง Chrome ของบอทถูกปิด — ปิดบอท (ไม่ได้หยุดคิว) เปิด start.bat ใหม่เพื่อให้ทำงานต่อ");
+    notify("บอท Flow ปิดตัวแล้ว", "หน้าต่าง Chrome ของบอทถูกปิด — เปิด start.bat ใหม่ (อย่าปิดหน้าต่างนั้น ย้ายไปไว้ข้างหลังได้)");
+    process.exit(0);
+  });
+  async function closeBrowser(): Promise<void> {
+    closingOnPurpose = true;
+    await context.close();
+  }
+
   // งานที่ค้าง running_* = worker รอบก่อนตายกลางคัน → พัง ไม่ reset เป็น queued เอง (กัน loop)
   const stale = await prisma.flowJob.updateMany({
     where: { status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2] } },
@@ -233,7 +248,7 @@ async function main() {
     await pauseWorker(reason);
     log(message);
     clearInterval(heartbeat);
-    await context.close();
+    await closeBrowser();
     process.exit(code);
   }
 
@@ -256,7 +271,7 @@ async function main() {
         log(`ต่อเน็ตไม่ได้ครบ ${attempt} ครั้ง — ปิดบอท (ไม่ได้หยุดคิว) เปิด start.bat ใหม่เมื่อเน็ตมา`);
         notify("บอท Flow ปิดตัวแล้ว", "ต่อเน็ตไม่ได้ — เปิด start.bat ใหม่เมื่อเน็ตมา");
         clearInterval(heartbeat);
-        await context.close();
+        await closeBrowser();
         process.exit(0);
       }
       log(`ยังต่อเน็ตไม่ได้ (${attempt}/${NET_MAX_TRIES}) — รอ ${NET_RETRY_MS / 1000} วิแล้วลองใหม่`);
@@ -280,7 +295,8 @@ async function main() {
   // มาถึงตรงนี้ = session ใช้ได้ ถ้ารอบก่อนหยุดเพราะ session หลุด แปลว่าผู้ใช้ login ใหม่แล้ว
   // (การเปิดบอทใหม่คือการกระทำของคน ไม่ใช่บอท retry เอง) → ปลดการหยุด และคืนงานที่พังเพราะ
   // login_required กลับเข้าคิวรอบเดิม แบบเดียวกับกด "รันต่อ" (resumeFlowWorker ใน app/actions.ts)
-  if ((await readState())?.pausedReason === "login_required") {
+  const pausedReason = (await readState())?.pausedReason ?? "";
+  if (pausedReason === "login_required") {
     for (const round of [1, 2] as FlowRound[]) {
       await prisma.flowJob.updateMany({
         where: { status: FLOW_STATUS.FAILED, errorKind: "login_required", round },
@@ -289,6 +305,12 @@ async function main() {
     }
     await upsertState({ pausedReason: "", pausedAt: null });
     log("session กลับมาใช้ได้แล้ว — ปลดการหยุดและคืนงานที่ค้างเพราะ login เข้าคิว");
+  } else if (pausedReason !== "" && (await prisma.flowJob.count({ where: { status: FLOW_STATUS.FAILED } })) === 0) {
+    // หยุดค้างอยู่แต่ไม่มีงานที่พังเลย = ทางตันในหน้า /flow (ปุ่ม "รันต่อ"/"ข้าม" อยู่บนงานที่พังเท่านั้น)
+    // เช่นรอบก่อนล้มระหว่างเปิดตัว · การเปิดบอทใหม่คือการกู้คืนของคน จึงปลดให้ ส่วนการหยุดที่มีงานพัง
+    // (รวม stale sweep ข้างบน) ยังต้องให้คนกด "รันต่อ" เหมือนเดิม
+    await upsertState({ pausedReason: "", pausedAt: null });
+    log(`ปลดการหยุด (${pausedReason}) ที่ค้างจากรอบก่อน — ไม่มีงานที่พังให้กดรันต่อ`);
   }
 
   let longBreakTarget = pickLongBreakTarget(cfg.longBreakEvery);
@@ -370,12 +392,16 @@ async function main() {
   log("ออกจาก loop หลัก — ปิด browser");
   clearInterval(heartbeat);
   await upsertState({ currentJobId: null, nextWakeAt: null });
-  await context.close();
+  await closeBrowser();
   if (existsSync(STOP_FILE)) unlinkSync(STOP_FILE);
 }
 
 main().catch(async (e) => {
-  log(`worker ล้ม: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+  const detail = e instanceof Error ? e.stack ?? e.message : String(e);
+  log(`worker ล้ม: ${detail}`);
+  // browser ถูกปิดแล้ว error จากคำสั่งที่ค้างอยู่อาจมาถึงก่อน event "close" ของ context — กรณีเดียวกับ
+  // handler ใน main() จึงไม่หยุดคิวเช่นกัน
+  if (detail.includes("has been closed")) process.exit(0);
   await pauseWorker("worker_crash").catch(() => undefined);
   process.exit(1);
 });

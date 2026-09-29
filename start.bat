@@ -25,8 +25,9 @@ if errorlevel 1 (
 )
 
 echo Starting server in background...
-rem Server output goes to pp-server.log; otherwise errors only exist in the minimized window
-start "Pooling Prompt Server" /min cmd /c "npm run start >> pp-server.log 2>&1"
+rem Server runs in a hidden window (no console on the taskbar); output goes to pp-server.log.
+rem Stop it with stop.bat - there is no window to close.
+powershell -NoProfile -Command "Start-Process -FilePath cmd.exe -ArgumentList '/c npm run start >> pp-server.log 2>&1' -WorkingDirectory '%CD%' -WindowStyle Hidden"
 
 echo Waiting for server to be ready...
 :waitloop
@@ -49,5 +50,5 @@ goto :eof
 rem Flow bot starts with the app. Safe to run while a bot is already running: the new one
 rem exits by itself because the Chrome profile is locked (see worker/index.ts main()).
 echo Starting Flow worker in background (log: flow-worker.log)...
-start "Flow Worker" /min cmd /c "npm run flow-worker >> flow-worker.log 2>&1"
+powershell -NoProfile -Command "Start-Process -FilePath cmd.exe -ArgumentList '/c npm run flow-worker >> flow-worker.log 2>&1' -WorkingDirectory '%CD%' -WindowStyle Hidden"
 goto :eof
