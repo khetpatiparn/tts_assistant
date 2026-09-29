@@ -59,7 +59,7 @@ function renderConnection(status: DestinationStatus): void {
       case 'rejected':
         return ['bad', 'ลิงก์ปลายทางใช้ไม่ได้แล้ว', 'อาจถูกสร้างลิงก์ใหม่ — คัดลอกลิงก์ล่าสุดมาใส่ในหน้าจัดการ', false]
       case 'no_link':
-        return ['idle', 'ยังไม่ได้ใส่ลิงก์ปลายทาง', 'เปิดหน้าจัดการ → ตั้งค่า → วางลิงก์ (ทำครั้งเดียว)', false]
+        return ['idle', 'ยังไม่ได้ใส่ลิงก์ปลายทาง', 'ยังไม่มีลิงก์? กด "วิธีใช้ / เชื่อมระบบของคุณ" ด้านล่าง', false]
     }
   })()
   appDot.className = `status-dot status-dot-${tone === 'ok' ? 'finished' : tone === 'bad' ? 'bad' : 'idle'}`
@@ -133,3 +133,9 @@ renderChannelBanner()
 void renderScanStatus()
 void checkDestination().then(renderConnection)
 setText(requireElement('version'), `เวอร์ชัน ${chrome.runtime.getManifest().version}`)
+
+// คู่มือในตัว extension (help/) — เปิดเป็นแท็บใหม่แล้วปิด popup
+requireElement('open-help').addEventListener('click', () => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL('help/index.html') })
+  window.close()
+})

@@ -53,6 +53,13 @@ const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
 
 // ลงทะเบียน listener แบบ synchronous ที่ top level — MV3 จะทิ้ง listener ที่ผูกหลัง await
 // เมื่อ service worker ถูกปลุกใหม่ (spec §10)
+// ติดตั้งครั้งแรก → เปิดหน้า "วิธีใช้" ให้เลย (ไม่ใช่ตอนอัปเดต/รีโหลด) — ผู้ใช้จริงติดตั้งจาก zip แล้วไม่รู้ว่า
+// ต้องทำอะไรต่อ เพราะคู่มือเป็นไฟล์ .md ในโฟลเดอร์ที่ไม่มีใครเปิด (2026-09-29) · tabs.create ไม่ต้องขอสิทธิ์ "tabs"
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason !== 'install') return
+  void chrome.tabs.create({ url: chrome.runtime.getURL('help/index.html') })
+})
+
 chrome.runtime.onMessage.addListener((raw, sender, sendResponse) => {
   void (async (): Promise<void> => {
     let response: ScannerResponse

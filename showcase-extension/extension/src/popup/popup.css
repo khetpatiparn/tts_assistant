@@ -189,6 +189,15 @@ button:focus-visible {
   display: none !important;
 }
 
+/* ลิงก์ไปหน้าวิธีใช้ — เป็น <button> (กดด้วยคีย์บอร์ดได้) แต่หน้าตาเป็นลิงก์ ให้รองจากปุ่มหลัก */
+button.link-button {
+  min-height: 32px;
+  border: none;
+  background: none;
+  color: var(--primary);
+  text-decoration: underline;
+}
+
 .version {
   margin: 12px 0 0;
   font-size: 0.75rem;

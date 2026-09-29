@@ -35,7 +35,16 @@ const collect = async (dir) => {
 
 // แฮชจาก source + channel ไม่ใช่จาก output เพื่อให้ inject เข้า bundle ได้ในรอบเดียว
 // และให้ build เดิมจาก commit เดิมได้ hash เดิมเสมอ
-const sources = [...(await collect(SRC)), join(ROOT, 'extension', 'manifest.json')].sort()
+// เอกสารที่ถูกก๊อปเข้า help/ ต้องอยู่ในแฮชด้วย ไม่งั้นแก้คู่มืออย่างเดียวแล้ว build hash ไม่เปลี่ยน
+const HELP_DOCS = [
+  ['docs/INTEGRATION.md', 'help/INTEGRATION.md'],
+  ['docs/examples/quickstart-node.mjs', 'help/quickstart-node.mjs'],
+]
+const sources = [
+  ...(await collect(SRC)),
+  join(ROOT, 'extension', 'manifest.json'),
+  ...HELP_DOCS.map(([from]) => join(ROOT, from)),
+].sort()
 const digest = createHash('sha256').update(mode)
 for (const file of sources) {
   digest.update(relative(ROOT, file).split('\\').join('/'))
@@ -68,6 +77,7 @@ const result = await build({
     background: join(SRC, 'background.ts'),
     'dashboard/main': join(SRC, 'dashboard', 'main.ts'),
     'popup/main': join(SRC, 'popup', 'main.ts'),
+    'help/main': join(SRC, 'help', 'main.ts'),
   },
   outdir: outDir,
   bundle: true,
@@ -98,13 +108,17 @@ if (mode === 'mock') {
 }
 await writeFile(join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
-for (const page of ['dashboard', 'popup']) {
+for (const page of ['dashboard', 'popup', 'help']) {
   for (const asset of await readdir(join(SRC, page))) {
     if (asset.endsWith('.html') || asset.endsWith('.css')) {
       await cp(join(SRC, page, asset), join(outDir, page, asset))
     }
   }
 }
+
+// หน้า "วิธีใช้" อ่านคู่มือเต็มกับโค้ดตัวอย่างจากไฟล์ในตัว extension (help/main.ts) — ก๊อปจาก docs/ ทุก build
+// จึงเป็นสำเนาเดียวกันเสมอ · .md/.mjs ไม่อยู่ใน glob ของ PK02 (js/html/css/json) และไม่ถูก execute
+for (const [from, to] of HELP_DOCS) await cp(join(ROOT, from), join(outDir, to))
 
 // icons/*.png ที่ manifest.json อ้างถึง (icons + action.default_icon) — .svg เป็นไฟล์ source
 // เก็บไว้แก้ต่อได้เท่านั้น ไม่ต้องอยู่ใน bundle เพราะไม่มีที่ไหนอ้างถึงมันเลย

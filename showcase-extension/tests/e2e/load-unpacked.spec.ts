@@ -93,3 +93,24 @@ test('.product-image-gallery[hidden] ซ่อนจริงในเบรา�
 
   expect(isHiddenVisually).toBe(true)
 })
+
+test('หน้า "วิธีใช้" อยู่ในตัว extension — มีโค้ดตัวอย่างและคู่มือให้คัดลอก และ popup มีทางไปหน้านี้', async ({
+  context,
+  extensionId,
+}) => {
+  // ผู้ใช้จริงติดตั้งจาก zip แล้วไม่รู้ว่าต้องทำอะไรต่อ (คู่มือเป็นไฟล์ .md ที่ไม่มีใครเปิด) — หน้านี้คือคำตอบ
+  const help = await context.newPage()
+  await help.goto(`chrome-extension://${extensionId}/help/index.html`)
+  await expect(help.locator('h1')).toContainText('วิธีใช้ Showcase Scanner')
+  // โค้ดตัวอย่างต้องโหลดจากไฟล์ที่ build ก๊อปมาจริง ไม่ใช่ข้อความค้าง "กำลังโหลด…"
+  await expect(help.locator('#quickstart-code')).toContainText('showcase-scanner/1')
+  const guide = await help.evaluate(async () => (await fetch(chrome.runtime.getURL('help/INTEGRATION.md'))).text())
+  expect(guide).toContain('เริ่มใน 5 นาที')
+  await expect(help.locator('#copy-ai')).toBeVisible()
+  await expect(help.locator('#download-code')).toBeVisible()
+
+  const popup = await context.newPage()
+  await popup.goto(`chrome-extension://${extensionId}/popup/index.html`)
+  await expect(popup.locator('#open-help')).toBeVisible()
+  await expect(popup.locator('#app-detail')).toContainText('วิธีใช้')
+})
