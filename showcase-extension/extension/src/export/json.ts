@@ -3,7 +3,7 @@ import type { RunReport } from '../core/runner.js'
 import { PROTOCOL } from '../dashboard/destination.js'
 
 /**
- * §10 — export มี resultKind, runId, exportedAt, adapterVersion, sourceRef, coverage, quality,
+ * §10 — export มี resultKind, protocol, runId, exportedAt, adapterVersion, sourceRef, coverage, quality,
  * selected IDs และ normalized products เท่านั้น ไม่มี headers/token
  * key set นี้คือ allowlist ทั้งหมด ห้ามเพิ่มโดยไม่แก้ที่นี่
  *

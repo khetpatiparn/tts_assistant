@@ -57,9 +57,9 @@ npm run build        # live channel → dist-release/ (live adapter, ทดล�
 1. `npm run build` → ได้ `dist-release/`
 2. เปิด `brave://extensions` (หรือ `chrome://extensions`) → เปิด **Developer mode**
 3. **Load unpacked** → เลือกโฟลเดอร์ **`dist-release/`**
-   ตอนติดตั้ง **ต้องไม่ขอสิทธิ์เว็บไซต์ใด ๆ** (host permission เป็น optional ขอทีหลังตอนกดปุ่ม)
+   ตอนติดตั้งเบราว์เซอร์จะแจ้งว่า extension เข้าถึง `shop.tiktok.com` ได้ — เป็น `host_permissions` แบบ required ให้สิทธิ์ตั้งแต่ติดตั้ง (ทั้ง build mock และ live) ไม่มีสิทธิ์อื่นนอกจากนี้
 4. ล็อกอิน TikTok ในเบราว์เซอร์โปรไฟล์เดียวกัน แล้วเปิด Showcase ของตัวเองสักครั้งให้เซสชันสดอยู่
-5. เปิดหน้าจัดการของ extension → กด **"อนุญาตให้เข้าถึง shop.tiktok.com"** → ยืนยันใน prompt ของเบราว์เซอร์
+5. เปิดหน้าจัดการของ extension (ไม่ต้องกดอนุญาตเพิ่ม เพราะสิทธิ์ให้ไว้แล้วตอนติดตั้ง)
 
 ### ขั้นที่ 1 — อ่านทีละหน้า (ยืนยันว่าการเลื่อนหน้าทำงานจริง)
 
@@ -91,7 +91,7 @@ npm run build        # live channel → dist-release/ (live adapter, ทดล�
 | `rate_limited` (429) | ถูกจำกัดอัตรา — **หยุด ไม่ยิงซ้ำ** |
 | `challenge_required` | ได้หน้า HTML (login/CAPTCHA) แทน JSON |
 | `ล้มเหลว: adapter_redirect_blocked` | โดน redirect ออกจาก endpoint — ไม่ตามไปโดยไม่ตรวจ |
-| `ล้มเหลว: permission_required` | ยังไม่ได้กดอนุญาต host |
+| `ล้มเหลว: permission_required` | extension ไม่มีสิทธิ์เข้าถึง shop.tiktok.com (ปกติให้ตอนติดตั้ง) — ลองลบแล้ว Load unpacked ใหม่ |
 | `ล้มเหลว: adapter_timeout` / `adapter_network_error` | เครือข่ายมีปัญหา/ช้าเกิน 20 วินาที |
 
 **ถ้าเกิด error ให้ส่งกลับมาแค่นี้พอ (ไม่ต้องแนบอะไรที่เป็นความลับ):** ข้อความบนหน้าจอทั้งบรรทัด
@@ -103,7 +103,7 @@ npm run build        # live channel → dist-release/ (live adapter, ทดล�
 1. เปิด `brave://extensions` หรือ `chrome://extensions`
 2. เปิด **Developer mode**
 3. **Load unpacked** → เลือกโฟลเดอร์ `dist/`
-4. หน้าติดตั้ง **ต้องไม่ขอสิทธิ์เข้าถึงเว็บไซต์ใด ๆ** — ถ้าขอ แปลว่า manifest ผิด ให้หยุดและตรวจ
+4. หน้าติดตั้งควรขอสิทธิ์เข้าถึง `https://shop.tiktok.com/*` เท่านั้น — ถ้าขอเว็บไซต์อื่นเพิ่ม แปลว่า manifest ผิด ให้หยุดและตรวจ
 
 เปิดหน้าจัดการได้จาก popup (ปุ่ม "เปิดหน้าจัดการ") หรือจาก Extension options
 
@@ -113,9 +113,8 @@ npm run build        # live channel → dist-release/ (live adapter, ทดล�
   checkpoint ทั้งหมดใน IndexedDB (ผ่าน message `data.clear`) ต้องกดยืนยันสองจังหวะก่อนล้างจริง และจะถูกปฏิเสธถ้ามี
   run กำลังทำงานอยู่จริงในหน้านั้น (กันไม่ให้แถวที่ยังวิ่งอยู่ถูก commit กลับเข้ามาใหม่หลังล้าง)
 - **ถอนการติดตั้ง:** `brave://extensions` หรือ `chrome://extensions` → Remove — ลบ IndexedDB ของ extension ทั้งหมด
-  (object store `runs` และ `products`) **ไม่มีการเขียนอะไรลง `chrome.storage` เลย** แม้จะขอ permission `storage`
-  ไว้ (สำหรับ settings ที่ยังไม่ได้ implement) จึงตัดข้ออ้างเดิมที่บอกว่า Remove ลบ `chrome.storage` ด้วย — ไม่มี
-  อะไรอยู่ใน `chrome.storage` ให้ลบตั้งแต่แรก
+  (object store `runs` และ `products`) **`chrome.storage.local` เก็บเฉพาะลิงก์ปลายทาง รายการ ID ที่ส่งแล้ว และเวลาส่งล่าสุด
+  (ไม่มีข้อมูลสินค้า) — Remove extension ลบส่วนนี้ด้วย ปุ่ม "ล้างข้อมูลที่เก็บไว้" ล้างเฉพาะ IndexedDB
 - **จุดยืนเรื่อง retention:** raw response body จาก mock adapter ไม่เคยถูกเก็บลงดิสก์เลย ดังนั้น TTL 7 วันตาม
   spec §8.4 จึงเป็น `NOT APPLICABLE` กับ build นี้ ส่วน normalized staged rows (หลัง validate/normalize แล้ว)
   ไม่มี TTL ตาม design — ถูกจำกัดด้วย cap ต่อ run (20 MiB / 5,000 รายการ) และเส้นทางล้างสองทางข้างต้นแทน
@@ -156,7 +155,7 @@ guard อยู่ที่ [tests/setup/no-network.ts](tests/setup/no-network.t
 
 | สิ่งที่ขอ | เหตุผล |
 |---|---|
-| `storage` | เก็บ settings ที่ไม่อ่อนไหว |
+| `storage` | เก็บลิงก์ปลายทาง + ความจำ ID ที่ส่งแล้ว (ลิงก์มีรหัสของผู้ใช้ — ไม่ส่งไปที่อื่นนอกจากปลายทางนั้น) |
 | `host_permissions: https://shop.tiktok.com/*` | ขอตอนติดตั้ง เพราะเป็นหน้าที่หลัก — ปลายทางไม่ต้องใช้สิทธิ์ (ใช้ CORS) ดู docs/INTEGRATION.md |
 
 **ไม่ขอและจะไม่ขอ:** `cookies`, `debugger`, `nativeMessaging`, `webRequest`, `scripting`, `activeTab`, `tabs`,

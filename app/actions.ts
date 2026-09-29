@@ -1481,6 +1481,10 @@ export async function skipFlowJob(jobId: string): Promise<void> {
 
 /** token ของลิงก์ปลายทาง Showcase Scanner — สร้างครั้งแรกที่มีคนขอ */
 export async function getScannerToken(): Promise<string> {
+  // อ่านก่อน — หน้า /products เรียกทุกครั้งที่เรนเดอร์ ไม่ควรเขียน DB ทุกครั้ง
+  const existing = await prisma.scannerLink.findUnique({ where: { id: "singleton" } });
+  if (existing) return existing.token;
+  // สร้างเฉพาะตอนยังไม่มีแถว · upsert (update ว่าง) กันชนกันถ้ามีคนสร้างพร้อมกัน แล้วคืนของที่ชนะ
   const row = await prisma.scannerLink.upsert({
     where: { id: "singleton" },
     create: { id: "singleton", token: newToken() },

@@ -13,6 +13,9 @@ const KEY_LINK = 'destinationLink'
 const KEY_DELIVERED = 'deliveredProductIds'
 const KEY_LAST = 'lastDeliveredAt'
 const TIMEOUT_MS = 5000
+// POST ให้เวลานานกว่า GET มาก: ปลายทางอย่าง Angle โหลดรูปสินค้าทีละรูป (150+ รูปสำหรับสินค้าใหม่ ~20 ตัว)
+// ก่อนตอบ — ถ้าตัดเร็วเกินไป การนำเข้าที่สำเร็จจริงจะถูกรายงานว่า "ติดต่อไม่ได้" แล้วผู้ใช้กดส่งซ้ำจนซ้ำรอบ
+const DELIVER_TIMEOUT_MS = 120_000
 
 export interface DestinationDeps {
   readonly fetchImpl: typeof fetch
@@ -122,14 +125,18 @@ export async function resolveKnownIds(
   return null
 }
 
+export type DeliverResult =
+  | { ok: true; count: number; added?: number; skipped?: number; imagesFailed?: number }
+  | { ok: false; message: string }
+
 /**
- * POST ผลสแกน · 2xx = สำเร็จ (ไม่อ่าน body — ปลายทางตอบอะไรก็ได้) แล้วจำ "ทุก ID ที่ส่ง" ไม่ใช่เฉพาะที่
+ * POST ผลสแกน · 2xx = สำเร็จ (body ไม่บังคับ — ถ้าเป็น JSON ที่มี added/skipped/imagesFailed จะส่งต่อไปแสดง) แล้วจำ "ทุก ID ที่ส่ง" ไม่ใช่เฉพาะที่
  * ปลายทางเก็บ — สินค้าที่ปลายทางข้าม (เช่นหมดสต็อก) ต้องไม่ถูกนับเป็น "ใหม่" ซ้ำทุกรอบ (ดูสเปกข้อ 5)
  */
 export async function deliver(
   payload: { readonly products: readonly { readonly productId: string }[] },
   deps: DestinationDeps = defaultDestinationDeps(),
-): Promise<{ ok: true; count: number } | { ok: false; message: string }> {
+): Promise<DeliverResult> {
   const link = await getDestinationLink(deps)
   if (link === '') return { ok: false, message: 'ยังไม่ได้ใส่ลิงก์ปลายทาง — ใส่ที่ส่วน "ตั้งค่า"' }
   let res: Response
@@ -138,26 +145,46 @@ export async function deliver(
       method: 'POST',
       headers: { 'content-type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(DELIVER_TIMEOUT_MS),
     })
   } catch {
     return { ok: false, message: 'ติดต่อปลายทางไม่ได้ — เช็กว่าระบบปลายทางเปิดอยู่' }
   }
-  if (res.status === 401 || res.status === 403) {
-    return { ok: false, message: 'ลิงก์ปลายทางใช้ไม่ได้แล้ว (อาจถูกสร้างใหม่) — คัดลอกลิงก์ล่าสุดมาใส่ใหม่' }
+  const unauthorized = {
+    ok: false,
+    message: 'ลิงก์ปลายทางใช้ไม่ได้แล้ว (อาจถูกสร้างใหม่) — คัดลอกลิงก์ล่าสุดมาใส่ใหม่',
+  } as const
+  if (res.status === 401 || res.status === 403) return unauthorized
+  // อ่าน body ครั้งเดียว ใช้ทั้งข้อความ error, เช็ก unauthorized และตัวเลขสรุปของปลายทาง
+  const text = (await res.text().catch(() => '')).slice(0, 4000)
+  let json: Record<string, unknown> | null = null
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) json = parsed as Record<string, unknown>
+  } catch {
+    json = null
   }
-  if (!res.ok) return { ok: false, message: `ปลายทางตอบกลับว่าไม่สำเร็จ (${String(res.status)})` }
+  if (!res.ok) {
+    const detail = json !== null && typeof json.error === 'string' ? json.error.slice(0, 200) : ''
+    const base = `ปลายทางตอบกลับว่าไม่สำเร็จ (${String(res.status)})`
+    return { ok: false, message: detail === '' ? base : `${base}: ${detail}` }
+  }
   // Apps Script ตอบสถานะ 401 ไม่ได้ (200 เสมอ) — protocol ให้ตอบ {"error":"unauthorized"} แทน ต้องไม่นับว่าส่งสำเร็จ
-  const text = await res.text().catch(() => '')
-  if (/"error"\s*:\s*"unauthorized"/.test(text)) {
-    return { ok: false, message: 'ลิงก์ปลายทางใช้ไม่ได้แล้ว (อาจถูกสร้างใหม่) — คัดลอกลิงก์ล่าสุดมาใส่ใหม่' }
-  }
+  if (/"error"\s*:\s*"unauthorized"/.test(text)) return unauthorized
 
   const memory = await getDeliveryMemory(deps)
   const ids = new Set(memory.ids)
   for (const p of payload.products) ids.add(p.productId)
   await deps.storageSet({ [KEY_DELIVERED]: [...ids], [KEY_LAST]: new Date(deps.now()).toISOString() })
-  return { ok: true, count: payload.products.length }
+  const result: { ok: true; count: number; added?: number; skipped?: number; imagesFailed?: number } = {
+    ok: true,
+    count: payload.products.length,
+  }
+  for (const key of ['added', 'skipped', 'imagesFailed'] as const) {
+    const v = json?.[key]
+    if (typeof v === 'number' && Number.isFinite(v)) result[key] = v
+  }
+  return result
 }
 
 /** "3 วันก่อน" / "วันนี้" สำหรับบรรทัดเวลาบน popup */

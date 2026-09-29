@@ -32,7 +32,7 @@ export type ScannerMessage =
   /**
    * `knownProductIds` เป็น required เสมอเหมือน `maxPages` ด้านบน — `null` = ไม่ใช้ auto-stop
    * (ปิดฟีเจอร์ สแกนตามปกติ) ไม่ใช่ array ว่างที่แปลว่า "รู้ว่าไม่มี ID ไหนรู้จักเลย" (ต่างความหมายกัน
-   * แม้ผลจะเหมือนกันก็ตาม) มาจาก dashboard ที่ query แอปหลักเอง ดู core/runner.ts สำหรับความหมายเต็ม
+   * แม้ผลจะเหมือนกันก็ตาม) มาจาก dashboard ที่ถามลิงก์ปลายทางเอง (หรือความจำ "ส่งแล้ว" ของ extension เมื่อปลายทางบอกไม่ได้) ดู core/runner.ts สำหรับความหมายเต็ม
    */
   | { readonly type: 'run.start'; readonly maxPages: number | null; readonly knownProductIds: readonly string[] | null }
   | { readonly type: 'run.cancel' }

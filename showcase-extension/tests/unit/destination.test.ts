@@ -122,6 +122,22 @@ describe('deliver — POST ผลสแกน', () => {
     const { deps } = makeDeps(() => Promise.resolve(new Response('OK', { status: 200 })))
     expect(await deliver(payload, deps)).toEqual({ ok: true, count: 2 })
   })
+  it('400 พร้อม {error} → ข้อความบอกสาเหตุจากปลายทาง และไม่จำอะไร', async () => {
+    const { deps, store } = makeDeps(() => json({ error: 'bad payload' }, 400))
+    const r = await deliver(payload, deps)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toContain('(400): bad payload')
+    expect(store.deliveredProductIds).toBeUndefined()
+  })
+  it('500 ที่ body ไม่ใช่ JSON → ข้อความพื้นฐาน ไม่มีต่อท้าย', async () => {
+    const { deps } = makeDeps(() => Promise.resolve(new Response('boom', { status: 500 })))
+    const r = await deliver(payload, deps)
+    expect(r).toEqual({ ok: false, message: 'ปลายทางตอบกลับว่าไม่สำเร็จ (500)' })
+  })
+  it('2xx พร้อม added/skipped/imagesFailed → คืนเป็นฟิลด์เสริม', async () => {
+    const { deps } = makeDeps(() => json({ added: 1, skipped: 1, imagesFailed: 0 }))
+    expect(await deliver(payload, deps)).toEqual({ ok: true, count: 2, added: 1, skipped: 1, imagesFailed: 0 })
+  })
   it('401 → บอกว่าลิงก์ใช้ไม่ได้ และไม่จำอะไร', async () => {
     const { deps, store } = makeDeps(() => json({ error: 'unauthorized' }, 401))
     const r = await deliver(payload, deps)

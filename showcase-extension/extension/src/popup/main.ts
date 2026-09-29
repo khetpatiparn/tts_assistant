@@ -55,7 +55,7 @@ function renderConnection(status: DestinationStatus): void {
           status.lastDeliveredAt === null ? 'ยังไม่เคยส่ง' : `ส่งสำเร็จล่าสุด ${relativeDaysThai(status.lastDeliveredAt, now)}`,
           true]
       case 'unreachable':
-        return ['bad', 'ติดต่อปลายทางไม่ได้', 'เปิดระบบปลายทาง (เช่น start.bat) แล้วกดไอคอนนี้ใหม่', false]
+        return ['bad', 'ติดต่อปลายทางไม่ได้', 'เปิดระบบปลายทางของคุณให้ทำงานอยู่ แล้วกดไอคอนนี้ใหม่', false]
       case 'rejected':
         return ['bad', 'ลิงก์ปลายทางใช้ไม่ได้แล้ว', 'อาจถูกสร้างลิงก์ใหม่ — คัดลอกลิงก์ล่าสุดมาใส่ในหน้าจัดการ', false]
       case 'no_link':

@@ -45,8 +45,8 @@ export interface RunRequest {
   readonly maxPages?: number | null
 
   /**
-   * ID สินค้าที่ "รู้อยู่แล้วว่ามีในระบบ" (จากแอปหลัก pooling_prompt ไม่ใช่จากประวัติของ extension
-   * เอง — ดูเหตุผลใน dashboard/main.ts) ใช้หยุดสแกนอัตโนมัติทันทีที่หน้าใดหน้าหนึ่งมีแต่ ID ที่รู้จัก
+   * ID สินค้าที่ "รู้อยู่แล้วว่ามีในระบบ" (จากลิงก์ปลายทาง หรือเมื่อปลายทางบอกไม่ได้ก็จากความจำ
+   * "ส่งแล้ว" ของ extension เอง — ดู dashboard/destination.ts resolveKnownIds) ใช้หยุดสแกนอัตโนมัติทันทีที่หน้าใดหน้าหนึ่งมีแต่ ID ที่รู้จัก
    * อยู่แล้ว**ทั้งหน้า** (ไม่ใช่แค่บางตัว — กันเคสที่ TikTok แทรกสินค้าเก่ากลับมาปนกับของใหม่)
    * `null`/ไม่ระบุ = ปิดฟีเจอร์นี้ สแกนตามปกติ (พฤติกรรมเดิมทุกจุด)
    *
@@ -492,9 +492,12 @@ export async function runImport(request: RunRequest, deps: RunnerDeps): Promise<
       //
       // สินค้าที่ TikTok บอกว่าตายแล้ว (status_popup) ปลายทางไม่เก็บ จึงไม่มีวันอยู่ในรายการ "รู้จักแล้ว" —
       // ถ้าไม่นับเป็นรู้จักแล้ว หน้าที่มีสินค้าตายปนจะไม่มีวันทำให้หยุด (สเปก 2026-09-29 ข้อ 5)
+      // แต่หน้าที่มี "แต่สินค้าตาย" ล้วนๆ (ไม่มีตัวรู้จักเลย) ต้องไม่ทำให้หยุด — ไม่งั้นสินค้าปกติที่อยู่ถัดไป
+      // จะถูกบังถาวรแม้รายการรู้จักแล้วจะว่าง จึงต้องมีอย่างน้อยหนึ่งตัวที่อยู่ในรายการรู้จักแล้วจริง
       if (
         knownIdSet !== null &&
         page.products.length > 0 &&
+        page.products.some((p) => knownIdSet.has(p.productId)) &&
         page.products.every((p) => p.hasStatusPopup || knownIdSet.has(p.productId))
       ) {
         return finish('known_ids_reached')

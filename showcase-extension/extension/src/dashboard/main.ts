@@ -570,11 +570,20 @@ async function pushSelectedToDestination(): Promise<{ ok: boolean; message: stri
   const result = await send({ type: 'run.export', selectedIds: [...state.selected] })
   if (!result.ok) return { ok: false, message: `เตรียมข้อมูลไม่สำเร็จ: ${result.code}` }
   const sent = await deliver(result.payload)
-  return sent.ok ? { ok: true, message: `✅ ส่งไปปลายทางแล้ว ${String(sent.count)} รายการ` } : sent
+  if (!sent.ok) return sent
+  const parts = [`✅ ส่งไปปลายทางแล้ว ${String(sent.count)} รายการ`]
+  if (sent.added !== undefined && sent.added > 0) parts.push(`เพิ่มใหม่ ${String(sent.added)}`)
+  if (sent.skipped !== undefined && sent.skipped > 0) parts.push(`ข้าม ${String(sent.skipped)}`)
+  if (sent.imagesFailed !== undefined && sent.imagesFailed > 0) parts.push(`โหลดรูปพลาด ${String(sent.imagesFailed)}`)
+  return { ok: true, message: parts.join(' · ') }
 }
 
 pushButton.addEventListener('click', () => {
   void (async () => {
+    if (state.selected.size === 0) {
+      setText(pushResultEl, 'ยังไม่ได้เลือกสินค้า')
+      return
+    }
     setText(pushResultEl, 'กำลังส่ง…')
     setText(pushResultEl, (await pushSelectedToDestination()).message)
   })()

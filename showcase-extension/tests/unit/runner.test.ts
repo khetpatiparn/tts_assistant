@@ -354,6 +354,36 @@ describe('knownProductIds — หยุดอัตโนมัติเมื�
   })
 })
 
+describe('known_ids_reached — หน้าสินค้าตายล้วน', () => {
+  it('หน้าแรกเป็นสินค้าตายล้วน 6 ตัว + knownProductIds ว่าง — ต้องไม่หยุด ต้องสแกนหน้าถัดไปต่อ', async () => {
+    const dead = (id: string) => ({
+      product_id: id,
+      title: `ตาย ${id}`,
+      format_available_price: '฿10.00',
+      stock_status: 1,
+      review_status: 1,
+      can_added: true,
+      status_popup: { title: 'Product not available', content: '', button: '', reason_code: 11 },
+    })
+    const alive = (id: string) => ({
+      product_id: id,
+      title: `ปกติ ${id}`,
+      format_available_price: '฿10.00',
+      stock_status: 1,
+      review_status: 1,
+      can_added: true,
+    })
+    const page = (products: unknown[]) => ({ bodyText: JSON.stringify({ code: 0, message: 'success', data: { products } }) })
+    const pages = [
+      page(['9001', '9002', '9003', '9004', '9005', '9006'].map(dead)),
+      page(['8001', '8002', '8003'].map(alive)),
+    ]
+    const report = await start(pages, { knownProductIds: [] })
+    expect(report.stopReason).not.toBe('known_ids_reached')
+    expect(report.productIds).toContain('8001')
+  })
+})
+
 describe('PG11 — retry ที่ runner จริงต้องจำกัดจำนวนครั้งต่อ offset (R09)', () => {
   it('5xx ที่ offset เดิมตลอด ต้อง retry ไม่เกิน maxAttemptsPerOffset แล้ว giveup ไม่ใช่วนไม่จบ', async () => {
     const calls: number[] = []

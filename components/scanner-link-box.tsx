@@ -34,7 +34,15 @@ export function ScannerLinkBox({ token }: { token: string }) {
           type="button"
           disabled={link === ""}
           onClick={() => {
-            void navigator.clipboard.writeText(link).then(() => setMessage("คัดลอกลิงก์แล้ว"));
+            const failed = () => setMessage("คัดลอกไม่สำเร็จ — เลือกลิงก์แล้วคัดลอกเอง");
+            if (!navigator.clipboard) {
+              failed();
+              return;
+            }
+            navigator.clipboard
+              .writeText(link)
+              .then(() => setMessage("คัดลอกลิงก์แล้ว"))
+              .catch(failed);
           }}
         >
           <Copy className="size-4" />
