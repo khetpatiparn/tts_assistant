@@ -106,7 +106,7 @@ https://your-host.example/scanner?token=<รหัสลับ>
 | `priceDisplay` | string \| null | ข้อความราคาตามที่หน้าแสดง เช่น `"฿128.71"` (อาจเป็นช่วงราคา) |
 | `priceAmountDecimal` | string \| null | **ปัจจุบัน extension ส่ง `null` เสมอ** (ยังไม่ยืนยันการแปลงราคา) อย่าพึ่งพา — parse จาก `priceDisplay` เอง |
 | `currency` | string \| null | **ปัจจุบันเป็น `null` เสมอ** เช่นกัน |
-| `commissionRate` | number \| string \| null | ค่าดิบจาก TikTok ในหน่วย **เปอร์เซ็นต์ × 100** (หนึ่งในร้อยของเปอร์เซ็นต์): `1200` = **12%**, `1600` = 16%, `100` = 1% — ตรวจแล้วกับสินค้าจริง 14/14 ชิ้น (Angle หารด้วย 100 แล้วนำไปคำนวณ; `lib/showcase-import.ts`) ตัวอย่างในเอกสารนี้จึงแปลงด้วย `Number()` (มีตัวกัน NaN) แล้วหาร 100 เพื่อได้เปอร์เซ็นต์ · เป็น `null` ได้เมื่อ TikTok ไม่ส่ง |
+| `commissionRate` | number \| string \| null | ค่าดิบจาก TikTok ในหน่วย **เปอร์เซ็นต์ × 100** (หนึ่งในร้อยของเปอร์เซ็นต์): `1200` = **12%**, `1600` = 16%, `100` = 1% — ตรวจแล้วกับสินค้าจริง 14/14 ชิ้น ตัวอย่างในเอกสารนี้จึงแปลงด้วย `Number()` (มีตัวกัน NaN) แล้วหาร 100 เพื่อได้เปอร์เซ็นต์ · เป็น `null` ได้เมื่อ TikTok ไม่ส่ง |
 | `shopName` | string \| null | ชื่อร้าน |
 | `imageUrls` | string[] | รูปสินค้า (https, เฉพาะโฮสต์ ibyteimg ที่ extension อนุญาต, ตัด query แล้ว) อาจว่าง |
 | `categoryLabel` | string \| null | ชื่อหมวด |
