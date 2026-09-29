@@ -55,6 +55,8 @@ next-env.d.ts
 /dev-test.db-shm
 /dev-test.db-wal
 /dev-backup-*.db
+/dev-backup-*.db-wal
+/dev-backup-*.db-shm
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days
