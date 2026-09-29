@@ -1,15 +1,16 @@
 import type { QuarantinedRecord, RunReport } from '../core/runner.js'
-import { APP_HOST_PERMISSION_ORIGIN, SHOWCASE_HOST_PERMISSION_ORIGIN } from '../domain/permissions.js'
 import type { NormalizedProduct } from '../domain/product.js'
 import { buildProbeExport } from '../export/json.js'
 import type { ScannerMessage, ScannerMessageType, ResponseMap } from '../messaging/schema.js'
 import {
-  APP_IMPORT_URL,
-  APP_KNOWN_IDS_URL,
-  APP_SECRET_STORAGE_KEY,
+  clearDeliveryMemory,
   consumeAutoScanRequest,
-  getSavedAppSecret,
-} from './app-link.js'
+  deliver,
+  getDestinationLink,
+  parseDestinationLink,
+  resolveKnownIds,
+  saveDestinationLink,
+} from './destination.js'
 import { appendLabeledRow, clearChildren, setText } from './dom.js'
 import { DEFAULT_PAGE_SIZE, renderPreviewPage, totalPages } from './preview.js'
 import type { SelectableFilter } from './selection.js'
@@ -67,117 +68,46 @@ async function renderBuildInfo(): Promise<void> {
   appendLabeledRow(target, 'build hash', __BUILD_HASH__)
 }
 
-// ---------- สิทธิ์เข้าถึง shop.tiktok.com (§7.1, UI06) ----------
-//
-// เช็ค/ขอสิทธิ์จากหน้า dashboard นี้โดยตรง ไม่ผ่าน background message เลย เพราะ chrome.permissions
-// เรียกได้จากทุก extension context อยู่แล้ว และ chrome.permissions.request ต้องมาจาก user gesture
-// แบบ synchronous เท่านั้น — ผ่าน message channel จะเสีย gesture context ระหว่างทาง
-// (PK02 มี static check ยืนยันว่า background.js ไม่มี permissions.request เลย)
-
-const permissionStatusEl = requireElement('permission-status')
-const grantPermissionButton = requireElement('grant-permission-button') as HTMLButtonElement
-
-async function refreshPermissionStatus(): Promise<void> {
-  const granted = await chrome.permissions.contains({ origins: [SHOWCASE_HOST_PERMISSION_ORIGIN] })
-  clearChildren(permissionStatusEl)
-  if (granted) {
-    setText(permissionStatusEl, `✅ มีสิทธิ์เข้าถึง ${SHOWCASE_HOST_PERMISSION_ORIGIN} แล้ว`)
-    grantPermissionButton.hidden = true
-  } else {
-    setText(permissionStatusEl, `ยังไม่มีสิทธิ์เข้าถึง ${SHOWCASE_HOST_PERMISSION_ORIGIN}`)
-    grantPermissionButton.hidden = false
-  }
-}
-
-grantPermissionButton.addEventListener('click', () => {
-  // ต้องเรียก chrome.permissions.request เป็นบรรทัดแรกในนี้ (ไม่มี await คั่นก่อน) เพื่อรักษา
-  // user gesture ไว้ — ขอสิทธิ์แค่ origin เดียวที่ manifest ประกาศไว้ ไม่ขอเพิ่มเกิน spec
-  void chrome.permissions
-    .request({ origins: [SHOWCASE_HOST_PERMISSION_ORIGIN] })
-    .then(() => refreshPermissionStatus())
-})
-
-// ---------- สิทธิ์เข้าถึงแอปหลัก (pooling_prompt เอง — ใช้ทั้ง auto-stop known-ids และปุ่ม "ส่ง
-// เข้าระบบเลย" ด้านล่าง) ----------
-//
-// รูปแบบเดียวกับ shop.tiktok.com ด้านบนทุกประการ (เหตุผล user-gesture เดียวกัน) แต่คนละ origin
-// และคนละความเสี่ยง — origin นี้คือ localhost ของผู้ใช้เอง ไม่ใช่ third-party
-
-const appPermissionStatusEl = requireElement('app-permission-status')
-const grantAppPermissionButton = requireElement('grant-app-permission-button') as HTMLButtonElement
-
-async function refreshAppPermissionStatus(): Promise<void> {
-  const granted = await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] })
-  clearChildren(appPermissionStatusEl)
-  if (granted) {
-    setText(appPermissionStatusEl, '✅ เชื่อมต่อแอปหลักแล้ว')
-    grantAppPermissionButton.hidden = true
-  } else {
-    setText(appPermissionStatusEl, 'ยังไม่ได้เชื่อมต่อแอปหลัก — auto-stop จะปิดอยู่จนกว่าจะกดเชื่อมต่อ')
-    grantAppPermissionButton.hidden = false
-  }
-}
-
-grantAppPermissionButton.addEventListener('click', () => {
-  // เหตุผลเดียวกับ grantPermissionButton ด้านบน — request ต้องเป็นบรรทัดแรก ไม่มี await คั่นก่อน
-  void chrome.permissions
-    .request({ origins: [APP_HOST_PERMISSION_ORIGIN] })
-    .then(() => refreshAppPermissionStatus())
-})
-
-/**
- * ที่มาของ product ID "รู้จักอยู่แล้ว" — ต้องเป็นแอปหลัก (ความจริงของระบบ) ไม่ใช่ IndexedDB ของ
- * extension เอง เพราะผู้ใช้อาจไม่ได้ export/import ทุกรอบสแกนเข้าแอปจริง ๆ (เพิ่งเริ่มใช้ฟีเจอร์นี้
- * เป็นครั้งแรก ยังไม่มีประวัติให้เชื่อ) — ถ้า extension "จำ" ว่าเคยเห็น ID นี้ทั้งที่ไม่เคย import สำเร็จ
- * จริง จะข้ามสินค้าใหม่ไปเงียบ ๆ โดยไม่มีใครรู้ ซึ่งแย่กว่าการสแกนซ้ำเสียอีก
- *
- * ต้องไม่มีทางบล็อกการสแกน — ไม่ว่าจะเพราะยังไม่ได้ให้สิทธิ์ แอปหลักไม่ได้เปิดอยู่ (ยังไม่ได้รัน
- * start.bat) หรือตอบกลับผิดรูป ทุกเส้นทางล้มเหลวคืน null (ปิดฟีเจอร์เฉพาะรอบนี้) ให้ผู้ใช้ fallback
- * ไปใช้ปุ่มจำกัดจำนวนหน้าด้านล่างแทนได้เสมอ ไม่มีการ throw ออกจากฟังก์ชันนี้เด็ดขาด
- */
+/** รายการ "ส่งแล้ว" สำหรับหยุดเอง — ปิดตัวเลือกไว้ = null (สแกนเต็ม) · ดู destination.ts resolveKnownIds */
 async function resolveKnownProductIds(): Promise<readonly string[] | null> {
   const checkbox = requireElement('auto-stop-known-checkbox') as HTMLInputElement
   if (!checkbox.checked) return null
-  if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) return null
-
-  try {
-    const response = await fetch(APP_KNOWN_IDS_URL, { signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return null
-    const body = (await response.json()) as { productIds?: unknown }
-    if (!Array.isArray(body.productIds) || !body.productIds.every((id) => typeof id === 'string')) {
-      return null
-    }
-    return body.productIds
-  } catch {
-    return null
-  }
+  return (await resolveKnownIds())?.ids ?? null
 }
 
-// ---------- ส่งเข้าระบบเลย (POST ตรงไปที่แอปหลัก แทน export ไฟล์แล้วอัปโหลดมือ) ----------
+// ---------- ส่วนตั้งค่า (ลิงก์ปลายทาง) ----------
 //
-// endpoint POST /api/showcase-import (app/api/showcase-import/route.ts) ต้องมี header
-// x-showcase-secret ตรงกับ SHOWCASE_IMPORT_SECRET ใน .env ของแอปหลักเสมอ — endpoint นี้เขียนข้อมูล
-// เข้า DB ได้ (ต่างจาก known-ids ด้านบนที่แค่อ่าน) เก็บ secret ไว้ที่ chrome.storage.local เท่านั้น
-// (ไม่ใช่ .sync — PK02 ห้ามไว้) ผู้ใช้ต้องคัดลอกมาวางเองครั้งเดียว ไม่มีทางที่ extension จะรู้ค่านี้เอง
-// โดยไม่ต้องพึ่งผู้ใช้ เพราะถ้ามี endpoint ให้ถามค่านี้แบบไม่ต้องยืนยันตัวตน จะเปิดช่องให้เว็บอื่นแอบ
-// ถามค่าแทนได้เหมือนกัน (ทำลายจุดประสงค์ของ secret ไปเลย) — ค่าคงที่/ตัวอ่าน secret อยู่ที่ app-link.ts
-// (popup ใช้ร่วมเพื่อเช็คการเชื่อมต่อก่อนเปิดปุ่มสแกน)
+// สิทธิ์ shop.tiktok.com ได้ตอนติดตั้ง (host_permissions ใน manifest) และปลายทางเป็นลิงก์เดียวที่มี
+// token อยู่ในตัว จึงไม่มีขั้นขอสิทธิ์/วาง secret แยกอีกแล้ว
 
-const appSecretInput = requireElement('app-secret-input') as HTMLInputElement
-const saveAppSecretButton = requireElement('save-app-secret-button') as HTMLButtonElement
-const appSecretStatusEl = requireElement('app-secret-status')
+const settingsEl = requireElement('settings') as HTMLDetailsElement
+const destinationInput = requireElement('destination-input') as HTMLInputElement
+const destinationStatusEl = requireElement('destination-status')
 
-async function refreshAppSecretStatus(): Promise<void> {
-  const secret = await getSavedAppSecret()
-  setText(appSecretStatusEl, secret === '' ? 'ยังไม่ได้บันทึก secret' : '✅ บันทึก secret แล้ว')
+async function refreshDestination(): Promise<void> {
+  const link = await getDestinationLink()
+  // ยังไม่มีลิงก์ = ใช้ส่ง/หยุดเองไม่ได้ กางส่วนตั้งค่าให้เห็นทันที
+  settingsEl.open = link === ''
+  setText(destinationStatusEl, link === '' ? 'ยังไม่ได้ใส่ลิงก์ปลายทาง' : '✅ มีลิงก์ปลายทางแล้ว')
 }
 
-saveAppSecretButton.addEventListener('click', () => {
+requireElement('save-destination-button').addEventListener('click', () => {
   void (async () => {
-    await chrome.storage.local.set({ [APP_SECRET_STORAGE_KEY]: appSecretInput.value })
-    appSecretInput.value = ''
-    await refreshAppSecretStatus()
+    const parsed = parseDestinationLink(destinationInput.value)
+    if (!parsed.ok) {
+      setText(destinationStatusEl, parsed.message)
+      return
+    }
+    await saveDestinationLink(parsed.url)
+    destinationInput.value = ''
+    setText(destinationStatusEl, '✅ บันทึกลิงก์แล้ว')
   })()
+})
+
+requireElement('clear-memory-button').addEventListener('click', () => {
+  void clearDeliveryMemory().then(() =>
+    setText(destinationStatusEl, 'ลืมรายการที่เคยส่งแล้ว — รอบหน้าจะส่งทุกตัวที่สแกนเจอ'),
+  )
 })
 
 // ---------- ทดสอบอ่านหนึ่งหน้า (probe, §14.1) ----------
@@ -634,56 +564,23 @@ exportButton.addEventListener('click', () => {
   })()
 })
 
-/** ส่งสินค้าที่เลือกอยู่เข้าแอปหลัก — คืนข้อความผลลัพธ์ (ใช้ทั้งปุ่ม "ส่งเข้าระบบเลย" และโหมดอัตโนมัติ) */
-async function pushSelectedToApp(): Promise<{ ok: boolean; message: string }> {
-  const secret = await getSavedAppSecret()
-  if (secret === '') {
-    return { ok: false, message: 'ยังไม่ได้บันทึก secret — ใส่ค่าจาก .env (SHOWCASE_IMPORT_SECRET) ที่ช่องด้านบนก่อน' }
-  }
-  if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) {
-    return { ok: false, message: 'ยังไม่ได้เชื่อมต่อแอปหลัก — กดปุ่ม "เชื่อมต่อแอปหลัก" ด้านบนก่อน' }
-  }
-
+/** ส่งสินค้าที่เลือกอยู่ไปปลายทาง — คืนข้อความผลลัพธ์ (ใช้ทั้งปุ่ม "ส่งไปปลายทาง" และโหมดอัตโนมัติ) */
+async function pushSelectedToDestination(): Promise<{ ok: boolean; message: string }> {
   const result = await send({ type: 'run.export', selectedIds: [...state.selected] })
   if (!result.ok) return { ok: false, message: `เตรียมข้อมูลไม่สำเร็จ: ${result.code}` }
-
-  try {
-    const response = await fetch(APP_IMPORT_URL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-showcase-secret': secret },
-      body: JSON.stringify(result.payload),
-      signal: AbortSignal.timeout(30_000),
-    })
-    const body = (await response.json().catch(() => null)) as {
-      added?: number
-      skipped?: number
-      imagesFailed?: number
-      error?: string
-    } | null
-
-    if (!response.ok) {
-      return { ok: false, message: `ส่งไม่สำเร็จ (${String(response.status)}): ${body?.error ?? 'ไม่ทราบสาเหตุ'}` }
-    }
-    const skippedNote = body?.skipped ? ` · ข้าม ${String(body.skipped)}` : ''
-    const failedNote = body?.imagesFailed ? ` · โหลดรูปพลาด ${String(body.imagesFailed)}` : ''
-    return {
-      ok: true,
-      message: `✅ ส่งเข้าระบบสำเร็จ — เพิ่ม ${String(body?.added ?? 0)} รายการ${skippedNote}${failedNote}`,
-    }
-  } catch {
-    return { ok: false, message: 'เชื่อมต่อแอปหลักไม่ได้ — เช็คว่า start.bat เปิดอยู่ไหม' }
-  }
+  const sent = await deliver(result.payload)
+  return sent.ok ? { ok: true, message: `✅ ส่งไปปลายทางแล้ว ${String(sent.count)} รายการ` } : sent
 }
 
 pushButton.addEventListener('click', () => {
   void (async () => {
     setText(pushResultEl, 'กำลังส่ง…')
-    setText(pushResultEl, (await pushSelectedToApp()).message)
+    setText(pushResultEl, (await pushSelectedToDestination()).message)
   })()
 })
 
-// ---------- โหมดอัตโนมัติ: ปุ่ม "สแกนสินค้าใหม่ → ส่งเข้า Angle" ใน popup (คำสั่งผ่าน storage.session —
-// ดู requestAutoScan ใน app-link.ts) ----------
+// ---------- โหมดอัตโนมัติ: ปุ่มสแกน+ส่งใน popup (คำสั่งผ่าน storage.session —
+// ดู requestAutoScan ใน destination.ts) ----------
 //
 // สแกนแบบหยุดเมื่อเจอหน้าที่มีแต่สินค้าที่แอปรู้จักแล้ว → เลือกเฉพาะตัวที่แอปยังไม่มี → ส่งเข้าแอป
 // ทำในหน้านี้ ไม่ใช่ใน popup เพราะ popup ปิดทันทีที่ผู้ใช้คลิกที่อื่น งานจะขาดกลางทาง
@@ -702,12 +599,19 @@ function setAutoStatus(text: string, tone: 'info' | 'warning'): void {
 async function runAutoScanAndPush(): Promise<void> {
   const autoStop = requireElement('auto-stop-known-checkbox') as HTMLInputElement
   autoStop.checked = true
-  setAutoStatus('สแกนอัตโนมัติ: กำลังถามรายการสินค้าที่ Angle มีอยู่แล้ว…', 'info')
-  const knownProductIds = await resolveKnownProductIds()
-  if (knownProductIds === null) {
-    setAutoStatus('สแกนอัตโนมัติไม่ได้ — ถามรายการสินค้าจาก Angle ไม่ได้ (เช็คว่า start.bat เปิดอยู่) ยังไม่ได้สแกนอะไร', 'warning')
+  // ไม่มีลิงก์ = สแกนไปก็ส่งไม่ได้ และห้ามสแกนเต็มแล้วส่งซ้ำทั้งก้อนเมื่อถามรายการ "ส่งแล้ว" ไม่ได้
+  if ((await getDestinationLink()) === '') {
+    setAutoStatus('ยังไม่ได้ใส่ลิงก์ปลายทาง — ใส่ที่ส่วน "ตั้งค่า" ก่อน ยังไม่ได้สแกนอะไร', 'warning')
+    settingsEl.open = true
     return
   }
+  setAutoStatus('สแกนอัตโนมัติ: กำลังถามรายการสินค้าที่ส่งไปแล้ว…', 'info')
+  const known = await resolveKnownIds()
+  if (known === null) {
+    setAutoStatus('ติดต่อปลายทางไม่ได้ หรือลิงก์ใช้ไม่ได้แล้ว — ยังไม่ได้สแกนอะไร', 'warning')
+    return
+  }
+  const knownProductIds = known.ids
 
   // ล้างผลเก่าก่อน — ถ้ารอบนี้จบแบบไม่มี report (อ่านสถานะไม่ได้/idle) ต้องไม่หยิบผลสแกนรอบก่อน
   // (ที่ poll รอบแรกโหลดมาโชว์) ไปส่งแทน
@@ -727,32 +631,27 @@ async function runAutoScanAndPush(): Promise<void> {
     return
   }
   if (report.stopReason !== 'known_ids_reached' && report.stopReason !== 'endpoint_end') {
-    setAutoStatus(`สแกนหยุดก่อนจบ (${report.stopReason}) — ยังไม่ได้ส่งอะไรเข้า Angle ดูผลด้านล่างแล้วตัดสินใจเอง`, 'warning')
+    setAutoStatus(`สแกนหยุดก่อนจบ (${report.stopReason}) — ยังไม่ได้ส่งอะไรไปปลายทาง ดูผลด้านล่างแล้วตัดสินใจเอง`, 'warning')
     return
   }
 
-  const known = new Set(knownProductIds)
-  const newIds = report.products.filter((p) => !known.has(p.productId)).map((p) => p.productId)
+  const knownSet = new Set(knownProductIds)
+  const newIds = report.products.filter((p) => !knownSet.has(p.productId)).map((p) => p.productId)
   if (newIds.length === 0) {
-    setAutoStatus('✅ ไม่มีสินค้าใหม่ — ทุกตัวใน Showcase มีใน Angle แล้ว', 'info')
+    setAutoStatus('✅ ไม่มีสินค้าใหม่ — ทุกตัวใน Showcase ส่งไปปลายทางแล้ว', 'info')
     return
   }
 
   state.selected = new Set(newIds)
   renderPreview()
-  setAutoStatus(`สแกนอัตโนมัติ: เจอสินค้าใหม่ ${String(newIds.length)} ตัว กำลังส่งเข้า Angle…`, 'info')
-  const pushed = await pushSelectedToApp()
-  setAutoStatus(
-    pushed.ok ? `${pushed.message} — ไปเลือกทำต่อที่หน้า "หาสินค้า" ใน Angle ได้เลย` : pushed.message,
-    pushed.ok ? 'info' : 'warning',
-  )
+  setAutoStatus(`สแกนอัตโนมัติ: เจอสินค้าใหม่ ${String(newIds.length)} ตัว กำลังส่งไปปลายทาง…`, 'info')
+  const pushed = await pushSelectedToDestination()
+  setAutoStatus(pushed.message, pushed.ok ? 'info' : 'warning')
 }
 
 renderChannelBanner()
 void renderBuildInfo()
-void refreshPermissionStatus()
-void refreshAppPermissionStatus()
-void refreshAppSecretStatus()
+void refreshDestination()
 void (async () => {
   // รอ poll รอบแรกจบก่อนเสมอ — pollStatus กันการ poll ซ้อน (state.polling) ถ้าโหมดอัตโนมัติเริ่มสแกน
   // ระหว่างที่รอบแรกยังวิ่งอยู่ การรอผลสแกนจะหลุดทันทีโดยไม่เห็นผลจริง

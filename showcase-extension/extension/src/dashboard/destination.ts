@@ -169,3 +169,25 @@ export function relativeDaysThai(iso: string, now: number): string {
   if (days === 1) return 'เมื่อวาน'
   return `${String(days)} วันก่อน`
 }
+
+/**
+ * popup สั่งหน้าจัดการให้ "สแกนสินค้าใหม่แล้วส่งเข้าแอปเองจนจบ" (dashboard/main.ts runAutoScanAndPush)
+ * ผ่าน chrome.storage.session — ไม่ใช้ query string เพราะ PK03 ห้าม release bundle อ่าน
+ * location.search/URLSearchParams เด็ดขาด (กันช่องสั่งโหมดพิเศษจากภายนอก) · storage.session อยู่ใน
+ * หน่วยความจำของ extension เท่านั้น หน้าเว็บภายนอกเขียนไม่ได้ · คำสั่งใช้ได้ครั้งเดียว (อ่านแล้วลบ)
+ * และหมดอายุเร็ว กันคำสั่งค้างไปจุดชนวนตอนผู้ใช้เปิดหน้าจัดการเองทีหลัง
+ */
+const AUTO_SCAN_REQUEST_KEY = 'autoScanRequestedAt'
+const AUTO_SCAN_REQUEST_TTL_MS = 15_000
+
+export async function requestAutoScan(): Promise<void> {
+  await chrome.storage.session.set({ [AUTO_SCAN_REQUEST_KEY]: Date.now() })
+}
+
+export async function consumeAutoScanRequest(now: number = Date.now()): Promise<boolean> {
+  const stored = (await chrome.storage.session.get(AUTO_SCAN_REQUEST_KEY)) as Record<string, unknown>
+  const requestedAt = stored[AUTO_SCAN_REQUEST_KEY]
+  if (requestedAt === undefined) return false
+  await chrome.storage.session.remove(AUTO_SCAN_REQUEST_KEY)
+  return typeof requestedAt === 'number' && now - requestedAt >= 0 && now - requestedAt <= AUTO_SCAN_REQUEST_TTL_MS
+}

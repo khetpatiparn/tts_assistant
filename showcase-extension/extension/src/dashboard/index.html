@@ -15,74 +15,11 @@
       <h1>Showcase Scanner</h1>
       <p id="auto-status" class="notice" role="status" aria-live="polite" hidden></p>
 
-      <section aria-labelledby="build-heading">
-        <h2 id="build-heading">ข้อมูล build</h2>
-        <div id="build-info" class="rows">กำลังโหลด…</div>
-      </section>
-
-      <section aria-labelledby="permission-heading">
-        <h2 id="permission-heading">สิทธิ์เข้าถึง shop.tiktok.com</h2>
-        <p class="hint">
-          จำเป็นเฉพาะตอนใช้ live adapter (ยัง gate ด้วย G0 อยู่) — mock adapter ไม่ต้องมีสิทธิ์นี้
-          กดปุ่มนี้เพื่ออนุญาต ไม่มีการขอสิทธิ์ใดโดยอัตโนมัติจากเบื้องหลัง
-        </p>
-        <div id="permission-status" class="rows" role="status" aria-live="polite">กำลังตรวจสิทธิ์…</div>
-        <button id="grant-permission-button" type="button" hidden>อนุญาตให้เข้าถึง shop.tiktok.com</button>
-      </section>
-
-      <section aria-labelledby="probe-heading">
-        <h2 id="probe-heading">ทดสอบอ่านทีละหน้า (probe)</h2>
-        <p class="hint">
-          อ่านครั้งละหนึ่งหน้า (count=6) หนึ่งครั้งต่อหนึ่งคลิก ไม่มี pagination อัตโนมัติและไม่มี retry —
-          ปุ่ม “อ่านหน้าถัดไป” จะเลื่อน offset ไปทีละ 6 ก็ต่อเมื่อคุณกดเองเท่านั้น
-          ผลลัพธ์ที่ได้คือผลทดสอบทีละหน้า <strong>ไม่ใช่ผลสแกนครบ</strong>
-        </p>
-        <button id="probe-button" type="button">อ่านหน้าแรก (offset=0)</button>
-        <button id="probe-next-button" type="button" hidden>อ่านหน้าถัดไป</button>
-        <button id="probe-export-button" type="button" hidden>Export ผลทดสอบหน้านี้</button>
-        <div id="probe-result" class="rows" role="status" aria-live="polite"></div>
-      </section>
-
       <section aria-labelledby="run-heading">
         <h2 id="run-heading">สแกน Showcase</h2>
-
-        <p class="hint">
-          เชื่อมต่อแอปหลัก (pooling_prompt) เพื่อให้สแกนหยุดเองทันทีที่เจอหน้าที่มีแต่สินค้าที่นำเข้า
-          ระบบไปแล้วทั้งหน้า — ปลอดภัยแม้ไม่แน่ใจว่าสินค้าใหม่ขึ้นหน้าแรกเสมอไหม เพราะอย่างแย่ที่สุดคือ
-          หยุดช้ากว่าที่ควร ไม่มีทางพลาดสินค้าใหม่ไปได้
-        </p>
-        <div id="app-permission-status" class="rows" role="status" aria-live="polite">กำลังตรวจสิทธิ์…</div>
-        <button id="grant-app-permission-button" type="button" hidden>เชื่อมต่อแอปหลัก</button>
-        <label>
-          <input id="auto-stop-known-checkbox" type="checkbox" checked />
-          หยุดอัตโนมัติเมื่อเจอสินค้าที่มีอยู่แล้วในระบบ (แนะนำ)
-        </label>
-
-        <p class="hint">
-          Secret สำหรับปุ่ม "ส่งเข้าระบบเลย" ด้านล่าง (ไม่เกี่ยวกับ auto-stop ด้านบน) — คัดลอกค่าจาก
-          <code>SHOWCASE_IMPORT_SECRET</code> ในไฟล์ <code>.env</code> ของแอปหลัก มาวางแล้วกดบันทึกครั้งเดียว
-        </p>
-        <div class="row-buttons">
-          <input id="app-secret-input" type="text" autocomplete="off" placeholder="วาง secret ที่นี่" />
-          <button id="save-app-secret-button" type="button">บันทึก secret</button>
-        </div>
-        <div id="app-secret-status" class="hint" role="status" aria-live="polite"></div>
-
-        <p class="hint">
-          หรือจำกัดจำนวนหน้าเองก็ได้ (เช่น เพิ่งเพิ่มสินค้าใหม่ 12 ชิ้น = 2 หน้า) — เว้นว่างไว้ = สแกนจนจบ
-          ทั้ง Showcase ตามปกติ ใช้ร่วมกับ auto-stop ด้านบนได้ อันไหนถึงก่อนก็หยุดก่อน
-        </p>
-        <label for="max-pages-input">จำนวนหน้าที่จะสแกน</label>
-        <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
-        <div class="row-buttons">
-          <button id="max-pages-1" type="button">1 หน้า</button>
-          <button id="max-pages-2" type="button">2 หน้า</button>
-          <button id="max-pages-all" type="button">ทั้งหมด</button>
-        </div>
         <div id="run-status" class="rows" role="status" aria-live="polite">กำลังตรวจสถานะ…</div>
         <button id="start-button" type="button">เริ่มสแกน</button>
         <button id="cancel-button" type="button" hidden>ยกเลิก</button>
-        <button id="clear-data-button" type="button">ล้างข้อมูลที่เก็บไว้</button>
       </section>
 
       <section id="preview-section" aria-labelledby="preview-heading" hidden>
@@ -116,9 +53,45 @@
         </div>
 
         <button id="export-button" type="button">Export JSON</button>
-        <button id="push-button" type="button">ส่งเข้าระบบเลย (pooling_prompt)</button>
+        <button id="push-button" type="button">ส่งไปปลายทาง</button>
         <div id="push-result" class="rows" role="status" aria-live="polite"></div>
       </section>
+
+      <details id="settings">
+        <summary>ตั้งค่า</summary>
+
+        <h2>ลิงก์ปลายทาง</h2>
+        <p class="hint">ลิงก์จากระบบที่จะรับผลสแกน (เช่น ปุ่ม "คัดลอกลิงก์" ในแอปของคุณ) — ใส่ครั้งเดียว</p>
+        <div class="row-buttons">
+          <input id="destination-input" type="text" autocomplete="off" placeholder="https://…" />
+          <button id="save-destination-button" type="button">บันทึกลิงก์</button>
+        </div>
+        <div id="destination-status" class="hint" role="status" aria-live="polite"></div>
+
+        <label>
+          <input id="auto-stop-known-checkbox" type="checkbox" checked />
+          หยุดสแกนเองเมื่อเจอหน้าที่มีแต่สินค้าที่ส่งไปแล้ว (แนะนำ)
+        </label>
+        <label for="max-pages-input">จำกัดจำนวนหน้า (เว้นว่าง = ไม่จำกัด)</label>
+        <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
+        <div class="row-buttons">
+          <button id="max-pages-1" type="button">1 หน้า</button>
+          <button id="max-pages-2" type="button">2 หน้า</button>
+          <button id="max-pages-all" type="button">ทั้งหมด</button>
+        </div>
+
+        <button id="clear-memory-button" type="button">ลืมรายการที่เคยส่งแล้ว</button>
+        <button id="clear-data-button" type="button">ล้างข้อมูลที่เก็บไว้</button>
+
+        <h2 id="probe-heading">เครื่องมือทดสอบ: อ่านทีละหน้า</h2>
+        <button id="probe-button" type="button">อ่านหน้าแรก (offset=0)</button>
+        <button id="probe-next-button" type="button" hidden>อ่านหน้าถัดไป</button>
+        <button id="probe-export-button" type="button" hidden>Export ผลทดสอบหน้านี้</button>
+        <div id="probe-result" class="rows" role="status" aria-live="polite"></div>
+
+        <h2 id="build-heading">ข้อมูล build</h2>
+        <div id="build-info" class="rows">กำลังโหลด…</div>
+      </details>
     </main>
     <script type="module" src="main.js"></script>
   </body>

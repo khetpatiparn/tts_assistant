@@ -35,21 +35,37 @@ test('popup เปิดได้และแสดงสถานะจาก s
   await expect(page.locator('#scan-push')).toBeDisabled()
 })
 
-test('สแกนอัตโนมัติ — ถามรายการสินค้าจากแอปไม่ได้ต้องไม่สแกนเต็มแล้วส่งทั้ง Showcase', async ({
+test('สแกนอัตโนมัติ — ยังไม่มีลิงก์ปลายทางต้องไม่สแกนเต็มแล้วส่งทั้ง Showcase', async ({
   context,
   extensionId,
 }) => {
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
   await expect(page.locator('#auto-status')).toBeHidden() // ไม่มีคำสั่ง = ไม่ทำอะไรเอง
-  // จำลองปุ่มใน popup (requestAutoScan) — โปรไฟล์ทดสอบไม่มีสิทธิ์ localhost:3000 จึงถาม known-ids ไม่ได้
+  // จำลองปุ่มใน popup (requestAutoScan) — โปรไฟล์ทดสอบยังไม่มีลิงก์ปลายทาง จึงถามรายการที่ส่งแล้วไม่ได้
   await page.evaluate(() => chrome.storage.session.set({ autoScanRequestedAt: Date.now() }))
   await page.reload()
-  await expect(page.locator('#auto-status')).toContainText('สแกนอัตโนมัติไม่ได้')
+  await expect(page.locator('#auto-status')).toContainText('ยังไม่ได้ใส่ลิงก์ปลายทาง')
   await expect(page.locator('#start-button')).toBeVisible()
   // คำสั่งใช้ครั้งเดียว — refresh ต้องไม่รันซ้ำ
   await page.reload()
   await expect(page.locator('#auto-status')).toBeHidden()
+})
+
+test('หน้าจัดการ: ไม่มีส่วนขอสิทธิ์/secret แล้ว และส่วนตั้งค่ากางเองเมื่อยังไม่มีลิงก์', async ({ context, extensionId }) => {
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
+  await expect(page.locator('#grant-permission-button')).toHaveCount(0)
+  await expect(page.locator('#app-secret-input')).toHaveCount(0)
+  await expect(page.locator('#settings')).toHaveAttribute('open', '')
+  await page.locator('#destination-input').fill('http://example.com/hook')
+  await page.locator('#save-destination-button').click()
+  await expect(page.locator('#destination-status')).toContainText('https://')
+  await page.locator('#destination-input').fill('http://localhost:3000/api/scanner?token=t')
+  await page.locator('#save-destination-button').click()
+  await expect(page.locator('#destination-status')).toContainText('บันทึกลิงก์แล้ว')
+  await page.reload()
+  await expect(page.locator('#settings')).not.toHaveAttribute('open', '')
 })
 
 test('.product-image-gallery[hidden] ซ่อนจริงในเบราว์เซอร์จริง (ไม่ใช่แค่ attribute)', async ({

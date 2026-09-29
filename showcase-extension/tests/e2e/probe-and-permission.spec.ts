@@ -80,8 +80,11 @@ test('permission status แสดงว่ามีสิทธิ์ shop.tikto
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
 
-  await expect(page.locator('#permission-status')).toContainText('มีสิทธิ์เข้าถึง https://shop.tiktok.com/*')
-  await expect(page.locator('#grant-permission-button')).not.toBeVisible()
+  // สิทธิ์ได้ตอนติดตั้ง (host_permissions) จึงไม่มีส่วนขอสิทธิ์ในหน้าอีก — ตรวจทั้งว่าองค์ประกอบหายไปและว่าสิทธิ์มีจริง
+  await expect(page.locator('#permission-status')).toHaveCount(0)
+  await expect(page.locator('#grant-permission-button')).toHaveCount(0)
+  const granted = await page.evaluate(() => chrome.permissions.contains({ origins: ['https://shop.tiktok.com/*'] }))
+  expect(granted).toBe(true)
 })
 
 /**
