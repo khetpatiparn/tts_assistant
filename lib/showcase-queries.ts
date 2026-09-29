@@ -24,7 +24,7 @@ export async function getShowcaseItems(): Promise<ShowcaseItem[]> {
           prisma.flowJob.findMany({
             where: { entryId: { in: linkedIds } },
             orderBy: { createdAt: "desc" },
-            select: { entryId: true, status: true, errorKind: true },
+            select: { entryId: true, status: true, errorKind: true, round: true },
           }),
         ]);
 
@@ -45,7 +45,7 @@ export async function getShowcaseItems(): Promise<ShowcaseItem[]> {
   );
 
   // งาน Flow ล่าสุดต่อ Entry (jobs เรียงใหม่→เก่า ตัวแรกที่เจอคือล่าสุด)
-  const latestJob = new Map<string, { status: string; errorKind: string }>();
+  const latestJob = new Map<string, { status: string; errorKind: string; round: number }>();
   for (const j of jobs) if (!latestJob.has(j.entryId)) latestJob.set(j.entryId, j);
   return items.map((i) =>
     i.status === "in_progress" && i.linkedEntryId !== null

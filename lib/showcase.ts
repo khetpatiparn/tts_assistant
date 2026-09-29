@@ -18,13 +18,20 @@ export type ShowcaseStatus = "todo" | "in_progress" | "posted" | "dismissed";
  * - `retry`   = ไม่มีงาน Flow / ถูกข้าม / Flow วาดไม่สำเร็จเอง (flow_error) → เลือกรูปต้นทางใหม่ได้
  * - `blocked` = พังด้วยเหตุผลอื่น (captcha/login/selector ฯลฯ) → ต้องไปจัดการที่หน้าคิว Flow ก่อน
  *   **ห้ามเปิดทางลัดให้ captcha** เพราะการส่งรูปใหม่เท่ากับเข้าคิวใหม่ทันที ข้ามกฎพัก 1 ชั่วโมง
- * - `busy`    = กำลังอยู่ในคิว/วาด/รอเลือก หรือเสร็จแล้ว → ไม่มีปุ่ม
+ *   รวมถึง**งาน Render/โหลด 1080p (round 3-4) ที่พังทุกกรณี** แม้เป็น flow_error — ถึงรอบนี้ผู้ใช้เลือกรูปอ้างอิง
+ *   ครบ 2 รอบแล้ว "เลือกรูปใหม่" จะทิ้งงานนี้แล้วเริ่มวาดรูปใหม่ตั้งแต่ต้น ทางที่ถูกคือกด "รันต่อ" ที่หน้าคิว Flow
+ * - `busy`    = กำลังอยู่ในคิว/วาด/รอเลือก/รอพรอมต์/ทำคลิป/รอดูคลิป/โหลด 1080p หรือเสร็จแล้ว → ไม่มีปุ่ม
  */
 export type ShowcaseFlowState = "retry" | "blocked" | "busy";
 
-export function showcaseFlowState(latestJob: { status: string; errorKind: string } | null): ShowcaseFlowState {
+export function showcaseFlowState(
+  latestJob: { status: string; errorKind: string; round: number } | null
+): ShowcaseFlowState {
   if (latestJob === null || latestJob.status === "skipped") return "retry";
-  if (latestJob.status === "failed") return latestJob.errorKind === "flow_error" ? "retry" : "blocked";
+  if (latestJob.status === "failed") {
+    if (latestJob.round >= 3) return "blocked";
+    return latestJob.errorKind === "flow_error" ? "retry" : "blocked";
+  }
   return "busy";
 }
 

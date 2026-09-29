@@ -40,12 +40,14 @@ import {
   DEFAULT_CAPTIONS,
   FLOW_STATUS,
   WORKER_STATE_ID,
+  afterApproveRender,
   afterChoose,
   afterRedo,
   afterResume,
   isOpenStatus,
   normalizeExtraPrompt,
   sourceFilename,
+  toJobRound,
   type FlowRound,
 } from "@/lib/flow-jobs";
 
@@ -587,6 +589,15 @@ export async function generateWithAI(
     where: { id: entryId },
     data: { chatgptOutput: output },
   });
+
+  // มีงาน Flow รอพรอมต์อยู่ (เพิ่งเลือกรูปรอบ 2) → ส่งให้บอท Render คลิปต่อทันที — พรอมต์บันทึกแล้วจริง
+  // จึงทำตรงนี้ ไม่รอขั้น caption · ครอบกรณีที่ผู้ใช้มากด "สร้างด้วย AI" เองทีหลังด้วย (ถ้าตัวอัตโนมัติพัง)
+  // งานที่ Render ไปแล้ว (review_r3/done) ไม่ถูกแตะ — เรนเดอร์ใหม่ต้องกดเองที่หน้าคิว Flow
+  const renderQueued = await prisma.flowJob.updateMany({
+    where: { entryId, status: FLOW_STATUS.AWAITING_PROMPT },
+    data: { status: FLOW_STATUS.QUEUED_R3 },
+  });
+  if (renderQueued.count > 0) revalidatePath("/flow");
 
   let captionError: string | null = null;
 
@@ -1185,7 +1196,9 @@ export async function retryShowcasePhoto(formData: FormData): Promise<{ entryId:
   }
   const entryId = candidate.linkedEntryId;
   const latest = await prisma.flowJob.findFirst({ where: { entryId }, orderBy: { createdAt: "desc" } });
-  const state = showcaseFlowState(latest === null ? null : { status: latest.status, errorKind: latest.errorKind });
+  const state = showcaseFlowState(
+    latest === null ? null : { status: latest.status, errorKind: latest.errorKind, round: latest.round }
+  );
   if (state === "blocked") throw new Error("งาน Flow ของสินค้านี้หยุดด้วยเหตุผลอื่น — ไปจัดการที่หน้า คิว Flow ก่อน");
   if (state === "busy") throw new Error("งาน Flow ของสินค้านี้ยังทำงานอยู่ หรือเสร็จแล้ว");
 
@@ -1412,7 +1425,8 @@ export async function enqueueFlowJob(formData: FormData): Promise<string> {
 }
 
 /**
- * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → done และก๊อป 2 รูปที่เลือกเป็น ProductImage
+ * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → ก๊อป 2 รูปที่เลือกเป็น ProductImage แล้วรอ 10-part prompt
+ * (awaiting_prompt, รอบ 3 = Render) · generateWithAI เป็นคนส่งต่อเข้าคิว Render
  * (caption ตั้งต้นตาม DEFAULT_CAPTIONS แก้ได้ในหน้า entry เหมือนรูปที่อัปเอง)
  */
 /**
@@ -1448,7 +1462,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
       return;
     }
 
-    // done: รูปที่เลือกรอบ 1 + รูปนี้ (รอบ 2) → ProductImage 2 แถว
+    // จบรอบ 2: รูปที่เลือกรอบ 1 + รูปนี้ (รอบ 2) → ProductImage 2 แถว
     const round1 = job.images.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen);
     if (!round1) throw new Error("ไม่พบรูปที่เลือกไว้ในรอบ 1");
     const existingCount = await tx.productImage.count({ where: { entryId: job.entryId } });
@@ -1488,7 +1502,12 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
       }
       throw err;
     }
-    await tx.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
+    // ล้างข้อความเพิ่มเติม — ข้อความของรอบรูป (เช่น "เอาแค่แผ่นเดียว") พูดถึงรูปอ้างอิง ไม่ใช่คลิป
+    // ถ้าติดไปต่อท้าย 10-part prompt จะกลายเป็นคำสั่งแปลกๆ ท้ายพรอมต์วิดีโอ
+    await tx.flowJob.update({
+      where: { id: jobId },
+      data: { status: next.status, round: 3, attempt: 1, extraPrompt: "" },
+    });
   });
 
   revalidatePath("/flow");
@@ -1497,13 +1516,35 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
 }
 
 /**
- * "ไม่ผ่านสักรูป วาดใหม่" — attempt+1 · candidate เก่าเก็บไว้ (ข้อมูลว่าเพี้ยนบ่อยแค่ไหน)
- * @param extraPrompt ข้อความต่อท้ายพรอมต์ตายตัวสำหรับครั้งนี้ ("" = กลับเป็นพรอมต์ตั้งต้น) · undefined = ใช้ค่าเดิมของงาน
+ * "ผ่าน" คลิปตัวอย่าง 720p → ให้บอทกลับไปโหลดคลิปเดิมแบบ 1080p Upscaled (round 4, queued_upscale) — บอทหยิบงานนี้
+ * ก่อนงานอื่นและไม่นับเพดาน · งานเป็น done เมื่อบอทได้ไฟล์ 1080p แล้ว (worker/index.ts)
  */
-export async function redoFlowRound(jobId: string, extraPrompt?: string): Promise<void> {
+export async function approveFlowRender(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
+  const next = afterApproveRender(job.status);
+  await prisma.flowJob.update({ where: { id: jobId }, data: { status: next.status, round: next.round } });
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
+}
+
+/**
+ * "ไม่ผ่านสักรูป วาดใหม่" / "เรนเดอร์ใหม่" (คลิป) — attempt+1 · candidate/คลิปเก่าเก็บไว้ (ข้อมูลว่าเพี้ยนบ่อยแค่ไหน)
+ * @param extraPrompt ข้อความต่อท้ายพรอมต์สำหรับครั้งนี้ (รูป = ต่อท้ายพรอมต์ตายตัว · คลิป = ต่อท้าย 10-part prompt)
+ *   "" = กลับเป็นพรอมต์ตั้งต้น · undefined = ใช้ค่าเดิมของงาน
+ */
+export async function redoFlowRound(jobId: string, extraPrompt?: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
   const next = afterRedo(job.status);
+  if (job.status === FLOW_STATUS.REVIEW_R3) {
+    // คลิปตัวอย่างที่ไม่ผ่านลบทิ้งทั้งไฟล์และแถว (ต่างจากรูป candidate ที่เก็บไว้) — ไฟล์ละหลาย MB และงานมีคลิปได้
+    // แถวเดียว หน้าเว็บจะได้ไม่ชี้ไปคลิปที่ผู้ใช้ปัดตกแล้ว · จำนวนครั้งที่เรนเดอร์ยังดูได้จาก attempt
+    for (const v of job.images.filter((i) => i.kind === "video")) {
+      await unlink(joinPath(UPLOAD_ROOT, job.entryId, "flow", v.filename)).catch(() => undefined);
+    }
+    await prisma.flowJobImage.deleteMany({ where: { jobId, kind: "video" } });
+  }
   await prisma.flowJob.update({
     where: { id: jobId },
     data: {
@@ -1521,7 +1562,8 @@ export async function resumeFlowWorker(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
   if (job.status !== FLOW_STATUS.FAILED) throw new Error("รันต่อได้เฉพาะงานที่พัง");
-  const round = (job.round === 2 ? 2 : 1) as FlowRound;
+  // round 3 = งาน Render ที่พัง → กลับเข้าคิว Render (queued_r3) ไม่ใช่วาดรูปใหม่
+  const round = toJobRound(job.round);
   await prisma.$transaction([
     prisma.flowJob.update({
       where: { id: jobId },

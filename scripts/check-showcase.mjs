@@ -99,13 +99,30 @@ try {
 
   // --- ปุ่ม "เลือกรูปใหม่" ---
   check("ยังไม่มีงาน Flow = เลือกรูปใหม่ได้", s.showcaseFlowState(null), "retry");
-  check("งานถูกข้าม = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "" }), "retry");
-  check("Flow วาดไม่สำเร็จเอง = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error" }), "retry");
-  check("โดนจับว่าเป็นบอท = ห้ามทางลัด (ต้องพัก 1 ชม.)", s.showcaseFlowState({ status: "failed", errorKind: "captcha" }), "blocked");
-  check("login หลุด = ห้ามทางลัด", s.showcaseFlowState({ status: "failed", errorKind: "login_required" }), "blocked");
-  check("กำลังวาด = ไม่มีปุ่ม", s.showcaseFlowState({ status: "running_r1", errorKind: "" }), "busy");
-  check("รอเลือกรูป = ไม่มีปุ่ม", s.showcaseFlowState({ status: "review_r1", errorKind: "" }), "busy");
-  check("เสร็จแล้ว = ไม่มีปุ่ม", s.showcaseFlowState({ status: "done", errorKind: "" }), "busy");
+  check("งานถูกข้าม = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "", round: 1 }), "retry");
+  check("Flow วาดไม่สำเร็จเอง = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 1 }), "retry");
+  check("Flow วาดไม่สำเร็จเองรอบ 2 = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 2 }), "retry");
+  check("โดนจับว่าเป็นบอท = ห้ามทางลัด (ต้องพัก 1 ชม.)", s.showcaseFlowState({ status: "failed", errorKind: "captcha", round: 1 }), "blocked");
+  check("login หลุด = ห้ามทางลัด", s.showcaseFlowState({ status: "failed", errorKind: "login_required", round: 1 }), "blocked");
+  check(
+    "Render (รอบ 3) พังแม้เป็น flow_error = ห้ามทางลัด (จะทิ้งรูปที่เลือกไว้ทั้ง 2 รอบ)",
+    s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 3 }),
+    "blocked"
+  );
+  check("กำลังวาด = ไม่มีปุ่ม", s.showcaseFlowState({ status: "running_r1", errorKind: "", round: 1 }), "busy");
+  check("รอเลือกรูป = ไม่มีปุ่ม", s.showcaseFlowState({ status: "review_r1", errorKind: "", round: 1 }), "busy");
+  check(
+    "โหลด 1080p (round 4) พัง = ห้ามทางลัด",
+    s.showcaseFlowState({ status: "failed", errorKind: "download_failed", round: 4 }),
+    "blocked"
+  );
+  for (const st of ["awaiting_prompt", "queued_r3", "running_r3", "review_r3"]) {
+    check(`${st} = ไม่มีปุ่ม`, s.showcaseFlowState({ status: st, errorKind: "", round: 3 }), "busy");
+  }
+  for (const st of ["queued_upscale", "running_upscale"]) {
+    check(`${st} = ไม่มีปุ่ม`, s.showcaseFlowState({ status: st, errorKind: "", round: 4 }), "busy");
+  }
+  check("เสร็จแล้ว = ไม่มีปุ่ม", s.showcaseFlowState({ status: "done", errorKind: "", round: 3 }), "busy");
 
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {

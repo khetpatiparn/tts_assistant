@@ -200,7 +200,9 @@ model CandidateImage {
 }
 
 /// งาน 1 แถว = สินค้า 1 ตัวที่รอ/กำลัง/เสร็จการวาดรูปอ้างอิงใน Google Flow (spec §5-6)
-/// status: queued_r1 → running_r1 → review_r1 → queued_r2 → running_r2 → review_r2 → done
+/// status: queued_r1 → running_r1 → review_r1 → queued_r2 → running_r2 → review_r2
+///         → awaiting_prompt (round 3) → queued_r3 → running_r3 → review_r3 (Render คลิป ดูตัวอย่าง 720p)
+///         → (ผ่าน) queued_upscale (round 4) → running_upscale (โหลด 1080p) → done
 ///         running_* → failed → (รันต่อ) queued_r<round> | (ข้าม) skipped
 model FlowJob {
   id            String      @id @default(cuid())
@@ -228,6 +230,8 @@ model FlowJob {
 }
 
 /// รูปของงาน — kind "source" = แคปจากผู้ใช้ (round 0) · "candidate" = Flow วาด (round 1|2)
+/// · "video" = คลิปที่บอท Render (round 3, index 0, mimeType video/mp4) — มีได้แถวเดียวต่องาน: ตัวอย่าง 720p
+///   ของ attempt ปัจจุบัน (r3-a<n>.mp4, chosen=false) หรือไฟล์ 1080p ของคลิปที่ผ่าน (r3-final.mp4, chosen=true)
 /// ไฟล์อยู่ที่ uploads/<entryId>/flow/<filename>
 model FlowJobImage {
   id        String   @id @default(cuid())
@@ -242,6 +246,9 @@ model FlowJobImage {
   chosen    Boolean  @default(false)
   /// เฉพาะ kind "candidate": ข้อความเพิ่มเติมที่ใช้ตอนวาดชุดนี้ (สำเนาของ FlowJob.extraPrompt ณ ตอนนั้น) — โชว์ใต้รูป
   promptExtra String @default("")
+  /// เฉพาะ kind "video": id ของคลิปใน Flow (จาก src ของ thumbnail ในช่องวิดีโอ) — บอทใช้หาช่องเดิมในโปรเจกต์
+  /// ตอนกลับมาโหลด 1080p หลังผู้ใช้กด "ผ่าน" · ว่าง = ไม่ใช่วิดีโอ
+  flowMediaId String @default("")
   createdAt DateTime @default(now())
 
   @@index([jobId])
@@ -256,6 +263,8 @@ model FlowWorkerState {
   pausedAt      DateTime?
   todayDate     String    @default("")
   todayBatches  Int       @default(0)
+  /// จำนวนคลิปที่ Render วันนี้ (เพดาน videoDailyCap ใน flow-worker.config.json) — รีเซ็ตพร้อม todayBatches
+  todayRenders  Int       @default(0)
   sessionStreak Int       @default(0)
   nextWakeAt    DateTime?
   updatedAt     DateTime  @updatedAt

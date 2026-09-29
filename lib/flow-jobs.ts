@@ -9,13 +9,35 @@ export const FLOW_STATUS = {
   QUEUED_R2: "queued_r2",
   RUNNING_R2: "running_r2",
   REVIEW_R2: "review_r2",
+  /**
+   * รอบ 3 = Render คลิป (spec 2026-09-30-flow-video-render-design.md) — เลือกรูปรอบ 2 แล้วมาหยุดรอที่นี่
+   * จนกว่า generateWithAI จะบันทึก 10-part prompt สำเร็จ (พรอมต์ของคลิปคือ chatgptOutput ของ Entry)
+   */
+  AWAITING_PROMPT: "awaiting_prompt",
+  QUEUED_R3: "queued_r3",
+  RUNNING_R3: "running_r3",
+  REVIEW_R3: "review_r3",
+  /**
+   * round 4 = ผู้ใช้กด "ผ่าน" คลิปตัวอย่าง 720p แล้ว → บอทกลับไปโปรเจกต์เดิม โหลดคลิปเดิมแบบ 1080p Upscaled
+   * (ไม่เสียเครดิต แต่รอนาน) — ขยายเฉพาะคลิปที่ผ่าน ไม่เสียเวลารอ upscale คลิปที่จะทิ้ง
+   */
+  QUEUED_UPSCALE: "queued_upscale",
+  RUNNING_UPSCALE: "running_upscale",
   DONE: "done",
   FAILED: "failed",
   SKIPPED: "skipped",
 } as const;
 
 export type FlowStatus = (typeof FLOW_STATUS)[keyof typeof FLOW_STATUS];
+/** รอบวาดรูป (มี 4 รูปให้เลือก) */
 export type FlowRound = 1 | 2;
+/** รอบของงานทั้งหมด — 3 = Render คลิป · 4 = โหลดคลิปที่ผ่านแบบ 1080p (FlowJob.round บอกว่างานที่พังพังตอนไหน) */
+export type JobRound = FlowRound | 3 | 4;
+
+/** FlowJob.round (Int ใน DB) → JobRound · ค่าแปลกๆ ถือเป็นรอบ 1 เหมือนพฤติกรรมเดิม */
+export function toJobRound(n: number): JobRound {
+  return n === 4 ? 4 : n === 3 ? 3 : n === 2 ? 2 : 1;
+}
 
 export const FLOW_ROUND_1_STATUSES: FlowStatus[] = [
   FLOW_STATUS.QUEUED_R1,
@@ -25,21 +47,52 @@ export const FLOW_ROUND_1_STATUSES: FlowStatus[] = [
 
 export const WORKER_STATE_ID = "singleton";
 
-export function queuedStatus(round: FlowRound): FlowStatus {
-  return round === 1 ? FLOW_STATUS.QUEUED_R1 : FLOW_STATUS.QUEUED_R2;
+const QUEUED_BY_ROUND: Record<JobRound, FlowStatus> = {
+  1: FLOW_STATUS.QUEUED_R1,
+  2: FLOW_STATUS.QUEUED_R2,
+  3: FLOW_STATUS.QUEUED_R3,
+  4: FLOW_STATUS.QUEUED_UPSCALE,
+};
+const RUNNING_BY_ROUND: Record<JobRound, FlowStatus> = {
+  1: FLOW_STATUS.RUNNING_R1,
+  2: FLOW_STATUS.RUNNING_R2,
+  3: FLOW_STATUS.RUNNING_R3,
+  4: FLOW_STATUS.RUNNING_UPSCALE,
+};
+
+export function queuedStatus(round: JobRound): FlowStatus {
+  return QUEUED_BY_ROUND[round];
 }
-export function runningStatus(round: FlowRound): FlowStatus {
-  return round === 1 ? FLOW_STATUS.RUNNING_R1 : FLOW_STATUS.RUNNING_R2;
+export function runningStatus(round: JobRound): FlowStatus {
+  return RUNNING_BY_ROUND[round];
 }
-export function reviewStatus(round: FlowRound): FlowStatus {
-  return round === 1 ? FLOW_STATUS.REVIEW_R1 : FLOW_STATUS.REVIEW_R2;
+/** รอบ 4 (โหลด 1080p) ไม่มีขั้นรอคน — เสร็จแล้วจบงานเลย */
+export function reviewStatus(round: 1 | 2 | 3): FlowStatus {
+  return round === 1 ? FLOW_STATUS.REVIEW_R1 : round === 2 ? FLOW_STATUS.REVIEW_R2 : FLOW_STATUS.REVIEW_R3;
 }
 
-/** รอบที่ status นี้อยู่ · done = 2 · failed/skipped ไม่รู้จากชื่อ (ใช้ job.round แทน) */
-export function roundOf(status: string): FlowRound | null {
+/**
+ * รอบที่ status นี้อยู่ · failed/skipped/done ไม่รู้จากชื่อ (ใช้ job.round แทน) — done เคยตอบ 2 แต่ตั้งแต่มี
+ * Render งานที่เสร็จอาจจบที่รอบ 2 (งานเก่าก่อนมีคลิป) หรือรอบ 4 ก็ได้
+ */
+export function roundOf(status: string): JobRound | null {
   if (status.endsWith("_r1")) return 1;
-  if (status.endsWith("_r2") || status === FLOW_STATUS.DONE) return 2;
+  if (status.endsWith("_r2")) return 2;
+  if (status.endsWith("_r3") || status === FLOW_STATUS.AWAITING_PROMPT) return 3;
+  if (status.endsWith("_upscale")) return 4;
   return null;
+}
+
+/**
+ * ลำดับรอบที่บอทหยิบ: โหลด 1080p ก่อนสุด (สั้น ไม่เสียเครดิต ไม่นับเพดานไหนเลย) → รอบ 2 (คนรอ) → Render → รอบ 1
+ * ครบเพดานรูป (dailyBatchCap) ข้ามรอบ 1/2 · ครบเพดานคลิป (videoDailyCap) ข้าม Render — ฝั่งที่เหลือยังทำต่อ
+ */
+export function claimOrder(imagesAllowed: boolean, rendersAllowed: boolean): JobRound[] {
+  const order: JobRound[] = [4];
+  if (imagesAllowed) order.push(2);
+  if (rendersAllowed) order.push(3);
+  if (imagesAllowed) order.push(1);
+  return order;
 }
 
 /** ยังไม่จบ = entry นี้มีงานค้าง ห้ามเข้าคิวซ้ำ */
@@ -71,37 +124,81 @@ export function candidateFilename(round: FlowRound, attempt: number, index: numb
 export function sourceFilename(index: number, ext: string): string {
   return `source-${index}.${ext}`;
 }
+/**
+ * คลิปตัวอย่าง 720p ของ Render ครั้งที่ attempt — worker/flow-driver.ts เขียนเป็น `${filePrefix}.mp4` (filePrefix = r3-a<attempt>)
+ * ลบทิ้งเมื่อกด "เรนเดอร์ใหม่" หรือเมื่อโหลดไฟล์ 1080p ของคลิปที่ผ่านสำเร็จ
+ */
+export function videoFilename(attempt: number): string {
+  return `r3-a${attempt}.mp4`;
+}
+/** คลิปที่ผ่านแล้ว แบบ 1080p Upscaled — 1 งานมีได้ไฟล์เดียว */
+export const FINAL_VIDEO_PREFIX = "r3-final";
+export const FINAL_VIDEO_FILENAME = `${FINAL_VIDEO_PREFIX}.mp4`;
 
+/** ชื่อไฟล์ตอนกด "ดาวน์โหลดคลิป" — ชื่อสินค้าเป็นภาษาไทยได้ แต่ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก */
+export function videoDownloadName(productName: string): string {
+  const safe = productName.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return `${safe === "" ? "clip" : safe}.mp4`;
+}
+
+/**
+ * พรอมต์ของ Render = 10-part prompt ของ Entry ทั้งก้อน + ข้อความเพิ่มเติมของผู้ใช้ต่อท้าย (ว่าง = เหมือนเดิมทุกตัวอักษร)
+ * ไม่ยุบขึ้นบรรทัดของ 10-part prompt — worker วางด้วย insertText ซึ่งไม่กด Enter (Enter ในช่อง Flow = ส่ง)
+ */
+export function buildRenderPrompt(tenPartPrompt: string, extra = ""): string {
+  return extra === "" ? tenPartPrompt : `${tenPartPrompt} ${extra}`;
+}
+
+/**
+ * รอบ 1 → รอบ 2 · รอบ 2 → รอ 10-part prompt ก่อน Render (ไม่ใช่ done แล้ว — รูปถูกก๊อปเป็น ProductImage ตอนนี้
+ * เหมือนเดิม แต่งานยังไม่จบจนกว่าผู้ใช้กด "ผ่าน" คลิป)
+ */
 export function afterChoose(status: string): { status: FlowStatus } {
   if (status === FLOW_STATUS.REVIEW_R1) return { status: FLOW_STATUS.QUEUED_R2 };
-  if (status === FLOW_STATUS.REVIEW_R2) return { status: FLOW_STATUS.DONE };
+  if (status === FLOW_STATUS.REVIEW_R2) return { status: FLOW_STATUS.AWAITING_PROMPT };
   throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
 }
 
 export function afterRedo(status: string): { status: FlowStatus } {
   if (status === FLOW_STATUS.REVIEW_R1) return { status: FLOW_STATUS.QUEUED_R1 };
   if (status === FLOW_STATUS.REVIEW_R2) return { status: FLOW_STATUS.QUEUED_R2 };
-  throw new Error("วาดใหม่ได้เฉพาะงานที่รอเลือกรูป");
+  if (status === FLOW_STATUS.REVIEW_R3) return { status: FLOW_STATUS.QUEUED_R3 };
+  throw new Error("ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
 }
 
-export function afterResume(round: FlowRound): { status: FlowStatus } {
+/** "ผ่าน" คลิปตัวอย่าง → ให้บอทโหลดคลิปเดิมแบบ 1080p (round 4) · งานจบเมื่อโหลดสำเร็จ */
+export function afterApproveRender(status: string): { status: FlowStatus; round: JobRound } {
+  if (status === FLOW_STATUS.REVIEW_R3) return { status: FLOW_STATUS.QUEUED_UPSCALE, round: 4 };
+  throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
+}
+
+export function afterResume(round: JobRound): { status: FlowStatus } {
   return { status: queuedStatus(round) };
 }
 
-export function summarizeQueue(jobs: { status: string }[]): {
-  waitingBot: number;
-  waitingUser: number;
-  done: number;
-  failed: number;
-} {
-  let waitingBot = 0, waitingUser = 0, done = 0, failed = 0;
-  for (const j of jobs) {
-    if (j.status.startsWith("queued_") || j.status.startsWith("running_")) waitingBot++;
-    else if (j.status.startsWith("review_")) waitingUser++;
-    else if (j.status === FLOW_STATUS.DONE) done++;
-    else if (j.status === FLOW_STATUS.FAILED) failed++;
+export type QueueCategory = "waitingBot" | "waitingUser" | "done" | "failed";
+
+/**
+ * หมวดของงานบนหน้า /flow — ใช้ร่วมกันทั้งตัวนับ (summarizeQueue) และแถบกรอง (components/flow-route.tsx)
+ * awaiting_prompt นับเป็น "รอบอท" เพราะ Angle สร้างพรอมต์ให้เอง คนไม่ต้องทำอะไร · skipped ไม่เข้าหมวดไหน
+ */
+export function queueCategory(status: string): QueueCategory | null {
+  if (status.startsWith("queued_") || status.startsWith("running_") || status === FLOW_STATUS.AWAITING_PROMPT) {
+    return "waitingBot";
   }
-  return { waitingBot, waitingUser, done, failed };
+  if (status.startsWith("review_")) return "waitingUser";
+  if (status === FLOW_STATUS.DONE) return "done";
+  if (status === FLOW_STATUS.FAILED) return "failed";
+  return null;
+}
+
+export function summarizeQueue(jobs: { status: string }[]): Record<QueueCategory, number> {
+  const out: Record<QueueCategory, number> = { waitingBot: 0, waitingUser: 0, done: 0, failed: 0 };
+  for (const j of jobs) {
+    const cat = queueCategory(j.status);
+    if (cat !== null) out[cat]++;
+  }
+  return out;
 }
 
 /** heartbeat หายเกิน 3 รอบ = ถือว่าบอทไม่อยู่แล้ว */
@@ -122,7 +219,13 @@ export const STATUS_LABELS: Record<FlowStatus, string> = {
   queued_r2: "รอบอท · รอบ 2",
   running_r2: "บอทกำลังวาด · รอบ 2",
   review_r2: "รอคุณเลือก · รอบ 2 (ตอนใช้งาน)",
-  done: "เสร็จ · 2 รูปอยู่ใน entry แล้ว",
+  awaiting_prompt: "รอ 10-part prompt · ก่อนทำคลิป",
+  queued_r3: "รอบอท · ทำคลิป",
+  running_r3: "บอทกำลังทำคลิป",
+  review_r3: "รอคุณดูคลิป",
+  queued_upscale: "ผ่านแล้ว · รอบอทโหลด 1080p",
+  running_upscale: "ผ่านแล้ว · บอทกำลังโหลด 1080p",
+  done: "เสร็จ",
   failed: "พัง",
   skipped: "ข้ามแล้ว",
 };
@@ -140,6 +243,13 @@ export const STEP_LABELS: Record<string, string> = {
   "wait-results": "รอผล",
   dwell: "ดูผลก่อนโหลด",
   "download-4": "โหลด 4 รูป",
+  "switch-video-mode": "สลับเป็นโหมดวิดีโอ",
+  "set-video-settings": "ตั้งค่าคลิป (Ingredients · 9:16 · Omni 1.1 Flash · 720p · 10s · x1)",
+  "paste-prompt": "วาง 10-part prompt",
+  "wait-render": "รอคลิป",
+  "download-preview": "โหลดคลิปตัวอย่าง 720p",
+  "find-video": "หาคลิปที่ผ่านในโปรเจกต์เดิม",
+  "download-final": "โหลดคลิป 1080p Upscaled",
 };
 
 export const ERROR_KIND_LABELS: Record<string, string> = {
@@ -149,7 +259,7 @@ export const ERROR_KIND_LABELS: Record<string, string> = {
   captcha: "โดน captcha / ถูกปฏิเสธ (403) — พักอย่างน้อย 1 ชั่วโมงก่อนรันต่อ",
   generation_timeout: "รอผลนานเกินกำหนด",
   flow_error: "Flow แจ้ง error",
-  download_failed: "โหลดรูปกลับไม่ครบ",
+  download_failed: "โหลดรูป/คลิปกลับไม่ครบ",
   worker_crash: "บอทล้มโดยไม่ทราบสาเหตุ",
   host_unsupported: "บัญชีอยู่บนโฮสต์ที่ยังไม่รองรับ",
 };
