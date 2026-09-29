@@ -15,10 +15,8 @@ import {
 
 import {
   createEntryFromCandidate,
-  createEntryFromCandidateWithImages,
   deleteCandidateBatch,
   extractCandidates,
-  importShowcaseFile,
 } from "@/app/actions";
 import { isCommissionPercentPlausible } from "@/lib/candidates";
 import type {
@@ -29,8 +27,6 @@ import type {
 import { playCompletionSound } from "@/lib/completion-sound";
 import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 import { cn } from "@/lib/utils";
-import { ScannerLinkBox } from "@/components/scanner-link-box";
-import { CandidateImagePicker } from "@/components/candidate-image-picker";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -83,24 +79,13 @@ function buildCandidateWarnings(
     });
   }
   if (r.demandTotal === null) {
-    // แถวจาก Showcase import (sourceProductId ไม่ null) ไม่มีตัวเลขยอดขายเป็นเรื่องปกติ/
-    // โครงสร้างเสมอ (Showcase ไม่มีฟิลด์นี้ให้เลย) — คำแนะนำ "ลองแคปจากหน้าขายดีที่สุด" ผิด
-    // ทั้งหมดสำหรับแถวเหล่านี้เพราะไม่มีสกรีนช็อตให้แคปใหม่ ใช้ข้อความกลางๆ ที่ตรงกับความจริงแทน
-    if (r.sourceProductId !== null) {
-      warnings.push({
-        key: "nosales",
-        danger: false,
-        text: "นำเข้าจาก Showcase — ไม่มีตัวเลขยอดขายรายสัปดาห์ จึงจัดอันดับศักยภาพรายได้ให้ไม่ได้",
-      });
-    } else {
-      warnings.push({
-        key: "nosales",
-        danger: true,
-        text:
-          'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
-          'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
-      });
-    }
+    warnings.push({
+      key: "nosales",
+      danger: true,
+      text:
+        'แถวนี้ไม่มีตัวเลขยอดขาย (น่าจะมาจากหน้า "คะแนนสูงสุด") จัดอันดับให้ไม่ได้ — ' +
+        'ลองแคปจากหน้า "ขายดีที่สุด" แทน',
+    });
   }
   if (r.flags.includes("mechanism")) {
     warnings.push({
@@ -124,13 +109,11 @@ export function CandidatesRoute({
   batches,
   focus,
   now,
-  scannerToken,
 }: {
   rows: CandidateRow[];
   batches: BatchSummary[];
   focus: FocusCategory[];
   now: Date;
-  scannerToken: string;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -140,11 +123,6 @@ export function CandidatesRoute({
   const [batchView, setBatchView] = useState<string | null>(null);
   // เก็บ id ของชุดที่กดลบไว้รอยืนยัน — ยืนยันในที่เดิมแทนการเปิด dialog
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  // ไม่ null = กำลังเปิด dialog เลือกรูปสำหรับ candidate นี้ก่อนสร้างงาน
-  const [pickerFor, setPickerFor] = useState<{
-    id: string;
-    images: { id: string; filename: string }[];
-  } | null>(null);
   const [isExtracting, startExtracting] = useTransition();
   const [isUpdating, startUpdating] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -156,15 +134,8 @@ export function CandidatesRoute({
         : rows.filter((r) => r.batchId === batchView);
     if (filter === "todo") list = list.filter((r) => r.linkedEntryId === null);
     else if (filter === "created") list = list.filter((r) => r.linkedEntryId !== null);
-    // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้เพราะข้อมูลพัง (screenshot ที่ขาด
-    // ยอดขายจริงๆ) ไปท้ายสุดเหมือนเดิม — แต่แถว Showcase import (sourceProductId ไม่ null) ไม่มี
-    // ยอดขายโดยโครงสร้างเสมอ (Showcase ไม่มีฟิลด์นี้) ไม่ใช่ปัญหาคุณภาพข้อมูล จึงให้คีย์กลางๆ (0)
-    // แทนที่จะโดนฝัง -1 ไว้ใต้ทุกแถว screenshot ที่มีตัวเลขจริงโดยธรรมชาติ
-    const sortKey = (r: CandidateRow): number => {
-      if (r.demandTotal !== null) return r.demandTotal;
-      return r.sourceProductId !== null ? 0 : -1;
-    };
-    return [...list].sort((a, b) => sortKey(b) - sortKey(a));
+    // เรียงตามศักยภาพรายได้มากไปน้อย แถวที่ไม่มีศักยภาพรายได้ (ขาดยอดขาย) ไปท้ายสุด
+    return [...list].sort((a, b) => (b.demandTotal ?? -1) - (a.demandTotal ?? -1));
   }, [rows, filter, batchView]);
 
   // จำนวนแถวของแต่ละชุดที่กำลังโชว์อยู่ในมุมมองดีฟอลต์ (ไม่ใช่ทั้งหมด batchView) — ใช้เตือน
@@ -205,38 +176,10 @@ export function CandidatesRoute({
     });
   }
 
-  function handleCreate(candidate: { id: string; images: { id: string; filename: string }[] }) {
-    if (candidate.images.length > 0) {
-      setPickerFor({ id: candidate.id, images: candidate.images });
-      return;
-    }
+  function handleCreate(candidate: { id: string }) {
     startUpdating(async () => {
       try {
         await createEntryFromCandidate(candidate.id);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
-      }
-    });
-  }
-
-  function handleConfirmPicker(candidateId: string, chosenImageIds: string[]) {
-    setPickerFor(null);
-    setError(null);
-    setResult(null);
-    startUpdating(async () => {
-      try {
-        const { flowEnqueueError } = await createEntryFromCandidateWithImages(
-          candidateId,
-          chosenImageIds
-        );
-        // entry ถูกสร้างสำเร็จเสมอถึงจุดนี้ — ถ้าแค่ขั้นเข้าคิว Flow อัตโนมัติพัง ต้องโชว์ผู้ใช้
-        // เห็น ไม่ใช่ปล่อยให้หายเงียบๆ (entry ยังใช้งานได้ปกติ ไปอัปโหลดรูปเองที่หน้ารายการได้)
-        if (flowEnqueueError) {
-          setResult(
-            `สร้างรายการแล้ว แต่เข้าคิว Flow อัตโนมัติไม่สำเร็จ (${flowEnqueueError}) — ` +
-              "ไปอัปโหลดรูปเองที่หน้ารายการนี้ได้"
-          );
-        }
       } catch (e) {
         setError(e instanceof Error ? e.message : "สร้างรายการไม่สำเร็จ");
       }
@@ -316,8 +259,7 @@ export function CandidatesRoute({
               // เตือนเฉพาะชุดที่ยังเป็นชุดล่าสุดของอย่างน้อยหนึ่งหมวด — ชุดเก่าที่ถูก
               // แทนที่ไปแล้วจะเก่าแค่ไหนก็ไม่ใช่ข่าว ไม่ต้องเตือนซ้ำ
               const age = daysBetween(b.capturedOn, now);
-              // ชุด Showcase สะสมต่อกัน ไม่มี "แคปใหม่" มาแทน จึงไม่เตือน
-              const stale = b.isLatestForAnyCategory && !b.isShowcase && age > IMPORT_STALE_DAYS;
+              const stale = b.isLatestForAnyCategory && age > IMPORT_STALE_DAYS;
               return (
                 <li
                   key={b.id}
@@ -465,43 +407,6 @@ export function CandidatesRoute({
           )}
         </div>
 
-        <form
-          className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3"
-          action={(formData) => {
-            setError(null);
-            setResult(null);
-            startUpdating(async () => {
-              try {
-                const r = await importShowcaseFile(formData);
-                setResult(
-                  `นำเข้า ${r.added} รายการ` +
-                    (r.skipped > 0 ? ` · ข้ามบรรทัดที่อ่านไม่ออก ${r.skipped}` : "") +
-                    (r.imagesFailed > 0 ? ` · โหลดรูปไม่สำเร็จ ${r.imagesFailed} รูป` : "")
-                );
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "นำเข้าไฟล์ไม่สำเร็จ");
-              }
-            });
-          }}
-        >
-          <label className="text-sm leading-relaxed text-foreground" htmlFor="showcase-json">
-            นำเข้าจากไฟล์ Showcase (.json)
-          </label>
-          <input
-            id="showcase-json"
-            name="file"
-            type="file"
-            accept="application/json"
-            required
-            className="text-sm"
-          />
-          <Button type="submit" disabled={isUpdating}>
-            นำเข้า
-          </Button>
-        </form>
-
-        <ScannerLinkBox token={scannerToken} />
-
         {result && <p className="text-sm text-foreground/80">{result}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}
       </section>
@@ -557,24 +462,6 @@ export function CandidatesRoute({
                   <p className="text-base leading-relaxed font-medium text-foreground">
                     {r.name}
                   </p>
-                  {r.images.length > 0 && (
-                    <div className="flex gap-1">
-                      {r.images.slice(0, 3).map((img) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          key={img.id}
-                          src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
-                          alt=""
-                          // lazy จำเป็นทั้งสองชุด (การ์ดมือถือ + ตาราง) — รายการนี้ render ซ้ำ 2 ชุดแล้ว
-                          // ซ่อนชุดหนึ่งด้วย CSS ถ้าไม่ lazy เบราว์เซอร์โหลดรูปของทุกแถวทั้งสองชุดทันที
-                          // (วัดจริง 2026-09-29: 350 request / 5.7 MB ทั้งที่รูปโชว์แค่ 40px)
-                          loading="lazy"
-                          decoding="async"
-                          className="size-10 rounded border border-border object-cover"
-                        />
-                      ))}
-                    </div>
-                  )}
                   <div className="flex flex-wrap items-center gap-1.5">
                     {r.linkedEntryId === null ? (
                       <Button
@@ -712,21 +599,6 @@ export function CandidatesRoute({
                       >
                         {r.name}
                       </div>
-                      {r.images.length > 0 && (
-                        <div className="mt-1 flex gap-1">
-                          {r.images.slice(0, 3).map((img) => (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              key={img.id}
-                              src={`/api/uploads/_candidates/${r.id}/${img.filename}`}
-                              alt=""
-                              loading="lazy"
-                              decoding="async"
-                              className="size-10 rounded border border-border object-cover"
-                            />
-                          ))}
-                        </div>
-                      )}
                     </td>
 
                     <td className="px-3 py-2">
@@ -850,15 +722,6 @@ export function CandidatesRoute({
           </table>
         </div>
         </>
-      )}
-
-      {pickerFor && (
-        <CandidateImagePicker
-          candidateId={pickerFor.id}
-          images={pickerFor.images}
-          onConfirm={handleConfirmPicker}
-          onCancel={() => setPickerFor(null)}
-        />
       )}
     </div>
   );

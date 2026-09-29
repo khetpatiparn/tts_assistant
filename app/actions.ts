@@ -1098,32 +1098,32 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
   });
 
   revalidatePath("/products");
+  // หน้า Showcase ใช้ทางนี้ด้วยกับสินค้าที่โหลดรูปของร้านไม่ได้สักรูป (ไม่มีอะไรให้เลือก/ครอป)
+  revalidatePath("/showcase");
   revalidatePath("/");
   return created.id;
 }
 
 /**
- * เหมือน createEntryFromCandidate แต่สำหรับ candidate ที่มีรูป (มาจาก Showcase import) —
- * สร้าง entry แล้ว "ก๊อป" รูปที่ผู้ใช้เลือกจาก uploads/_candidates/<candidateId>/ เข้าคิว Flow
- * ทันที (ผ่าน enqueueFlowJobCore) แทนที่จะปล่อยให้ผู้ใช้ไปอัปโหลดรูปเองที่หน้า entry
+ * หน้า Showcase: "ทำคลิปตัวนี้" — รับรูปต้นทาง 1 รูป (รูปของร้านที่ผู้ใช้เลือก ครอปแล้วหรือไม่ก็ได้ ครอปทำ
+ * ในเบราว์เซอร์แล้วส่งมาเป็นไฟล์) → สร้าง Entry → เข้าคิว Flow ในกดเดียว
+ *
+ * รับเป็นไฟล์ ไม่ใช่ id ของ CandidateImage เพราะรูปที่ครอปแล้วไม่มีอยู่บนดิสก์ — รูปต้นฉบับของร้านใน
+ * uploads/_candidates/ ไม่ถูกแก้ ผู้ใช้เลือก/ครอปใหม่ได้เสมอ
  */
-export async function createEntryFromCandidateWithImages(
-  candidateId: string,
-  chosenImageIds: string[]
+export async function startShowcaseProduct(
+  formData: FormData
 ): Promise<{ entryId: string; flowEnqueueError: string | null }> {
-  if (chosenImageIds.length === 0) {
-    throw new Error("กรุณาเลือกรูปอย่างน้อย 1 รูป");
-  }
+  const candidateId = String(formData.get("candidateId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File) || photo.size === 0) throw new Error("กรุณาเลือกรูป 1 รูป");
 
-  const candidate = await prisma.productCandidate.findUnique({
-    where: { id: candidateId },
-    include: { images: true },
-  });
-  if (!candidate) throw new Error("ไม่พบสินค้าที่เลือก");
-
-  const chosen = candidate.images.filter((img) => chosenImageIds.includes(img.id));
-  if (chosen.length !== chosenImageIds.length) {
-    throw new Error("รูปที่เลือกบางรูปไม่ตรงกับสินค้านี้");
+  const candidate = await prisma.productCandidate.findUnique({ where: { id: candidateId } });
+  if (!candidate || candidate.sourceProductId === null) throw new Error("ไม่พบสินค้าที่เลือก");
+  // กดซ้ำ/เปิดสองแท็บ — ห้ามสร้างงานซ้ำให้สินค้าตัวเดียว
+  if (candidate.linkedEntryId !== null) {
+    const existing = await prisma.promptEntry.findUnique({ where: { id: candidate.linkedEntryId }, select: { id: true } });
+    if (existing) throw new Error("สินค้าตัวนี้เริ่มทำไปแล้ว");
   }
 
   const active = await prisma.corePrompt.findFirst({ where: { isActive: true, kind: "core" } });
@@ -1144,28 +1144,39 @@ export async function createEntryFromCandidateWithImages(
     data: { linkedEntryId: created.id },
   });
 
-  // เข้าคิว Flow — entry ต้องถูกสร้างสำเร็จไปแล้วเสมอไม่ว่าขั้นนี้จะพังหรือไม่ (เช่น รูปหายจาก
-  // ดิสก์ตอน readFile หรือ enqueueFlowJobCore validate ไม่ผ่าน เช่นไฟล์ใหญ่เกิน 10MB) — ผู้ใช้
+  // เข้าคิว Flow — entry ต้องถูกสร้างสำเร็จไปแล้วเสมอไม่ว่าขั้นนี้จะพังหรือไม่ (เช่น enqueueFlowJobCore
+  // validate ไม่ผ่านเพราะไฟล์ใหญ่เกิน 10MB หรือชนิดไฟล์ไม่รองรับ) — ผู้ใช้
   // ไปอัปโหลดรูปเองที่หน้า entry ได้ตามปกติเสมอ entry ที่สร้างไปแล้วไม่หาย แต่ต้องคืน error
   // กลับไปให้ผู้เรียกโชว์ใน UI ด้วย ไม่ใช่แค่ console.error เงียบๆ (ผู้ใช้เคยไม่มีทางรู้เลยว่า
   // งาน Flow ไม่ได้ถูกสร้างจนกว่าจะบังเอิญสังเกตเห็นทีหลัง)
   let flowEnqueueError: string | null = null;
   try {
-    const images = await Promise.all(
-      chosen.map(async (img) => ({
-        buffer: await readFile(path.join(CANDIDATE_IMAGE_ROOT, candidateId, img.filename)),
-        mimeType: img.mimeType,
-      }))
-    );
-    await enqueueFlowJobCore(created.id, images);
+    await enqueueFlowJobCore(created.id, [{ buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type }]);
   } catch (err) {
     flowEnqueueError = err instanceof Error ? err.message : "เข้าคิว Flow อัตโนมัติไม่สำเร็จ";
     console.error("เข้าคิว Flow อัตโนมัติไม่สำเร็จ ผู้ใช้ต้องอัปโหลดรูปเองที่หน้า entry:", err);
   }
 
-  revalidatePath("/products");
+  revalidatePath("/showcase");
   revalidatePath("/");
   return { entryId: created.id, flowEnqueueError };
+}
+
+/**
+ * หน้า Showcase: "ไม่ทำแล้ว" / "กู้คืน" — เซ็ตทุกแถวของ sourceProductId เดียวกันพร้อมกัน เพราะสินค้าตัวเดียว
+ * อยู่ได้หลายชุด (ดู buildShowcaseItems) ถ้าเซ็ตแถวเดียว กู้คืนแล้วแถวอื่นที่ยังเซ็ตไว้จะดึงกลับไปเป็น "ไม่ทำแล้ว"
+ */
+export async function setShowcaseDismissed(candidateId: string, dismissed: boolean): Promise<void> {
+  const candidate = await prisma.productCandidate.findUnique({
+    where: { id: candidateId },
+    select: { sourceProductId: true },
+  });
+  if (!candidate || candidate.sourceProductId === null) throw new Error("ไม่พบสินค้าที่เลือก");
+  await prisma.productCandidate.updateMany({
+    where: { sourceProductId: candidate.sourceProductId },
+    data: { dismissedAt: dismissed ? new Date() : null },
+  });
+  revalidatePath("/showcase");
 }
 
 
@@ -1269,7 +1280,7 @@ export async function importShowcaseBatch(
     }
   }
 
-  revalidatePath("/products");
+  revalidatePath("/showcase");
   return { batchId: batch.id, added: created.length, skipped, imagesFailed };
 }
 
@@ -1501,6 +1512,6 @@ export async function regenerateScannerToken(): Promise<string> {
     create: { id: "singleton", token },
     update: { token, createdAt: new Date() },
   });
-  revalidatePath("/products");
+  revalidatePath("/showcase");
   return token;
 }

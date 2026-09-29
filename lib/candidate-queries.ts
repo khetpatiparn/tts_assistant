@@ -23,14 +23,10 @@ export type CandidateRow = {
   capturedOn: Date;
   note: string;
   linkedEntryId: string | null;
-  images: { id: string; filename: string }[];
   commissionPercent: number;
   demandTotal: number | null;
   flags: CandidateFlag[];
   badges: CandidateBadge[];
-  /** Product ID จริงจาก Showcase — non-null แปลว่าแถวนี้มาจาก Showcase import ไม่ใช่แคปหน้าจัดอันดับ
-   *  (ดู ProductCandidate.sourceProductId ใน schema) ใช้แยกว่าคำเตือน/สัญญาณไหนใช้กับแถวนี้ได้บ้าง */
-  sourceProductId: string | null;
   /** แถวนี้อยู่ในชุดล่าสุดของหมวดตัวเองไหม — มุมมองดีฟอลต์ของหน้าแสดงเฉพาะแถวที่เป็น true */
   isLatestForCategory: boolean;
 };
@@ -41,10 +37,8 @@ export type BatchSummary = {
   rowCount: number;
   /** หมวดในชุดนี้พร้อมจำนวนแถว เรียงจากแถวมากไปน้อย */
   categories: { label: string; count: number }[];
-  /** true ถ้าชุดนี้ยังมีแถวโชว์ในมุมมองดีฟอลต์ (แคปจัดอันดับ: เป็นชุดล่าสุดของอย่างน้อย 1 หมวด) */
+  /** true ถ้าชุดนี้ยังมีแถวโชว์ในมุมมองดีฟอลต์ (เป็นชุดล่าสุดของอย่างน้อย 1 หมวด) */
   isLatestForAnyCategory: boolean;
-  /** ชุดจาก Showcase import — สะสม ไม่มีวันหมดอายุ จึงไม่เตือน "ข้อมูลเก่า" เหมือนแคปจัดอันดับ */
-  isShowcase: boolean;
 };
 
 export type FocusCategory = {
@@ -53,6 +47,11 @@ export type FocusCategory = {
   orderCount: number;
 };
 
+/**
+ * หน้า "หาสินค้า" — Candidate จากแคปหน้าจัดอันดับเท่านั้น · สินค้าจาก Showcase import (sourceProductId ไม่ null)
+ * อยู่หน้า Showcase ของตัวเอง (lib/showcase-queries.ts) ตั้งแต่ 2026-09-29 เพราะเป็นคนละขั้นงาน (CONTEXT.md)
+ * และไม่มียอดขายให้จัดอันดับ ปนกันแล้วตารางเต็มไปด้วยช่องว่าง/คำเตือน
+ */
 export async function getCandidatesData(): Promise<{
   rows: CandidateRow[];
   batches: BatchSummary[];
@@ -60,8 +59,8 @@ export async function getCandidatesData(): Promise<{
 }> {
   const [candidates, batchRecords, paidOrders] = await Promise.all([
     prisma.productCandidate.findMany({
+      where: { sourceProductId: null },
       orderBy: { capturedOn: "desc" },
-      include: { images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } } },
     }),
     prisma.candidateBatch.findMany({ orderBy: { capturedOn: "desc" } }),
     prisma.affiliateOrder.findMany({
@@ -83,12 +82,10 @@ export async function getCandidatesData(): Promise<{
     capturedOn: c.capturedOn,
     note: c.note,
     linkedEntryId: c.linkedEntryId,
-    images: c.images,
-    sourceProductId: c.sourceProductId,
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),
-    // กติกาแยกตามแหล่ง (แคปจัดอันดับ = ชุดใหม่แทนที่ · Showcase = สะสม) — ดู defaultVisibleRowIds
+    // ชุดใหม่ของหมวดเดียวกันแทนที่ชุดเก่า — ดู defaultVisibleRowIds
     isLatestForCategory: visible.has(c.id),
   }));
 
@@ -116,8 +113,8 @@ export async function getCandidatesData(): Promise<{
 
   // ชุดที่ยังมีแถวโชว์ในมุมมองดีฟอลต์ = "ล่าสุด" (ความหมายเดิมสำหรับแคปจัดอันดับทุกประการ)
   const latestBatchIds = new Set(rowsWithoutBadges.filter((r) => r.isLatestForCategory).map((r) => r.batchId));
-  const showcaseBatchIds = new Set(candidates.filter((c) => c.sourceProductId !== null).map((c) => c.batchId));
-  const batches: BatchSummary[] = batchRecords.map((b) => {
+  // ชุดที่ไม่มีแถวแคปจัดอันดับเลย = ชุดจาก Showcase import ไม่ใช่ของหน้านี้
+  const batches: BatchSummary[] = batchRecords.filter((b) => countsByBatch.has(b.id)).map((b) => {
     const perCategory = countsByBatch.get(b.id) ?? new Map<string, number>();
     const categories = [...perCategory.entries()]
       .map(([label, count]) => ({ label, count }))
@@ -128,7 +125,6 @@ export async function getCandidatesData(): Promise<{
       rowCount: categories.reduce((sum, c) => sum + c.count, 0),
       categories,
       isLatestForAnyCategory: latestBatchIds.has(b.id),
-      isShowcase: showcaseBatchIds.has(b.id),
     };
   });
 

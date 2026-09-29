@@ -4,11 +4,13 @@ import { Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export type NavKey = "list" | "entry" | "core" | "dashboard" | "products" | "flow";
+export type NavKey = "list" | "entry" | "core" | "dashboard" | "products" | "showcase" | "flow";
 
 const NAV: { key: NavKey; href: string; label: string }[] = [
   { key: "list", href: "/", label: "รายการสินค้า" },
+  // เรียงตามขั้นงาน: หาสินค้า (เลือกว่าจะเพิ่มอะไรเข้า Showcase) → Showcase (งานที่ต้องทำ) → คิว Flow
   { key: "products", href: "/products", label: "หาสินค้า" },
+  { key: "showcase", href: "/showcase", label: "Showcase" },
   { key: "flow", href: "/flow", label: "คิว Flow" },
   { key: "core", href: "/core-prompt", label: "Core Prompt" },
   { key: "dashboard", href: "/dashboard", label: "รายได้" },

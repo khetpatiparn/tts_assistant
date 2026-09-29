@@ -33,7 +33,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 const TIMEOUT_MS = 15_000;
 // 10MB — จับคู่กับ MAX_IMAGE_BYTES ใน app/actions.ts (enqueueFlowJobCore validate ด้วยค่าเดียวกัน)
 // เดิมตั้งไว้ 20MB ซึ่งกว้างกว่าเพดานฝั่งเข้าคิว Flow — ทำให้รูป 10-20MB โหลดสำเร็จที่นี่แต่ไป
-// throw "ไฟล์ใหญ่เกิน 10MB" ตอน enqueueFlowJobCore ในภายหลัง (ดู createEntryFromCandidateWithImages)
+// throw "ไฟล์ใหญ่เกิน 10MB" ตอน enqueueFlowJobCore ในภายหลัง (ดู startShowcaseProduct)
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 

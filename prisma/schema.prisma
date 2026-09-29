@@ -173,6 +173,9 @@ model ProductCandidate {
   linkedEntryId String?
   /// Product ID จริงจาก Showcase — null สำหรับ candidate จากแคปหน้าจัดอันดับ (ไม่มี ID ที่เชื่อถือได้)
   sourceProductId String?
+  /// ผู้ใช้กด "ไม่ทำแล้ว" ในหน้า Showcase — null = ยังอยู่ในรายการงาน · เซ็ตพร้อมกันทุกแถวที่มี
+  /// sourceProductId เดียวกัน (สินค้าตัวเดียวอยู่ได้หลายชุด) · ใช้กับแถวจาก Showcase เท่านั้น
+  dismissedAt   DateTime?
   createdAt     DateTime       @default(now())
   images        CandidateImage[]
 
