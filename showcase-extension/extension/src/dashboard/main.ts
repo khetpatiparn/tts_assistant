@@ -375,7 +375,15 @@ function showFinished(report: RunReport): void {
 
   // หยุดกลางทาง = ต้องเห็นชัดก่อนอย่างอื่น ไม่ใช่ซ่อนอยู่ในค่า enum `scanCoverage` ที่อ่านยาก
   // ผู้ใช้ที่ export ข้อมูลชุดนี้ไปใช้ต่อต้องรู้ตั้งแต่ก่อนกดว่ามันไม่ครบ
-  if (report.scanCoverage !== 'reached_endpoint_end') {
+  if (report.stopReason === 'known_ids_reached') {
+    // หยุดเองเพราะเจอหน้าที่มีแต่สินค้าที่ปลายทางมีแล้ว = ผลที่ต้องการ ไม่ใช่ "ข้อมูลไม่ครบ" — ผู้ใช้จริงเห็นแถบเตือนสีแดง
+    // เดิมแล้วตกใจ (2026-09-29) เพราะแถบนั้นเขียนไว้ก่อนมีระบบหยุดเอง · หยุดด้วยเหตุผลอื่น (จำกัดหน้า/ยกเลิก/
+    // โดน rate limit) ยังเตือนสีแดงเหมือนเดิม เพราะตอนนั้นอาจพลาดสินค้าใหม่ได้จริง
+    const note = document.createElement('p')
+    note.className = 'notice'
+    setText(note, '✅ หยุดสแกนเองแล้ว — เจอหน้าที่มีแต่สินค้าที่เคยส่งไปแล้ว สินค้าใหม่ทั้งหมดอยู่ในรายการด้านล่าง')
+    runStatusEl.append(note)
+  } else if (report.scanCoverage !== 'reached_endpoint_end') {
     const banner = document.createElement('p')
     banner.className = 'banner banner-warning'
     setText(
