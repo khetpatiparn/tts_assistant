@@ -15,25 +15,28 @@
       <h1>Showcase Scanner</h1>
       <p id="auto-status" class="notice" role="status" aria-live="polite" hidden></p>
 
-      <section aria-labelledby="run-heading">
+      <section class="card" aria-labelledby="run-heading">
         <h2 id="run-heading">สแกน Showcase</h2>
         <div id="run-status" class="rows" role="status" aria-live="polite">กำลังตรวจสถานะ…</div>
-        <button id="start-button" type="button">เริ่มสแกน</button>
-        <button id="cancel-button" type="button" hidden>ยกเลิก</button>
+        <div class="row-buttons">
+          <button id="start-button" type="button">เริ่มสแกน</button>
+          <button id="cancel-button" type="button" hidden>ยกเลิก</button>
+        </div>
       </section>
 
-      <section id="preview-section" aria-labelledby="preview-heading" hidden>
-        <h2 id="preview-heading">Preview</h2>
+      <section id="preview-section" class="card" aria-labelledby="preview-heading" hidden>
+        <h2 id="preview-heading">สินค้าที่สแกนเจอ</h2>
 
+        <!-- ป้ายไทยแทน Candidate / Other status / Rejected เดิม · data-filter คงเดิมเพราะ E2E และ selection.ts ใช้ -->
         <div class="tabs" role="tablist">
           <button type="button" class="tab-button" data-filter="candidate" role="tab">
-            Candidate (<span id="count-candidate">0</span>)
+            โปรโมตได้ (<span id="count-candidate">0</span>)
           </button>
           <button type="button" class="tab-button" data-filter="other" role="tab">
-            Other status (<span id="count-other">0</span>)
+<span id="label-other">สินค้าทั้งหมด</span> (<span id="count-other">0</span>)
           </button>
           <button type="button" class="tab-button" data-filter="rejected" role="tab">
-            Rejected (<span id="count-rejected">0</span>)
+            อ่านข้อมูลไม่ได้ (<span id="count-rejected">0</span>)
           </button>
         </div>
 
@@ -46,18 +49,20 @@
         <div id="product-list" role="list"></div>
         <div id="rejected-list" hidden></div>
 
-        <div class="pagination">
+        <div id="pagination" class="pagination">
           <button id="prev-page-button" type="button">ก่อนหน้า</button>
           <span id="page-indicator" class="hint"></span>
           <button id="next-page-button" type="button">ถัดไป</button>
         </div>
 
-        <button id="export-button" type="button">Export JSON</button>
-        <button id="push-button" type="button">ส่งไปปลายทาง</button>
+        <div class="row-buttons">
+          <button id="push-button" type="button">ส่งไปปลายทาง</button>
+          <button id="export-button" type="button">ดาวน์โหลดเป็นไฟล์ JSON</button>
+        </div>
         <div id="push-result" class="rows" role="status" aria-live="polite"></div>
       </section>
 
-      <details id="settings">
+      <details id="settings" class="card">
         <summary>ตั้งค่า</summary>
 
         <h2>ลิงก์ปลายทาง</h2>

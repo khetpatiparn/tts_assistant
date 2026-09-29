@@ -14,6 +14,7 @@ import {
 } from './destination.js'
 import { appendLabeledRow, clearChildren, setText } from './dom.js'
 import { DEFAULT_PAGE_SIZE, renderPreviewPage, totalPages } from './preview.js'
+import { stopReasonText } from './stop-reason-text.js'
 import type { SelectableFilter } from './selection.js'
 import {
   countSelectedInFilter,
@@ -268,6 +269,7 @@ const selectedCountEl = requireElement('selected-count')
 const prevPageButton = requireElement('prev-page-button') as HTMLButtonElement
 const nextPageButton = requireElement('next-page-button') as HTMLButtonElement
 const pageIndicatorEl = requireElement('page-indicator')
+const paginationEl = requireElement('pagination')
 const exportButton = requireElement('export-button') as HTMLButtonElement
 const pushButton = requireElement('push-button') as HTMLButtonElement
 const pushResultEl = requireElement('push-result')
@@ -301,15 +303,26 @@ function renderPreview(): void {
   const report = state.report
   if (report === null) return
 
-  for (const button of tabButtons) {
-    button.setAttribute('aria-selected', String(button.dataset['filter'] === state.filter))
-  }
-
   const candidateCount = productsInFilter(report.products, 'candidate').length
   const otherCount = productsInFilter(report.products, 'other').length
   setText(requireElement('count-candidate'), String(candidateCount))
   setText(requireElement('count-other'), String(otherCount))
+  // ไม่มีแท็บ "โปรโมตได้" = แท็บนี้คือทุกตัวที่สแกนเจอ (กรณีของ live build เสมอ)
+  setText(requireElement('label-other'), candidateCount > 0 ? 'สถานะอื่น' : 'สินค้าทั้งหมด')
   setText(requireElement('count-rejected'), String(report.quarantined.length))
+
+  // ซ่อนแท็บที่ว่าง — live build ตัดสิน eligibility ไม่ได้ แท็บ "โปรโมตได้" จึงเป็น 0 เสมอ และแถวที่อ่านไม่ได้
+  // แทบไม่มี ผู้ใช้จริงเห็นแท็บ (0) สองอันแล้วงง (2026-09-29) · แท็บที่เลือกอยู่ยังโชว์เสมอแม้ว่าง
+  const counts: Record<string, number> = {
+    candidate: candidateCount,
+    other: otherCount,
+    rejected: report.quarantined.length,
+  }
+  for (const button of tabButtons) {
+    const filter = button.dataset['filter'] ?? ''
+    button.setAttribute('aria-selected', String(filter === state.filter))
+    button.hidden = filter !== state.filter && (counts[filter] ?? 0) === 0
+  }
 
   if (state.filter === 'rejected') {
     productList.hidden = true
@@ -318,6 +331,7 @@ function renderPreview(): void {
     deselectAllButton.hidden = true
     renderQuarantined(report.quarantined)
     setText(pageIndicatorEl, '')
+    paginationEl.hidden = true
     return
   }
 
@@ -338,6 +352,8 @@ function renderPreview(): void {
   setText(pageIndicatorEl, `หน้า ${String(state.page + 1)} / ${String(pages)}`)
   prevPageButton.disabled = state.page <= 0
   nextPageButton.disabled = state.page >= pages - 1
+  // หน้าเดียว = ปุ่มเลื่อนหน้ากดไม่ได้ทั้งคู่ โชว์ไว้ก็เกะกะเปล่า ๆ
+  paginationEl.hidden = pages <= 1
   renderSelectionCount()
 }
 
@@ -382,54 +398,53 @@ function showFinished(report: RunReport): void {
 
   clearChildren(runStatusEl)
 
-  // หยุดกลางทาง = ต้องเห็นชัดก่อนอย่างอื่น ไม่ใช่ซ่อนอยู่ในค่า enum `scanCoverage` ที่อ่านยาก
-  // ผู้ใช้ที่ export ข้อมูลชุดนี้ไปใช้ต่อต้องรู้ตั้งแต่ก่อนกดว่ามันไม่ครบ
-  if (report.stopReason === 'known_ids_reached') {
-    // หยุดเองเพราะเจอหน้าที่มีแต่สินค้าที่ปลายทางมีแล้ว = ผลที่ต้องการ ไม่ใช่ "ข้อมูลไม่ครบ" — ผู้ใช้จริงเห็นแถบเตือนสีแดง
-    // เดิมแล้วตกใจ (2026-09-29) เพราะแถบนั้นเขียนไว้ก่อนมีระบบหยุดเอง · หยุดด้วยเหตุผลอื่น (จำกัดหน้า/ยกเลิก/
-    // โดน rate limit) ยังเตือนสีแดงเหมือนเดิม เพราะตอนนั้นอาจพลาดสินค้าใหม่ได้จริง
-    const note = document.createElement('p')
+  // บอกผลเป็นประโยคเดียวที่มีคำตอบว่า "ต้องทำอะไรต่อ" — ค่าดิบ (ready_partial / known_ids_reached /
+  // source_identity_unverified …) ย้ายไปอยู่ใน <details> ที่ปิดไว้ เพราะผู้ใช้จริงถามว่ามีไว้ทำไม (2026-09-29)
+  // ค่าพวกนั้นช่วยแค่ตอนหาสาเหตุว่าสแกนพังตรงไหน
+  const productCount = report.counters.uniqueValidProducts
+  const note = document.createElement('p')
+  if (report.stopReason === 'known_ids_reached' || report.stopReason === 'endpoint_end') {
+    // หยุดเองเพราะเจอหน้าที่ปลายทางมีครบแล้ว = ผลที่ต้องการ ไม่ใช่ "ข้อมูลไม่ครบ" — ผู้ใช้จริงเห็นแถบแดงเดิม
+    // แล้วตกใจ (2026-09-29) · หยุดด้วยเหตุผลอื่น (จำกัดหน้า/ยกเลิก/โดน rate limit) ยังเตือนสีแดง เพราะอาจพลาดสินค้าใหม่ได้จริง
     note.className = 'notice'
     setText(
       note,
-      '✅ หยุดสแกนเองแล้ว — เจอหน้าที่มีแต่สินค้าที่เคยส่งไปแล้ว' +
+      `✅ ${stopReasonText(report.stopReason)} · เจอสินค้า ${String(productCount)} ตัว` +
         (preselected.length > 0
           ? ` · เลือกสินค้าใหม่ ${String(preselected.length)} ตัวไว้ให้แล้ว กด "ส่งไปปลายทาง" ด้านล่างได้เลย`
           : lastScanKnownIds === null
             ? ''
             : ' · ไม่มีสินค้าใหม่ที่ต้องส่ง'),
     )
-    runStatusEl.append(note)
-  } else if (report.scanCoverage !== 'reached_endpoint_end') {
-    const banner = document.createElement('p')
-    banner.className = 'banner banner-warning'
+  } else {
+    // "ข้อมูลยังไม่ครบ" ต้องอยู่ในข้อความเสมอ — ผู้ที่ส่ง/export ชุดนี้ต้องรู้ก่อนกดว่ามันเป็นแค่ส่วนหนึ่งของ Showcase
+    note.className = 'notice notice-warning'
+    const wait =
+      report.resumeAfterMs === null ? '' : ` (สแกนใหม่ได้ในอีก ${String(Math.ceil(report.resumeAfterMs / 1000))} วินาที)`
     setText(
-      banner,
-      `⚠ ข้อมูลยังไม่ครบ — การสแกนหยุดก่อนถึงปลายทาง (เหตุผล: ${report.stopReason}) ` +
-        `สิ่งที่เห็นและ export ได้ตอนนี้เป็นเพียงส่วนหนึ่งของ Showcase เท่านั้น`,
+      note,
+      `⚠ ข้อมูลยังไม่ครบ — ${stopReasonText(report.stopReason)}${wait}` +
+        (productCount > 0 ? ` · ที่เห็นด้านล่าง ${String(productCount)} ตัวเป็นแค่ส่วนหนึ่งของ Showcase` : ''),
     )
-    runStatusEl.append(banner)
   }
+  runStatusEl.append(note)
 
-  appendLabeledRow(runStatusEl, 'สถานะ', report.state)
-  appendLabeledRow(
-    runStatusEl,
-    'ผลการสแกน',
-    report.scanCoverage === 'reached_endpoint_end'
-      ? 'reached_endpoint_end — อ่านครบถึงปลายทางที่ API แจ้ง'
-      : `${report.scanCoverage} — ไม่ครบ`,
-  )
-  appendLabeledRow(runStatusEl, 'เหตุผลที่หยุด', report.stopReason)
-  appendLabeledRow(runStatusEl, 'คุณภาพข้อมูล', report.dataQuality)
-  appendLabeledRow(runStatusEl, 'หน้าที่อ่านสำเร็จ', String(report.counters.successfulPages))
-  appendLabeledRow(runStatusEl, 'สินค้าที่ใช้ได้', String(report.counters.uniqueValidProducts))
-  appendLabeledRow(runStatusEl, 'แถวที่ถูกปฏิเสธ', String(report.counters.invalidRows))
+  const details = document.createElement('details')
+  details.className = 'dev-details'
+  const summary = document.createElement('summary')
+  setText(summary, 'รายละเอียดสำหรับนักพัฒนา')
+  details.append(summary)
+  appendLabeledRow(details, 'สถานะ', report.state)
+  appendLabeledRow(details, 'ผลการสแกน', report.scanCoverage)
+  appendLabeledRow(details, 'เหตุผลที่หยุด', report.stopReason)
+  appendLabeledRow(details, 'คุณภาพข้อมูล', report.dataQuality)
+  appendLabeledRow(details, 'หน้าที่อ่านสำเร็จ', String(report.counters.successfulPages))
+  appendLabeledRow(details, 'สินค้าที่ใช้ได้', String(productCount))
+  appendLabeledRow(details, 'แถวที่ถูกปฏิเสธ', String(report.counters.invalidRows))
   if (report.warnings.length > 0) {
-    appendLabeledRow(runStatusEl, 'คำเตือน', report.warnings.join(', '))
+    appendLabeledRow(details, 'คำเตือน', report.warnings.join(', '))
   }
-  if (report.resumeAfterMs !== null) {
-    appendLabeledRow(runStatusEl, 'เริ่มใหม่ได้ในอีก', `${String(Math.ceil(report.resumeAfterMs / 1000))} วินาที`)
-  }
+  runStatusEl.append(details)
 
   startButton.hidden = false
   cancelButton.hidden = true
@@ -668,7 +683,7 @@ async function runAutoScanAndPush(): Promise<void> {
     return
   }
   if (report.stopReason !== 'known_ids_reached' && report.stopReason !== 'endpoint_end') {
-    setAutoStatus(`สแกนหยุดก่อนจบ (${report.stopReason}) — ยังไม่ได้ส่งอะไรไปปลายทาง ดูผลด้านล่างแล้วตัดสินใจเอง`, 'warning')
+    setAutoStatus(`สแกนหยุดก่อนจบ — ${stopReasonText(report.stopReason)} · ยังไม่ได้ส่งอะไรไปปลายทาง`, 'warning')
     return
   }
 

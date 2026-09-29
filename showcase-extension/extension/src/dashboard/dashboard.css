@@ -52,11 +52,45 @@
 
 body {
   margin: 0;
-  padding: 28px;
-  max-width: 760px;
+  padding: 32px 16px;
   background: var(--background);
   color: var(--foreground);
   line-height: 1.6; /* ข้อความไทยขั้นต่ำ 1.6 เหมือนกฎของแอปหลัก */
+}
+
+/* เดิมชิดซ้ายกว้าง 760px บนจอกว้างเลยเหลือที่ว่างครึ่งจอ (ผู้ใช้จริงถามว่าทำไมหน้าตาเป็นแบบนี้ 2026-09-29) */
+main {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* แต่ละส่วนเป็นการ์ดพื้น surface บนพื้นหลัง navy-50 แบบเดียวกับการ์ดในแอปหลัก */
+.card {
+  margin: 0 0 20px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+/* ค่าดิบของ runner — มีไว้หาสาเหตุตอนสแกนพังเท่านั้น จึงปิดไว้ตั้งแต่แรกและตัวอักษรเล็กกว่าเนื้อหาหลัก */
+.dev-details {
+  margin: 4px 0 8px;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.dev-details > summary {
+  cursor: pointer;
+  padding: 4px 0;
 }
 
 .banner {
@@ -82,13 +116,6 @@ body {
 }
 
 .notice-warning {
-  border-color: var(--destructive);
-  background: var(--destructive-bg);
-  color: var(--destructive);
-}
-
-/* ข้อมูลไม่ครบ — ต้องเด่นกว่า banner ปกติเพราะเป็นคำเตือนเกี่ยวกับตัวข้อมูลที่กำลังจะถูก export */
-.banner-warning {
   border-color: var(--destructive);
   background: var(--destructive-bg);
   color: var(--destructive);
@@ -160,17 +187,18 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* ปุ่มหลักของแต่ละหัวข้อ (เริ่มสแกน / Export) — ใช้สี accent (brass) ให้เด่นแยกจากปุ่มรอง */
-#run-start,
-#run-export {
+/* ปุ่มหลักของแต่ละหัวข้อ (เริ่มสแกน / ส่งไปปลายทาง) — ใช้สี accent (brass) ให้เด่นแยกจากปุ่มรอง
+   (เดิมชี้ไป #run-start/#run-export ที่ไม่มีอยู่จริง ปุ่มหลักจึงไม่เคยเด่นเลย) */
+#start-button,
+#push-button {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-foreground);
   font-weight: 600;
 }
 
-#run-start:hover,
-#run-export:hover {
+#start-button:hover,
+#push-button:hover {
   filter: brightness(1.05);
 }
 
@@ -297,11 +325,7 @@ input:focus-visible {
 }
 
 #settings {
-  margin: 32px 0 0;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
+  padding: 12px 24px;
 }
 
 #settings label {
