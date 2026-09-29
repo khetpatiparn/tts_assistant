@@ -8,6 +8,7 @@ import {
   deliver,
   getDestinationLink,
   parseDestinationLink,
+  pickNewProductIds,
   resolveKnownIds,
   saveDestinationLink,
 } from './destination.js'
@@ -42,7 +43,7 @@ const requireElement = (id: string): HTMLElement => {
 //
 // HTML มีข้อความของ mock channel เป็นค่าเริ่มต้น (E2E ตรวจคำว่า MOCK-ONLY อยู่) — live build ซ่อนป้าย
 // ทิ้ง: ข้อความ "LIVE TRIAL BUILD … full scan ยังปิดอยู่" เดิมมาจากช่วงก่อนเปิด full scan และไม่จริงแล้ว
-// (full scan + ส่งเข้าแอปใช้งานจริงตั้งแต่ 2026-09-24) ผู้ใช้เห็นแล้วงง (2026-09-29)
+// (full scan + ส่งไปปลายทางใช้งานจริงตั้งแต่ 2026-09-24) ผู้ใช้เห็นแล้วงง (2026-09-29)
 function renderChannelBanner(): void {
   if (__ADAPTER_MODE__ !== 'live') return
   requireElement('channel-banner').hidden = true
@@ -582,10 +583,10 @@ pushButton.addEventListener('click', () => {
 // ---------- โหมดอัตโนมัติ: ปุ่มสแกน+ส่งใน popup (คำสั่งผ่าน storage.session —
 // ดู requestAutoScan ใน destination.ts) ----------
 //
-// สแกนแบบหยุดเมื่อเจอหน้าที่มีแต่สินค้าที่แอปรู้จักแล้ว → เลือกเฉพาะตัวที่แอปยังไม่มี → ส่งเข้าแอป
+// สแกนแบบหยุดเมื่อเจอหน้าที่มีแต่สินค้าที่ปลายทางรู้จักแล้ว → เลือกเฉพาะตัวที่ปลายทางยังไม่มี → ส่งไปปลายทาง
 // ทำในหน้านี้ ไม่ใช่ใน popup เพราะ popup ปิดทันทีที่ผู้ใช้คลิกที่อื่น งานจะขาดกลางทาง
 //
-// ห้ามสแกนเต็มแล้วส่งทั้งก้อนเมื่อถามรายการ "รู้จักแล้ว" จากแอปไม่ได้ — จะได้สินค้าเก่าซ้ำเข้าไปทั้ง
+// ห้ามสแกนเต็มแล้วส่งทั้งก้อนเมื่อถามรายการ "รู้จักแล้ว" จากปลายทางไม่ได้ — จะได้สินค้าเก่าซ้ำเข้าไปทั้ง
 // Showcase (ร้อยกว่าตัว) จึงหยุดแล้วบอกผู้ใช้แทน · หยุดด้วยเหตุผลอื่นที่ไม่ใช่ "ถึงปลายทาง/เจอหน้าที่
 // รู้จักแล้ว" (เช่น login TikTok หลุด) = ไม่ส่งอัตโนมัติ ให้ผู้ใช้ดูผลแล้วตัดสินใจเอง
 const autoStatusEl = requireElement('auto-status')
@@ -635,8 +636,7 @@ async function runAutoScanAndPush(): Promise<void> {
     return
   }
 
-  const knownSet = new Set(knownProductIds)
-  const newIds = report.products.filter((p) => !knownSet.has(p.productId)).map((p) => p.productId)
+  const newIds = pickNewProductIds(report.products, knownProductIds)
   if (newIds.length === 0) {
     setAutoStatus('✅ ไม่มีสินค้าใหม่ — ทุกตัวใน Showcase ส่งไปปลายทางแล้ว', 'info')
     return

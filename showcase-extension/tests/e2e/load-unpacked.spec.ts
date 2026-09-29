@@ -30,9 +30,10 @@ test('popup เปิดได้และแสดงสถานะจาก s
   // ซ่อนโดยตั้งใจ (ข้อความ idle ไม่มีประโยชน์กับผู้ใช้) data-phase จึงเป็นหลักฐานว่าคุยกับ worker ได้
   await expect(page.locator('#status-card')).toHaveAttribute('data-phase', 'idle')
   await expect(page.locator('#status-card')).toBeHidden()
-  // โปรไฟล์ทดสอบไม่เคยให้สิทธิ์ localhost:3000 → ไฟเทา "ยังไม่ได้อนุญาต" และปุ่มสแกน+ส่งกดไม่ได้
-  await expect(page.locator('#app-title')).toContainText('ยังไม่ได้อนุญาตให้เชื่อมต่อ Angle')
+  // โปรไฟล์ทดสอบไม่เคยใส่ลิงก์ปลายทาง → ไฟเทา และปุ่มสแกน+ส่งกดไม่ได้
+  await expect(page.locator('#app-title')).toContainText('ยังไม่ได้ใส่ลิงก์ปลายทาง')
   await expect(page.locator('#scan-push')).toBeDisabled()
+  await expect(page.locator('#version')).toContainText('0.2.0')
 })
 
 test('สแกนอัตโนมัติ — ยังไม่มีลิงก์ปลายทางต้องไม่สแกนเต็มแล้วส่งทั้ง Showcase', async ({

@@ -1,5 +1,5 @@
 import type { ResponseMap } from '../messaging/schema.js'
-import { checkAppConnection, relativeDaysThai, requestAutoScan, type AppConnection } from '../dashboard/app-link.js'
+import { checkDestination, relativeDaysThai, requestAutoScan, type DestinationStatus } from '../dashboard/destination.js'
 import { setText } from '../dashboard/dom.js'
 
 declare const __ADAPTER_MODE__: 'mock' | 'live'
@@ -23,10 +23,10 @@ function renderChannelBanner(): void {
   requireElement('channel-banner').hidden = true
 }
 
-// ---------- การเชื่อมต่อ Angle — สิ่งที่ผู้ใช้อยากรู้ก่อนกดสแกน (2026-09-29) ----------
+// ---------- การเชื่อมต่อปลายทาง — สิ่งที่ผู้ใช้อยากรู้ก่อนกดสแกน (2026-09-29) ----------
 //
-// เขียว = พร้อม กดสแกนแล้วส่งได้เลย · แดง = แอปไม่ได้เปิด (เรื่องประจำวัน) · เทา = ยังตั้งค่าไม่ครบ
-// (ทำครั้งเดียวในหน้าจัดการ) — ปุ่มสแกนเปิดเฉพาะตอนเขียว เพราะสแกนจบแล้วไปรู้ตอนส่งว่าส่งไม่ได้
+// เขียว = พร้อม กดสแกนแล้วส่งได้เลย · แดง = ติดต่อปลายทางไม่ได้/ลิงก์ใช้ไม่ได้ · เทา = ยังไม่ได้ใส่ลิงก์
+// หรือปลายทางไม่บอกสถานะ — ปุ่มสแกนเปิดเฉพาะตอนส่งได้ เพราะสแกนจบแล้วไปรู้ตอนส่งว่าส่งไม่ได้
 // คือเสียเวลาทั้งรอบ
 
 const appDot = requireElement('app-dot')
@@ -41,31 +41,31 @@ function refreshScanButton(): void {
   scanPushButton.disabled = !appReady || scanRunning
 }
 
-function renderConnection(connection: AppConnection): void {
-  const [tone, title, detail] = ((): ['ok' | 'bad' | 'setup', string, string] => {
-    switch (connection.kind) {
+function renderConnection(status: DestinationStatus): void {
+  const now = Date.now()
+  const [tone, title, detail, canScan] = ((): ['ok' | 'bad' | 'idle', string, string, boolean] => {
+    switch (status.kind) {
       case 'ready':
-        return [
-          'ok',
-          'เชื่อมต่อ Angle แล้ว',
-          connection.lastImportAt === null
-            ? 'ยังไม่เคยนำเข้าสินค้าจาก Showcase'
-            : `นำเข้าล่าสุด ${relativeDaysThai(connection.lastImportAt, Date.now())} · ${String(connection.productCount)} สินค้าใน Angle`,
-        ]
-      case 'offline':
-        return ['bad', 'Angle ไม่ได้เปิดอยู่', 'เปิด start.bat แล้วกดไอคอนนี้ใหม่']
-      case 'no_permission':
-        return ['setup', 'ยังไม่ได้อนุญาตให้เชื่อมต่อ Angle', 'เปิดหน้าจัดการ → กด "เชื่อมต่อแอปหลัก" (ทำครั้งเดียว)']
-      case 'no_secret':
-        return ['setup', 'ยังไม่ได้ใส่รหัสเชื่อมต่อ', 'เปิดหน้าจัดการ → วางรหัสจาก .env แล้วบันทึก (ทำครั้งเดียว)']
-      case 'bad_secret':
-        return ['setup', 'รหัสเชื่อมต่อไม่ตรงกับ Angle', 'เปิดหน้าจัดการ → วางรหัส SHOWCASE_IMPORT_SECRET จาก .env ใหม่']
+        return ['ok', 'เชื่อมต่อปลายทางแล้ว',
+          `${String(status.productCount)} สินค้าที่ปลายทาง` +
+            (status.lastReceivedAt === null ? '' : ` · รับล่าสุด ${relativeDaysThai(status.lastReceivedAt, now)}`),
+          true]
+      case 'no_status':
+        return ['idle', 'ปลายทางไม่ได้บอกสถานะ — ส่งได้ตามปกติ',
+          status.lastDeliveredAt === null ? 'ยังไม่เคยส่ง' : `ส่งสำเร็จล่าสุด ${relativeDaysThai(status.lastDeliveredAt, now)}`,
+          true]
+      case 'unreachable':
+        return ['bad', 'ติดต่อปลายทางไม่ได้', 'เปิดระบบปลายทาง (เช่น start.bat) แล้วกดไอคอนนี้ใหม่', false]
+      case 'rejected':
+        return ['bad', 'ลิงก์ปลายทางใช้ไม่ได้แล้ว', 'อาจถูกสร้างลิงก์ใหม่ — คัดลอกลิงก์ล่าสุดมาใส่ในหน้าจัดการ', false]
+      case 'no_link':
+        return ['idle', 'ยังไม่ได้ใส่ลิงก์ปลายทาง', 'เปิดหน้าจัดการ → ตั้งค่า → วางลิงก์ (ทำครั้งเดียว)', false]
     }
   })()
   appDot.className = `status-dot status-dot-${tone === 'ok' ? 'finished' : tone === 'bad' ? 'bad' : 'idle'}`
   setText(appTitle, title)
   setText(appDetail, detail)
-  appReady = connection.kind === 'ready'
+  appReady = canScan
   refreshScanButton()
 }
 
@@ -86,7 +86,7 @@ const statusDot = requireElement('status-dot')
 const statusText = requireElement('status')
 
 // การ์ดสถานะโชว์เฉพาะตอนมีเรื่องให้รู้/ทำ (กำลังสแกน · ค้างกลางทาง · อ่านสถานะไม่ได้) — ตอนว่างหรือสแกน
-// เสร็จแล้วซ่อน เพราะ "สแกนล่าสุด: 201 รายการ" ผู้ใช้บอกว่าไม่มีประโยชน์ (ผลสแกนดูที่หน้าจัดการ/แอปหลัก)
+// เสร็จแล้วซ่อน เพราะ "สแกนล่าสุด: 201 รายการ" ผู้ใช้บอกว่าไม่มีประโยชน์ (ผลสแกนดูที่หน้าจัดการ)
 // data-phase ตั้งทุกกรณี ให้ E2E ยืนยันได้ว่าคุยกับ service worker สำเร็จแม้การ์ดจะซ่อน
 function setPhase(phase: 'idle' | 'running' | 'finished' | 'error'): void {
   statusCard.dataset.phase = phase
@@ -131,4 +131,5 @@ async function renderScanStatus(): Promise<void> {
 
 renderChannelBanner()
 void renderScanStatus()
-void checkAppConnection().then(renderConnection)
+void checkDestination().then(renderConnection)
+setText(requireElement('version'), `เวอร์ชัน ${chrome.runtime.getManifest().version}`)

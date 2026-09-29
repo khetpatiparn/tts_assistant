@@ -98,7 +98,7 @@ body {
   background: var(--green-600);
 }
 
-/* แอปหลักไม่ได้เปิด — แดงเพื่อแยกจาก "ยังตั้งค่าไม่ครบ" ที่เป็นเทา (เรื่องประจำวัน vs ครั้งเดียว) */
+/* ปลายทางติดต่อไม่ได้ — แดงเพื่อแยกจาก "ยังตั้งค่าไม่ครบ" ที่เป็นเทา (เรื่องประจำวัน vs ครั้งเดียว) */
 .status-dot-bad {
   background: var(--destructive);
 }
@@ -187,4 +187,11 @@ button:focus-visible {
 /* class ที่ตั้ง display เอง (เช่น .status-card = flex) ชนะ attribute hidden ของเบราว์เซอร์ — บังคับให้ hidden ซ่อนจริงเสมอ */
 [hidden] {
   display: none !important;
+}
+
+.version {
+  margin: 12px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-align: center;
 }

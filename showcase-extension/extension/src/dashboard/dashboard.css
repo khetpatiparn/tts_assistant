@@ -304,6 +304,10 @@ input:focus-visible {
   background: var(--surface);
 }
 
+#settings label {
+  display: block;
+}
+
 #settings > summary {
   cursor: pointer;
   font-weight: 600;

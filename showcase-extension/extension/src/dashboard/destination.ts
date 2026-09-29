@@ -171,7 +171,7 @@ export function relativeDaysThai(iso: string, now: number): string {
 }
 
 /**
- * popup สั่งหน้าจัดการให้ "สแกนสินค้าใหม่แล้วส่งเข้าแอปเองจนจบ" (dashboard/main.ts runAutoScanAndPush)
+ * popup สั่งหน้าจัดการให้ "สแกนสินค้าใหม่แล้วส่งไปปลายทางเองจนจบ" (dashboard/main.ts runAutoScanAndPush)
  * ผ่าน chrome.storage.session — ไม่ใช้ query string เพราะ PK03 ห้าม release bundle อ่าน
  * location.search/URLSearchParams เด็ดขาด (กันช่องสั่งโหมดพิเศษจากภายนอก) · storage.session อยู่ใน
  * หน่วยความจำของ extension เท่านั้น หน้าเว็บภายนอกเขียนไม่ได้ · คำสั่งใช้ได้ครั้งเดียว (อ่านแล้วลบ)
@@ -190,4 +190,16 @@ export async function consumeAutoScanRequest(now: number = Date.now()): Promise<
   if (requestedAt === undefined) return false
   await chrome.storage.session.remove(AUTO_SCAN_REQUEST_KEY)
   return typeof requestedAt === 'number' && now - requestedAt >= 0 && now - requestedAt <= AUTO_SCAN_REQUEST_TTL_MS
+}
+
+/**
+ * สินค้าที่ auto-push ควรเลือก: ปลายทางยังไม่มี และไม่ใช่สินค้าที่ตายแล้ว (มี status_popup = ถูกถอด/ระงับ)
+ * — สินค้าตายนับเป็น "รู้จักแล้ว" ตอนหยุดสแกนอยู่แล้ว (runner.ts) จึงต้องไม่ถูกส่งไปด้วย
+ */
+export function pickNewProductIds(
+  products: readonly { readonly productId: string; readonly hasStatusPopup: boolean }[],
+  knownIds: readonly string[],
+): string[] {
+  const known = new Set(knownIds)
+  return products.filter((p) => !known.has(p.productId) && !p.hasStatusPopup).map((p) => p.productId)
 }

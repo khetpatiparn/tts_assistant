@@ -5,6 +5,7 @@ import {
   deliver,
   getDeliveryMemory,
   parseDestinationLink,
+  pickNewProductIds,
   relativeDaysThai,
   resolveKnownIds,
   saveDestinationLink,
@@ -157,5 +158,17 @@ describe('relativeDaysThai', () => {
     expect(relativeDaysThai('2026-09-28T04:00:00Z', now)).toBe('เมื่อวาน')
     expect(relativeDaysThai('2026-09-24T04:00:00Z', now)).toBe('5 วันก่อน')
     expect(relativeDaysThai('x', now)).toBe('ไม่ทราบ')
+  })
+})
+
+describe('pickNewProductIds — auto-push', () => {
+  it('ข้ามที่ปลายทางมีแล้ว และข้ามสินค้าตาย (hasStatusPopup)', () => {
+    const products = [
+      { productId: 'a', hasStatusPopup: false },
+      { productId: 'b', hasStatusPopup: false },
+      { productId: 'c', hasStatusPopup: true },
+      { productId: 'd', hasStatusPopup: false },
+    ]
+    expect(pickNewProductIds(products, ['b'])).toEqual(['a', 'd'])
   })
 })
