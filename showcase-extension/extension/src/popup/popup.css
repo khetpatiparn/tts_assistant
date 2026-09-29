@@ -137,3 +137,8 @@ button:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+
+/* class ที่ตั้ง display เอง (เช่น .status-card = flex) ชนะ attribute hidden ของเบราว์เซอร์ — บังคับให้ hidden ซ่อนจริงเสมอ */
+[hidden] {
+  display: none !important;
+}

@@ -26,8 +26,10 @@ test('popup เปิดได้และแสดงสถานะจาก s
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/popup/index.html`)
   // ใช้ run.status (สถานะจริง) แทน status.get เดิม (hardcode 'idle' ตายตัว) — ไม่มี run ใด ๆ
-  // เคยเริ่มในโปรไฟล์ทดสอบนี้เลย จึงต้องได้ข้อความ idle แบบไม่มี resume ค้าง
-  await expect(page.locator('#status')).toContainText('พร้อมสแกน')
+  // เคยเริ่มในโปรไฟล์ทดสอบนี้เลย จึงต้องได้ phase idle แบบไม่มี resume ค้าง · ตอน idle การ์ดสถานะ
+  // ซ่อนโดยตั้งใจ (ข้อความ idle ไม่มีประโยชน์กับผู้ใช้) data-phase จึงเป็นหลักฐานว่าคุยกับ worker ได้
+  await expect(page.locator('#status-card')).toHaveAttribute('data-phase', 'idle')
+  await expect(page.locator('#status-card')).toBeHidden()
 })
 
 test('.product-image-gallery[hidden] ซ่อนจริงในเบราว์เซอร์จริง (ไม่ใช่แค่ attribute)', async ({

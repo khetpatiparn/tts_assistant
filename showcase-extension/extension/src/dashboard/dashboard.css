@@ -272,3 +272,8 @@ input:focus-visible {
   font-size: 0.85rem;
   color: var(--muted-foreground);
 }
+
+/* class ที่ตั้ง display เอง (เช่น .status-card = flex) ชนะ attribute hidden ของเบราว์เซอร์ — บังคับให้ hidden ซ่อนจริงเสมอ */
+[hidden] {
+  display: none !important;
+}

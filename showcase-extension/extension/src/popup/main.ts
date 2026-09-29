@@ -1,5 +1,5 @@
-import { setText } from '../dashboard/dom.js'
 import type { ResponseMap } from '../messaging/schema.js'
+import { setText } from '../dashboard/dom.js'
 
 declare const __ADAPTER_MODE__: 'mock' | 'live'
 
@@ -14,59 +14,58 @@ requireElement('open-dashboard').addEventListener('click', () => {
   chrome.runtime.openOptionsPage()
 })
 
-// เหตุผลเดียวกับ dashboard/main.ts renderChannelBanner — HTML มีข้อความของ mock channel เป็น
-// ค่าเริ่มต้น (E2E ตรวจคำว่า MOCK-ONLY อยู่) live channel ต้องไม่โฆษณาตัวเองว่า mock เพราะมันยิง
-// TikTok จริงได้เมื่อผู้ใช้กดเอง — popup เคยไม่มีโค้ดนี้เลย จึงค้างข้อความ mock ไว้ตลอดแม้รัน live build
+// HTML มีข้อความของ mock channel เป็นค่าเริ่มต้น (E2E ตรวจคำว่า MOCK-ONLY อยู่) — live build ซ่อนป้าย
+// ทิ้งทั้งอัน: ข้อความ "LIVE TRIAL BUILD … full scan ยังปิดอยู่" ที่เคยใส่ไว้ตรงนี้ผิดความจริง (full scan
+// ใช้งานจริงแล้ว) และผู้ใช้ถามว่าคืออะไร (2026-09-29) — ป้ายที่ต้องอธิบายคือป้ายที่ไม่ควรมี
 function renderChannelBanner(): void {
   if (__ADAPTER_MODE__ !== 'live') return
-  setText(
-    requireElement('channel-banner'),
-    'LIVE TRIAL BUILD — ทดลองอ่านหนึ่งหน้าด้วยการกดเองเท่านั้น · full scan ยังปิดอยู่',
-  )
+  requireElement('channel-banner').hidden = true
 }
 
+const statusCard = requireElement('status-card')
 const statusDot = requireElement('status-dot')
 const statusText = requireElement('status')
 
-function setStatus(dotState: 'idle' | 'running' | 'finished', text: string): void {
-  statusDot.className = `status-dot status-dot-${dotState}`
-  setText(statusText, text)
+// การ์ดสถานะโชว์เฉพาะตอนมีเรื่องให้รู้/ทำ (กำลังสแกน · ค้างกลางทาง · อ่านสถานะไม่ได้) — ตอนว่างหรือสแกน
+// เสร็จแล้วซ่อน เพราะ "สแกนล่าสุด: 201 รายการ" ผู้ใช้บอกว่าไม่มีประโยชน์ (ผลสแกนดูที่หน้าจัดการ/แอปหลัก)
+// data-phase ตั้งทุกกรณี ให้ E2E ยืนยันได้ว่าคุยกับ service worker สำเร็จแม้การ์ดจะซ่อน
+function setPhase(phase: 'idle' | 'running' | 'finished' | 'error'): void {
+  statusCard.dataset.phase = phase
 }
 
-// เดิม popup อ่านจาก message `status.get` ซึ่ง handler ใน messaging/handle.ts คืนค่า
-// hardcode ตายตัวว่า state: 'idle' เสมอ (ของเหลือจากช่วง M1.1 ก่อนมี state machine จริงของ run.*) —
-// จึงค้างคำว่า "idle" ไว้ตลอดไม่ว่าจะกำลังสแกนอยู่จริงหรือไม่ ต้องใช้ `run.status` เหมือน dashboard
-// ที่ต่อกับสถานะจริงถูกต้อง (idle/running/finished ตามข้อมูลจริงใน checkpoint store)
+function showStatus(dotState: 'idle' | 'running', text: string): void {
+  statusDot.className = `status-dot status-dot-${dotState}`
+  setText(statusText, text)
+  statusCard.hidden = false
+}
+
+// ใช้ `run.status` (สถานะจริงใน checkpoint store) ไม่ใช่ `status.get` ที่ hardcode 'idle' ไว้ตายตัว
 void (async (): Promise<void> => {
   const response = (await chrome.runtime.sendMessage({ type: 'run.status' })) as ResponseMap['run.status']
 
   if (!response.ok) {
-    setStatus('idle', `อ่านสถานะไม่ได้: ${response.code}`)
+    setPhase('error')
+    showStatus('idle', `อ่านสถานะไม่ได้: ${response.code}`)
     return
   }
 
   if (response.phase === 'running') {
+    setPhase('running')
     const staged = response.resume?.kind === 'running' ? response.resume.productCount : 0
-    setStatus('running', `กำลังสแกน… เก็บแล้ว ${String(staged)} รายการ`)
-    return
-  }
-
-  if (response.phase === 'finished' && response.report !== null) {
-    const { report } = response
-    const coverageNote = report.scanCoverage === 'reached_endpoint_end' ? '' : ' (ไม่ครบ)'
-    setStatus('finished', `สแกนล่าสุด: ${String(report.counters.uniqueValidProducts)} รายการ${coverageNote}`)
+    showStatus('running', `กำลังสแกน… เก็บแล้ว ${String(staged)} รายการ`)
     return
   }
 
   if (response.resume?.kind === 'interrupted') {
-    setStatus(
+    setPhase('idle')
+    showStatus(
       'idle',
-      `การสแกนก่อนหน้าถูกขัดจังหวะ — มีสินค้า staged แล้ว ${String(response.resume.productCount)} รายการ`,
+      `การสแกนก่อนหน้าค้างกลางทาง (เก็บไว้ ${String(response.resume.productCount)} รายการ) — ดูที่หน้าจัดการ`,
     )
     return
   }
 
-  setStatus('idle', 'พร้อมสแกน')
+  setPhase(response.phase === 'finished' ? 'finished' : 'idle')
 })()
 
 renderChannelBanner()

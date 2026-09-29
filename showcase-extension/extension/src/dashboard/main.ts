@@ -32,16 +32,12 @@ const requireElement = (id: string): HTMLElement => {
 
 // ---------- banner ตามช่องทาง build ----------
 //
-// HTML มีข้อความของ mock channel เป็นค่าเริ่มต้น (E2E ตรวจคำว่า MOCK-ONLY อยู่) — live channel
-// ต้องไม่โฆษณาตัวเองว่า mock เพราะมันยิง TikTok จริงได้เมื่อผู้ใช้กดเอง และต้องบอกให้ชัดว่ายัง
-// ไม่ได้รับอนุญาตจาก TikTok + ยังไม่เปิด full scan
+// HTML มีข้อความของ mock channel เป็นค่าเริ่มต้น (E2E ตรวจคำว่า MOCK-ONLY อยู่) — live build ซ่อนป้าย
+// ทิ้ง: ข้อความ "LIVE TRIAL BUILD … full scan ยังปิดอยู่" เดิมมาจากช่วงก่อนเปิด full scan และไม่จริงแล้ว
+// (full scan + ส่งเข้าแอปใช้งานจริงตั้งแต่ 2026-09-24) ผู้ใช้เห็นแล้วงง (2026-09-29)
 function renderChannelBanner(): void {
   if (__ADAPTER_MODE__ !== 'live') return
-  setText(
-    requireElement('channel-banner'),
-    'LIVE TRIAL BUILD — ทดลองอ่านหนึ่งหน้าด้วยการกดเองเท่านั้น · full scan ยังปิดอยู่ · ' +
-      'TikTok ยังไม่ได้อนุญาตการเข้าถึงอัตโนมัติ (ดู docs/api-observations.md §3.1)',
-  )
+  requireElement('channel-banner').hidden = true
 }
 
 // ---------- ข้อมูล build ----------
