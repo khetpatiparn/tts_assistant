@@ -18,6 +18,8 @@ test('probe แสดงผลทดสอบหนึ่งหน้าพร�
 
   const page = await context.newPage()
   await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
+  // เครื่องมือทดสอบพับอยู่ใต้ "สำหรับนักพัฒนา" ในส่วนตั้งค่า
+  await page.locator('#dev-tools > summary').click()
 
   await page.locator('#probe-button').click()
   const result = page.locator('#probe-result')
@@ -50,6 +52,7 @@ test('อ่านทีละหน้า — ปุ่มหน้าถัด
   // ยังไม่เคยอ่าน → ยังไม่รู้ว่ามีหน้าถัดไปไหม จึงต้องไม่มีปุ่มให้กด
   await expect(nextButton).toBeHidden()
 
+  await page.locator('#dev-tools > summary').click()
   await page.locator('#probe-button').click()
   await expect(result).toContainText('offset ที่อ่าน')
   await expect(result).toContainText('0 (count=6)')
@@ -101,6 +104,7 @@ test('export ผลทดสอบหนึ่งหน้าได้ และ
   // ปุ่ม export ของ probe ต้องยังไม่โผล่ก่อนกดทดสอบ
   await expect(page.locator('#probe-export-button')).toBeHidden()
 
+  await page.locator('#dev-tools > summary').click()
   await page.locator('#probe-button').click()
   await expect(page.locator('#probe-result')).toContainText('ผลทดสอบหนึ่งหน้า')
   await expect(page.locator('#probe-export-button')).toBeVisible()

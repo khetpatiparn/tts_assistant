@@ -261,6 +261,15 @@ const cancelButton = requireElement('cancel-button') as HTMLButtonElement
 const clearDataButton = requireElement('clear-data-button') as HTMLButtonElement
 const runStatusEl = requireElement('run-status')
 const previewSection = requireElement('preview-section')
+const previewEmpty = requireElement('preview-empty')
+const pushArea = requireElement('push-area')
+
+/** รายการสินค้า (ขวา) กับปุ่มส่ง (ซ้าย) มา-หายพร้อมกันเสมอ · ไม่มีผลสแกน = โชว์ข้อความว่างแทนคอลัมน์ขวาที่โล่ง */
+function setPreviewVisible(visible: boolean): void {
+  previewSection.hidden = !visible
+  pushArea.hidden = !visible
+  previewEmpty.hidden = visible
+}
 const productList = requireElement('product-list')
 const rejectedList = requireElement('rejected-list')
 const selectAllButton = requireElement('select-all-button') as HTMLButtonElement
@@ -363,6 +372,8 @@ function renderSelectionCount(): void {
   const filtered = productsInFilter(report.products, state.filter === 'rejected' ? 'candidate' : state.filter)
   const count = state.filter === 'rejected' ? 0 : countSelectedInFilter(state.selected, filtered)
   setText(selectedCountEl, `เลือกในแท็บนี้: ${String(count)} / ${String(filtered.length)} · เลือกทั้งหมด: ${String(state.selected.size)}`)
+  // ปุ่มส่งอยู่คนละคอลัมน์กับรายการ — บอกจำนวนบนปุ่มเลย จะได้รู้ว่ากดแล้วส่งกี่ตัวโดยไม่ต้องมองหา
+  setText(pushButton, `ส่งไปปลายทาง (${String(state.selected.size)} ตัว)`)
 }
 
 function showIdle(message: string): void {
@@ -370,7 +381,7 @@ function showIdle(message: string): void {
   setText(runStatusEl, message)
   startButton.hidden = false
   cancelButton.hidden = true
-  previewSection.hidden = true
+  setPreviewVisible(false)
 }
 
 function showRunning(message: string): void {
@@ -378,7 +389,7 @@ function showRunning(message: string): void {
   setText(runStatusEl, message)
   startButton.hidden = true
   cancelButton.hidden = false
-  previewSection.hidden = true
+  setPreviewVisible(false)
 }
 
 /**
@@ -424,7 +435,7 @@ function showFinished(report: RunReport): void {
     setText(
       note,
       `⚠ ข้อมูลยังไม่ครบ — ${stopReasonText(report.stopReason)}${wait}` +
-        (productCount > 0 ? ` · ที่เห็นด้านล่าง ${String(productCount)} ตัวเป็นแค่ส่วนหนึ่งของ Showcase` : ''),
+        (productCount > 0 ? ` · สินค้า ${String(productCount)} ตัวในรายการเป็นแค่ส่วนหนึ่งของ Showcase` : ''),
     )
   }
   runStatusEl.append(note)
@@ -448,7 +459,7 @@ function showFinished(report: RunReport): void {
 
   startButton.hidden = false
   cancelButton.hidden = true
-  previewSection.hidden = false
+  setPreviewVisible(true)
   renderPreview()
 }
 

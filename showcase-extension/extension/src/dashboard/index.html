@@ -7,99 +7,129 @@
     <link rel="stylesheet" href="dashboard.css" />
   </head>
   <body>
-    <main>
-      <p id="channel-banner" class="banner" role="status">
-        MOCK-ONLY PROTOTYPE — ยังไม่เชื่อมต่อบริการภายนอกจริง (G0 ยังไม่ผ่าน)
-      </p>
-
-      <h1>Showcase Scanner</h1>
-      <p id="auto-status" class="notice" role="status" aria-live="polite" hidden></p>
-
-      <section class="card" aria-labelledby="run-heading">
-        <h2 id="run-heading">สแกน Showcase</h2>
-        <div id="run-status" class="rows" role="status" aria-live="polite">กำลังตรวจสถานะ…</div>
-        <div class="row-buttons">
-          <button id="start-button" type="button">เริ่มสแกน</button>
-          <button id="cancel-button" type="button" hidden>ยกเลิก</button>
-        </div>
-      </section>
-
-      <section id="preview-section" class="card" aria-labelledby="preview-heading" hidden>
-        <h2 id="preview-heading">สินค้าที่สแกนเจอ</h2>
-
-        <!-- ป้ายไทยแทน Candidate / Other status / Rejected เดิม · data-filter คงเดิมเพราะ E2E และ selection.ts ใช้ -->
-        <div class="tabs" role="tablist">
-          <button type="button" class="tab-button" data-filter="candidate" role="tab">
-            โปรโมตได้ (<span id="count-candidate">0</span>)
-          </button>
-          <button type="button" class="tab-button" data-filter="other" role="tab">
-<span id="label-other">สินค้าทั้งหมด</span> (<span id="count-other">0</span>)
-          </button>
-          <button type="button" class="tab-button" data-filter="rejected" role="tab">
-            อ่านข้อมูลไม่ได้ (<span id="count-rejected">0</span>)
-          </button>
-        </div>
-
-        <div class="selection-controls">
-          <button id="select-all-button" type="button">เลือกทั้งหมดในแท็บนี้</button>
-          <button id="deselect-all-button" type="button">ยกเลิกเลือกในแท็บนี้</button>
-          <span id="selected-count" class="hint"></span>
-        </div>
-
-        <div id="product-list" role="list"></div>
-        <div id="rejected-list" hidden></div>
-
-        <div id="pagination" class="pagination">
-          <button id="prev-page-button" type="button">ก่อนหน้า</button>
-          <span id="page-indicator" class="hint"></span>
-          <button id="next-page-button" type="button">ถัดไป</button>
-        </div>
-
-        <div class="row-buttons">
-          <button id="push-button" type="button">ส่งไปปลายทาง</button>
-          <button id="export-button" type="button">ดาวน์โหลดเป็นไฟล์ JSON</button>
-        </div>
-        <div id="push-result" class="rows" role="status" aria-live="polite"></div>
-      </section>
-
-      <details id="settings" class="card">
-        <summary>ตั้งค่า</summary>
-
-        <h2>ลิงก์ปลายทาง</h2>
-        <p class="hint">
-          ลิงก์จากระบบที่จะรับผลสแกน (เช่น ปุ่ม "คัดลอกลิงก์" ในแอปของคุณ) — ใส่ครั้งเดียว ·
-          <a href="../help/index.html" target="_blank" rel="noopener">ยังไม่มีลิงก์? ดูวิธีเชื่อมระบบของคุณ</a>
+    <!--
+      2 คอลัมน์ที่จอกว้าง: ซ้าย = ปุ่มควบคุมทั้งหมด (ค้างอยู่กับที่ขณะเลื่อนรายการ) · ขวา = รายการสินค้า
+      เดิมเรียงต่อกันลงมาแนวตั้ง ผู้ใช้ต้องเลื่อนลงไปกด "ส่งไปปลายทาง" ใต้รายการ และเลื่อนต่อถึงตั้งค่า (2026-09-29)
+      จอแคบ (< 1024px) ซ้อนเป็นคอลัมน์เดียวเหมือนเดิม
+    -->
+    <main class="layout">
+      <aside class="side">
+        <p id="channel-banner" class="banner" role="status">
+          MOCK-ONLY PROTOTYPE — ยังไม่เชื่อมต่อบริการภายนอกจริง (G0 ยังไม่ผ่าน)
         </p>
-        <div class="row-buttons">
-          <input id="destination-input" type="text" autocomplete="off" placeholder="https://…" />
-          <button id="save-destination-button" type="button">บันทึกลิงก์</button>
-        </div>
-        <div id="destination-status" class="hint" role="status" aria-live="polite"></div>
 
-        <label>
-          <input id="auto-stop-known-checkbox" type="checkbox" checked />
-          หยุดสแกนเองเมื่อเจอหน้าที่มีแต่สินค้าที่ส่งไปแล้ว (แนะนำ)
-        </label>
-        <label for="max-pages-input">จำกัดจำนวนหน้า (เว้นว่าง = ไม่จำกัด)</label>
-        <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
-        <div class="row-buttons">
-          <button id="max-pages-1" type="button">1 หน้า</button>
-          <button id="max-pages-2" type="button">2 หน้า</button>
-          <button id="max-pages-all" type="button">ทั้งหมด</button>
-        </div>
+        <h1>Showcase Scanner</h1>
+        <p id="auto-status" class="notice" role="status" aria-live="polite" hidden></p>
 
-        <button id="clear-memory-button" type="button">ลืมรายการที่เคยส่งแล้ว</button>
-        <button id="clear-data-button" type="button">ล้างข้อมูลที่เก็บไว้</button>
+        <section class="card" aria-labelledby="run-heading">
+          <h2 id="run-heading">สแกน Showcase</h2>
+          <div id="run-status" class="rows" role="status" aria-live="polite">กำลังตรวจสถานะ…</div>
+          <div class="row-buttons">
+            <button id="start-button" type="button">เริ่มสแกน</button>
+            <button id="cancel-button" type="button" hidden>ยกเลิก</button>
+          </div>
 
-        <h2 id="probe-heading">เครื่องมือทดสอบ: อ่านทีละหน้า</h2>
-        <button id="probe-button" type="button">อ่านหน้าแรก (offset=0)</button>
-        <button id="probe-next-button" type="button" hidden>อ่านหน้าถัดไป</button>
-        <button id="probe-export-button" type="button" hidden>Export ผลทดสอบหน้านี้</button>
-        <div id="probe-result" class="rows" role="status" aria-live="polite"></div>
+          <!-- ปุ่มส่งอยู่ข้างปุ่มสแกน ไม่ใช่ใต้รายการยาว — เห็นตลอดโดยไม่ต้องเลื่อน -->
+          <div id="push-area" class="push-area" hidden>
+            <div class="row-buttons">
+              <button id="push-button" type="button">ส่งไปปลายทาง</button>
+              <button id="export-button" type="button">ดาวน์โหลด JSON</button>
+            </div>
+            <div id="push-result" class="rows" role="status" aria-live="polite"></div>
+          </div>
+        </section>
 
-        <h2 id="build-heading">ข้อมูล build</h2>
-        <div id="build-info" class="rows">กำลังโหลด…</div>
-      </details>
+        <details id="settings" class="card">
+          <summary>ตั้งค่า</summary>
+
+          <div class="settings-group">
+            <h3>ลิงก์ปลายทาง</h3>
+            <p class="hint">
+              ลิงก์จากระบบที่จะรับผลสแกน ใส่ครั้งเดียว ·
+              <a href="../help/index.html" target="_blank" rel="noopener">ยังไม่มีลิงก์? ดูวิธีเชื่อมระบบ</a>
+            </p>
+            <div class="input-row">
+              <input id="destination-input" type="text" autocomplete="off" placeholder="https://…" />
+              <button id="save-destination-button" type="button">บันทึก</button>
+            </div>
+            <div id="destination-status" class="hint" role="status" aria-live="polite"></div>
+          </div>
+
+          <div class="settings-group">
+            <h3>การสแกน</h3>
+            <label class="check">
+              <input id="auto-stop-known-checkbox" type="checkbox" checked />
+              หยุดเองเมื่อเจอหน้าที่มีแต่สินค้าที่ส่งไปแล้ว (แนะนำ)
+            </label>
+            <label for="max-pages-input" class="field-label">จำกัดจำนวนหน้า (เว้นว่าง = ไม่จำกัด)</label>
+            <div class="input-row">
+              <input id="max-pages-input" type="number" min="1" step="1" placeholder="ทั้งหมด" />
+              <button id="max-pages-1" type="button">1</button>
+              <button id="max-pages-2" type="button">2</button>
+              <button id="max-pages-all" type="button">ทั้งหมด</button>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3>ข้อมูลที่เก็บไว้</h3>
+            <div class="row-buttons">
+              <button id="clear-memory-button" type="button">ลืมรายการที่เคยส่งแล้ว</button>
+              <button id="clear-data-button" type="button">ล้างข้อมูลที่เก็บไว้</button>
+            </div>
+          </div>
+
+          <!-- เครื่องมือของคนพัฒนา extension — ผู้ใช้ทั่วไปไม่ต้องใช้ จึงพับไว้อีกชั้น -->
+          <details id="dev-tools" class="settings-group dev-details">
+            <summary>สำหรับนักพัฒนา</summary>
+            <h3 id="probe-heading">อ่านทีละหน้า</h3>
+            <div class="row-buttons">
+              <button id="probe-button" type="button">อ่านหน้าแรก (offset=0)</button>
+              <button id="probe-next-button" type="button" hidden>อ่านหน้าถัดไป</button>
+              <button id="probe-export-button" type="button" hidden>Export ผลทดสอบหน้านี้</button>
+            </div>
+            <div id="probe-result" class="rows" role="status" aria-live="polite"></div>
+
+            <h3 id="build-heading">ข้อมูล build</h3>
+            <div id="build-info" class="rows">กำลังโหลด…</div>
+          </details>
+        </details>
+      </aside>
+
+      <div class="content">
+        <p id="preview-empty" class="card empty">ยังไม่มีผลสแกน — กด "เริ่มสแกน" ทางซ้าย</p>
+
+        <section id="preview-section" class="card" aria-labelledby="preview-heading" hidden>
+          <h2 id="preview-heading">สินค้าที่สแกนเจอ</h2>
+
+          <!-- ป้ายไทยแทน Candidate / Other status / Rejected เดิม · data-filter คงเดิมเพราะ E2E และ selection.ts ใช้ -->
+          <div class="tabs" role="tablist">
+            <button type="button" class="tab-button" data-filter="candidate" role="tab">
+              โปรโมตได้ (<span id="count-candidate">0</span>)
+            </button>
+            <button type="button" class="tab-button" data-filter="other" role="tab">
+              <span id="label-other">สินค้าทั้งหมด</span> (<span id="count-other">0</span>)
+            </button>
+            <button type="button" class="tab-button" data-filter="rejected" role="tab">
+              อ่านข้อมูลไม่ได้ (<span id="count-rejected">0</span>)
+            </button>
+          </div>
+
+          <div class="selection-controls">
+            <button id="select-all-button" type="button">เลือกทั้งหมด</button>
+            <button id="deselect-all-button" type="button">ไม่เลือกเลย</button>
+            <span id="selected-count" class="hint"></span>
+          </div>
+
+          <div id="product-list" role="list"></div>
+          <div id="rejected-list" hidden></div>
+
+          <div id="pagination" class="pagination">
+            <button id="prev-page-button" type="button">ก่อนหน้า</button>
+            <span id="page-indicator" class="hint"></span>
+            <button id="next-page-button" type="button">ถัดไป</button>
+          </div>
+        </section>
+      </div>
     </main>
     <script type="module" src="main.js"></script>
   </body>

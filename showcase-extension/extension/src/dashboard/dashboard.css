@@ -58,10 +58,100 @@ body {
   line-height: 1.6; /* ข้อความไทยขั้นต่ำ 1.6 เหมือนกฎของแอปหลัก */
 }
 
-/* เดิมชิดซ้ายกว้าง 760px บนจอกว้างเลยเหลือที่ว่างครึ่งจอ (ผู้ใช้จริงถามว่าทำไมหน้าตาเป็นแบบนี้ 2026-09-29) */
-main {
-  max-width: 960px;
+/* จอแคบ: คอลัมน์เดียวเรียงลงมา · จอกว้าง (≥1024px): ซ้ายปุ่มควบคุม ค้างอยู่กับที่ / ขวารายการสินค้า
+   ผู้ใช้จริงไม่อยากเลื่อนไปมาระหว่างปุ่มสแกน รายการ ปุ่มส่ง และตั้งค่า (2026-09-29) */
+.layout {
+  max-width: 1400px;
   margin: 0 auto;
+}
+
+@media (min-width: 1024px) {
+  .layout {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  /* เลื่อนรายการยาวแล้วฝั่งซ้ายยังอยู่ · ตั้งค่าที่กางออกยาวเกินจอ เลื่อนในคอลัมน์ตัวเอง */
+  .side {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+}
+
+.empty {
+  color: var(--muted-foreground);
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.push-area {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-group {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 0 0 6px;
+  color: var(--navy-900);
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="number"] {
+  font: inherit;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border: 1px solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ช่องกรอก + ปุ่มในบรรทัดเดียว ช่องกรอกยืดเต็มที่เหลือ */
+.input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.input-row button {
+  flex: 0 0 auto;
+  padding-inline: 14px;
+}
+
+.field-label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.9rem;
+}
+
+.check input {
+  margin-top: 5px;
 }
 
 /* แต่ละส่วนเป็นการ์ดพื้น surface บนพื้นหลัง navy-50 แบบเดียวกับการ์ดในแอปหลัก */
@@ -307,6 +397,22 @@ input:focus-visible {
   border: 1px solid var(--border);
 }
 
+/* จอแคบ: grid 4 คอลัมน์บีบชื่อสินค้า (1fr) จนเหลือตัวอักษรเดียวต่อบรรทัด — ให้ชื่อขึ้นบรรทัดของตัวเอง
+   แล้วราคา/ร้าน/รูปต่อท้ายบรรทัดถัดไป */
+@media (max-width: 640px) {
+  .product-row {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 12px;
+    row-gap: 4px;
+  }
+
+  .product-row label,
+  .product-image-gallery:not([hidden]) {
+    flex: 1 1 100%;
+  }
+}
+
 .pagination {
   display: flex;
   gap: 12px;
@@ -330,8 +436,9 @@ input:focus-visible {
   padding: 12px 24px;
 }
 
-#settings label {
-  display: block;
+/* คอลัมน์ซ้ายแคบ (380px) — ป้ายของตารางค่าดิบ 180px เดิมกินที่เกินครึ่ง */
+.side .row-label {
+  flex-basis: 120px;
 }
 
 #settings > summary {
