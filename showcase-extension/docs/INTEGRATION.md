@@ -2,6 +2,31 @@
 
 เอกสารนี้อธิบาย protocol `showcase-scanner/1` ที่ extension ใช้ส่งผลสแกนสินค้าไปยัง "ระบบปลายทาง" ของผู้ใช้ (Google Sheets, n8n, เว็บของตัวเอง ฯลฯ) อ่านจบแล้วสร้าง endpoint ได้ทันที เอกสารนี้อธิบายพฤติกรรมของ Showcase Scanner v0.2.x
 
+## เริ่มใน 5 นาที
+
+**ภาพรวม:** Showcase Scanner อ่านสินค้าจาก Showcase ของบัญชี TikTok ที่ผู้ใช้ล็อกอินอยู่ แล้วส่งไปที่ **ลิงก์เดียว** ที่คุณเป็นคนทำ ระบบของคุณแค่รับข้อมูลที่ลิงก์นั้น
+
+```
+Showcase ใน TikTok ──(extension อ่านเมื่อผู้ใช้กดสแกน)──▶ ลิงก์ของคุณ ──▶ ฐานข้อมูล / Sheets / อะไรก็ได้
+```
+
+**ลิงก์ของคุณต้องทำ 2 อย่าง:**
+
+| คำขอ | extension ส่งมา | คุณตอบ |
+|---|---|---|
+| `POST <ลิงก์>` (บังคับ) | ข้อความ JSON `{"products":[{"productId":"…","title":"…","priceDisplay":"฿189","commissionRate":1200,…}]}` | เก็บสินค้า (upsert ด้วย `productId`) แล้วตอบ `200` |
+| `GET <ลิงก์>` (แนะนำ) | — | `{"protocol":"showcase-scanner/1","productIds":["…"],"lastReceivedAt":"<ISO>"}` = สินค้าที่มีแล้ว (ใช้หยุดสแกนเอง + ไฟเขียวบน popup) |
+
+ลิงก์มีรหัสลับฝังอยู่ (`?token=…`) ถ้า token ไม่ตรงให้ตอบ `401` และทุกคำตอบต้องมี header `Access-Control-Allow-Origin: *`
+
+**ลองของจริงใน 3 ขั้น** (Node 18+ ไม่ต้องติดตั้งอะไรเพิ่ม):
+
+1. `node examples/quickstart-node.mjs` → โปรแกรมพิมพ์ลิงก์ เช่น `http://localhost:8787/scanner?token=…`
+2. ใน extension: กดไอคอน → **เปิดหน้าจัดการ** → **ตั้งค่า** → วางลิงก์ → **บันทึกลิงก์** → กดไอคอนอีกครั้ง ต้องเห็นไฟ**เขียว**
+3. กด **สแกนสินค้าใหม่ → ส่งไปปลายทาง** แล้วสินค้าจะเข้ามาที่โปรแกรมของคุณ
+
+`quickstart-node.mjs` เก็บสินค้าไว้ในหน่วยความจำ ให้เปลี่ยนเป็นฐานข้อมูลจริงตรงสองจุดที่เขียนว่า "ฐานข้อมูลของคุณ" ถ้าจะใช้งานบนเน็ต (ไม่ใช่ localhost) ลิงก์ต้องเป็น `https://` · ตัวอย่างที่ละเอียดกว่าอยู่ใน `examples/` (Express, Next.js, Google Sheets) · รายละเอียดทุกข้ออยู่ด้านล่าง
+
 ## 1. สิ่งที่คุณต้องสร้าง
 
 **endpoint เดียว** ที่ URL มีรหัสลับ (`?token=`) ฝังอยู่ ผู้ใช้จะวางลิงก์ทั้งบรรทัดลงในช่อง "ลิงก์ปลายทาง" ของ extension ครั้งเดียวจบ
@@ -135,8 +160,9 @@ Access-Control-Allow-Origin: *
 
 ## 7. ตัวอย่างโค้ดที่รันได้ครบ
 
-ในโฟลเดอร์ `examples/` (ทั้งสามใช้ token, CORS, upsert ตามเอกสารนี้):
+ในโฟลเดอร์ `examples/` (ทุกตัวใช้ token, CORS, upsert ตามเอกสารนี้):
 
+- `quickstart-node.mjs` — Node ล้วน ไม่มี dependency ตัวเดียวกับหัวข้อ "เริ่มใน 5 นาที" (รันจริงแล้ว: `node quickstart-node.mjs`, ตั้ง `TOKEN`/`PORT` ได้)
 - `express.js` — Node + Express, เก็บใน Map (รันจริงแล้ว: `npm i express`, ตั้ง `SCANNER_TOKEN`, `node express.js`)
 - `nextjs-route.ts` — Next.js App Router `app/api/scanner/route.ts` (storage เป็นฟังก์ชัน stub ใน Map ให้เปลี่ยนเป็นฐานข้อมูล)
 - `apps-script.gs` — Google Apps Script ผูกกับ Google Sheet (แท็บ `Products`) deploy เป็น Web app "Anyone"; token เก็บใน Script Properties ชื่อ `TOKEN`
