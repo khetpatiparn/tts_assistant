@@ -37,6 +37,19 @@ export function blockKindForStatus(status: number): ErrorKind | null {
  * ทันทีที่รับคำสั่ง Flow เพิ่ม <flow-grid-tile-container> ตามจำนวนที่ขอ เป็น <flow-pending-tile> ระหว่างวาด
  * แล้วกลายเป็นรูป/การ์ด error และช่องพิมพ์พรอมต์ถูกล้างว่าง
  */
+/**
+ * เกณฑ์รับคำตอบของ Jev ตอนใช้หาปุ่มแทน selector ที่พัง (dom-heuristics.ts findByJev) — ทดสอบย้อนหลังกับ
+ * page.html ของหลักฐานจริง 9 หน้า (2026-09-29): ส่งชื่อ class ไปด้วย + ความมั่นใจ ≥ 0.9 ถูก 31/31 ครั้ง
+ * ตัด class ทิ้ง (จำลอง Flow เปลี่ยนหน้า) ≥ 0.9 ผิด 3/32 ที่ 0.90-0.91 ทั้งหมด (หยิบปุ่มตั้งค่าของโหมด Agent)
+ * จึงตั้ง 0.93 และส่ง class เสมอ · "none" = Jev บอกว่าไม่มีปุ่มที่ตรง ห้ามกดอะไร
+ */
+export const JEV_MIN_PROBABILITY = 0.93;
+
+export function acceptJevChoice(answer: { choice: string; p: number } | null, min = JEV_MIN_PROBABILITY): string | null {
+  if (answer === null || answer.choice === "none") return null;
+  return answer.p >= min ? answer.choice : null;
+}
+
 export function generateAccepted(s: {
   tilesBefore: number;
   tilesNow: number;

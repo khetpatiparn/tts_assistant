@@ -4,7 +4,7 @@ import type { Locator, Page, Response } from "playwright";
 import type { WorkerConfig } from "./config";
 import { FlowStepError, type ErrorKind } from "./errors";
 import { humanClick, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
-import { findByIntent } from "./dom-heuristics";
+import { findByIntent, findByJev } from "./dom-heuristics";
 import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
@@ -47,6 +47,20 @@ const COUNT = 4;
 /** Flow ขึ้นช่อง "กำลังวาด" ทันทีที่รับคำสั่ง — เผื่อเน็ตช้า 45 วิก่อนสรุปว่าคลิก Generate ไม่ติด */
 const GENERATE_ACCEPT_MS = 45_000;
 
+/**
+ * คำอธิบายปุ่มให้ Jev ตอน selector พัง (firstVisible → findByJev) — เฉพาะปุ่มที่กดผิดแล้วไม่เสียของ
+ * ข้อความเดียวกับที่ใช้ทดสอบย้อนหลังกับ page.html จริง (ดู JEV_MIN_PROBABILITY) แก้แล้วควรทดสอบซ้ำ
+ * **ไม่มี Generate กับช่องพิมพ์พรอมต์โดยตั้งใจ**
+ */
+const JEV_INTENT = {
+  newProject: "The button that creates a new project.",
+  settings:
+    "The button that opens the image generation settings panel (where you pick the model, aspect ratio and number of outputs) next to the prompt box.",
+  addMedia: "The button next to the prompt box that adds or attaches a reference image/media (ingredients) to the prompt.",
+  upload: "The button inside the media picker dialog that uploads a new image file from the computer.",
+  confirmMedia: "The button inside the media picker dialog that adds the selected media to the prompt.",
+} as const;
+
 /** พรอมต์ตายตัว 2 แบบ (spec §3) — ต้องเหมือน buildFlowPrompt ใน lib/flow-jobs.ts ทุกตัวอักษร */
 export function flowPromptFor(round: 1 | 2, productName: string): string {
   return round === 1
@@ -68,7 +82,8 @@ async function firstVisible(
   step: FlowStep,
   candidates: string[],
   timeoutMs: number,
-  intent?: { match: RegExp; exclude?: RegExp }
+  intent?: { match: RegExp; exclude?: RegExp },
+  jev?: { intent: string; log: StepLog }
 ): Promise<Locator> {
   const perCandidate = Math.max(1000, Math.floor(timeoutMs / candidates.length));
   for (const sel of candidates) {
@@ -82,6 +97,11 @@ async function firstVisible(
   }
   if (intent) {
     const loc = await findByIntent(page, intent.match, intent.exclude);
+    if (loc) return loc;
+  }
+  // ด่านสุดท้าย: ให้ Jev เลือกจากรายการปุ่มในหน้า (ดู findByJev — ใช้เฉพาะปุ่มที่กดผิดแล้วไม่เสียของ)
+  if (jev) {
+    const loc = await findByJev(page, jev.intent, (msg) => jev.log.log(step, msg));
     if (loc) return loc;
   }
   throw new FlowStepError(step, "selector_drift", `หา element ไม่เจอ: ${candidates.join(" | ")}`);
@@ -256,7 +276,7 @@ export async function runRound(
       if (page.url().includes(sel.projectUrlFragment)) {
         return extractProjectId(page.url(), sel.projectUrlFragment);
       }
-      const btn = await firstVisible(page, "ensure-project", sel.newProject, cfg.selectorTimeoutMs);
+      const btn = await firstVisible(page, "ensure-project", sel.newProject, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.newProject, log });
       await humanClick(page, btn, cfg);
       await page.waitForURL((u) => u.toString().includes(sel.projectUrlFragment), { timeout: 20_000 });
       await sleepMs(randInt([2000, 4000]));
@@ -285,7 +305,7 @@ export async function runRound(
           return;
         }
       }
-      const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
+      const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent, { intent: JEV_INTENT.settings, log });
       await humanClick(page, trigger, cfg);
       await sleepMs(randInt([600, 1000]));
       await ensureConfirmPolicyNever();
@@ -404,10 +424,10 @@ export async function runRound(
     });
 
     await step("attach-reference", async () => {
-      const add = await firstVisible(page, "attach-reference", sel.addMedia, cfg.selectorTimeoutMs);
+      const add = await firstVisible(page, "attach-reference", sel.addMedia, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.addMedia, log });
       await humanClick(page, add, cfg);
       await sleepMs(randInt([800, 1400]));
-      const uploadBtn = await firstVisible(page, "attach-reference", sel.uploadButtonInDialog, cfg.selectorTimeoutMs);
+      const uploadBtn = await firstVisible(page, "attach-reference", sel.uploadButtonInDialog, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.upload, log });
       const uploadResponse = page.waitForResponse((r) => r.url().includes(sel.uploadResponseUrlPart) && r.request().method() === "POST", { timeout: cfg.uploadTimeoutMs });
       // uploadResponse ถูกสร้างไว้ก่อน Promise.all ด้านล่างโดยตั้งใจ (ต้องเริ่มฟังก่อนคลิก) แต่ถ้า
       // waitForEvent("filechooser") ข้างล่าง timeout ก่อน โค้ดจะ throw ทิ้ง uploadResponse ที่ยังรอ
@@ -444,7 +464,7 @@ export async function runRound(
         // ปุ่ม "Add to prompt": ใช้ selector จริงถ้ามี · ไม่มีก็ถอยไปใช้ heuristic
         // "ปุ่มสุดท้ายในไดอะล็อกที่ไม่มีไอคอน" (ข้อความเปลี่ยนตามภาษา จึงไม่จับด้วยข้อความ)
         const confirm = sel.confirmMedia
-          ? await firstVisible(page, "attach-reference", sel.confirmMedia, cfg.selectorTimeoutMs)
+          ? await firstVisible(page, "attach-reference", sel.confirmMedia, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.confirmMedia, log })
           : dialog.locator("button").filter({ hasNot: page.locator("i, mat-icon") }).last();
         if ((await confirm.count()) > 0 && (await confirm.isVisible().catch(() => false))) {
           await humanClick(page, confirm, cfg);

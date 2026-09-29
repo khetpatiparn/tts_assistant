@@ -28,7 +28,7 @@ function checkThrows(name, fn, includes) {
 try {
   execFileSync(
     "npx",
-    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts",
+    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts", "worker/jev.ts",
      "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler",
      "--esModuleInterop", "--skipLibCheck"],
     { stdio: "inherit", shell: true }
@@ -105,6 +105,10 @@ try {
   check("มีช่องกำลังวาด → รับแล้ว", fs2.generateAccepted({ ...base, pendingNow: 1 }), true);
   check("มีการ์ด error ใหม่ → รับแล้ว (วาดแล้วพัง)", fs2.generateAccepted({ ...base, freshErrorTiles: 1 }), true);
   check("ได้รูปแล้ว → รับแล้ว", fs2.generateAccepted({ ...base, goodCount: 2 }), true);
+  check("Jev มั่นใจ 0.97 → รับ", fs2.acceptJevChoice({ choice: "e3", p: 0.97 }), "e3");
+  check("Jev 0.91 (ช่วงที่เคยผิดตอนทดสอบ) → ไม่รับ", fs2.acceptJevChoice({ choice: "e3", p: 0.91 }), null);
+  check("Jev ตอบ none แม้มั่นใจ → ไม่กดอะไร", fs2.acceptJevChoice({ choice: "none", p: 0.99 }), null);
+  check("เรียก Jev ไม่ได้ → ไม่กดอะไร", fs2.acceptJevChoice(null), null);
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
