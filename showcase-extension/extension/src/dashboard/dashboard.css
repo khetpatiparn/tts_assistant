@@ -284,6 +284,8 @@ input:focus-visible {
   border-radius: 8px;
   padding: 1px 4px;
   white-space: nowrap;
+  /* ปุ่มแม่ตั้ง line-height: 0 (ให้รูปไม่มีช่องว่างใต้) — ถ้าไม่คืนค่า ตัวเลข "+9" จะถูกบีบเป็นแถบดำอ่านไม่ออก */
+  line-height: 1.4;
 }
 
 /*

@@ -66,6 +66,10 @@ export function renderPreviewPage(
     // กดที่ thumbnail เพื่อขยายดูรูปที่เหลือทั้งหมดของสินค้าชิ้นนั้น (ใช้ native <button> ให้กดด้วย
     // คีย์บอร์ดได้ และ toggle ผ่าน `hidden` ตรง ๆ ไม่ต้องมี state แยกนอก DOM)
     const thumbnail = product.imageUrls[0]
+    // gallery ต้องเป็นลูกของแถว (grid) ไม่ใช่ของ imageSpan — ถ้าอยู่ใน imageSpan มันจะขยายคอลัมน์รูปที่เป็น auto
+    // จนคอลัมน์ชื่อสินค้า (1fr) เหลือกว้างตัวอักษรเดียว ชื่อเรียงลงเป็นแนวตั้ง (เจอจริง 2026-09-29) · CSS
+    // `.product-image-gallery { grid-column: 1 / -1 }` มีผลเฉพาะตอนเป็นลูกตรงของ grid เท่านั้น
+    let gallery: HTMLElement | null = null
     if (thumbnail === undefined) {
       setText(imageSpan, '(ไม่มีรูปภาพ)')
     } else {
@@ -80,14 +84,14 @@ export function renderPreviewPage(
 
       const extraCount = product.imageUrls.length - 1
       if (extraCount > 0) {
-        const gallery = doc.createElement('div')
-        gallery.className = 'product-image-gallery'
-        gallery.hidden = true
+        const galleryEl = doc.createElement('div')
+        galleryEl.className = 'product-image-gallery'
+        galleryEl.hidden = true
         for (const url of product.imageUrls) {
           const galleryImg = doc.createElement('img')
           galleryImg.src = url
           galleryImg.alt = product.title
-          gallery.append(galleryImg)
+          galleryEl.append(galleryImg)
         }
 
         const countBadge = doc.createElement('span')
@@ -97,14 +101,15 @@ export function renderPreviewPage(
 
         toggleButton.setAttribute('aria-expanded', 'false')
         toggleButton.addEventListener('click', () => {
-          gallery.hidden = !gallery.hidden
-          toggleButton.setAttribute('aria-expanded', String(!gallery.hidden))
+          galleryEl.hidden = !galleryEl.hidden
+          toggleButton.setAttribute('aria-expanded', String(!galleryEl.hidden))
         })
-        imageSpan.append(gallery)
+        gallery = galleryEl
       }
     }
 
     row.append(label, priceSpan, shopSpan, imageSpan)
+    if (gallery !== null) row.append(gallery)
     container.append(row)
   }
 }

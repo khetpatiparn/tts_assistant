@@ -125,6 +125,15 @@ describe('UI04 — title ไทยยาว, ภาพหาย, คีย์บ
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
   })
 
+  it('gallery เป็นลูกตรงของแถว ไม่ใช่ของช่องรูป — ไม่งั้นกดขยายแล้วชื่อสินค้าถูกบีบเป็นแนวตั้ง', () => {
+    const container = document.createElement('div')
+    const urls = ['https://p16-oec-sg.ibyteimg.com/a.jpeg', 'https://p19-oec-sg.ibyteimg.com/b.jpeg']
+    renderPreviewPage(container, [product('P0', { imageUrls: urls })], new Set(), { page: 0 }, () => undefined)
+
+    const gallery = container.querySelector('.product-image-gallery') as HTMLElement
+    expect(gallery.parentElement?.classList.contains('product-row')).toBe(true)
+  })
+
   it('checkbox เป็น native input — focusable และกดแล้วเรียก onToggle ได้ (คีย์บอร์ดใช้ได้โดยไม่ต้องเขียน handler เอง)', () => {
     const container = document.createElement('div')
     const onToggle = vi.fn()
