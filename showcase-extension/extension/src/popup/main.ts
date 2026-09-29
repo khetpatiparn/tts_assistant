@@ -1,4 +1,5 @@
 import type { ResponseMap } from '../messaging/schema.js'
+import { checkAppConnection, relativeDaysThai, requestAutoScan, type AppConnection } from '../dashboard/app-link.js'
 import { setText } from '../dashboard/dom.js'
 
 declare const __ADAPTER_MODE__: 'mock' | 'live'
@@ -22,6 +23,64 @@ function renderChannelBanner(): void {
   requireElement('channel-banner').hidden = true
 }
 
+// ---------- การเชื่อมต่อ Angle — สิ่งที่ผู้ใช้อยากรู้ก่อนกดสแกน (2026-09-29) ----------
+//
+// เขียว = พร้อม กดสแกนแล้วส่งได้เลย · แดง = แอปไม่ได้เปิด (เรื่องประจำวัน) · เทา = ยังตั้งค่าไม่ครบ
+// (ทำครั้งเดียวในหน้าจัดการ) — ปุ่มสแกนเปิดเฉพาะตอนเขียว เพราะสแกนจบแล้วไปรู้ตอนส่งว่าส่งไม่ได้
+// คือเสียเวลาทั้งรอบ
+
+const appDot = requireElement('app-dot')
+const appTitle = requireElement('app-title')
+const appDetail = requireElement('app-detail')
+const scanPushButton = requireElement('scan-push') as HTMLButtonElement
+
+let appReady = false
+let scanRunning = false
+
+function refreshScanButton(): void {
+  scanPushButton.disabled = !appReady || scanRunning
+}
+
+function renderConnection(connection: AppConnection): void {
+  const [tone, title, detail] = ((): ['ok' | 'bad' | 'setup', string, string] => {
+    switch (connection.kind) {
+      case 'ready':
+        return [
+          'ok',
+          'เชื่อมต่อ Angle แล้ว',
+          connection.lastImportAt === null
+            ? 'ยังไม่เคยนำเข้าสินค้าจาก Showcase'
+            : `นำเข้าล่าสุด ${relativeDaysThai(connection.lastImportAt, Date.now())} · ${String(connection.productCount)} สินค้าใน Angle`,
+        ]
+      case 'offline':
+        return ['bad', 'Angle ไม่ได้เปิดอยู่', 'เปิด start.bat แล้วกดไอคอนนี้ใหม่']
+      case 'no_permission':
+        return ['setup', 'ยังไม่ได้อนุญาตให้เชื่อมต่อ Angle', 'เปิดหน้าจัดการ → กด "เชื่อมต่อแอปหลัก" (ทำครั้งเดียว)']
+      case 'no_secret':
+        return ['setup', 'ยังไม่ได้ใส่รหัสเชื่อมต่อ', 'เปิดหน้าจัดการ → วางรหัสจาก .env แล้วบันทึก (ทำครั้งเดียว)']
+      case 'bad_secret':
+        return ['setup', 'รหัสเชื่อมต่อไม่ตรงกับ Angle', 'เปิดหน้าจัดการ → วางรหัส SHOWCASE_IMPORT_SECRET จาก .env ใหม่']
+    }
+  })()
+  appDot.className = `status-dot status-dot-${tone === 'ok' ? 'finished' : tone === 'bad' ? 'bad' : 'idle'}`
+  setText(appTitle, title)
+  setText(appDetail, detail)
+  appReady = connection.kind === 'ready'
+  refreshScanButton()
+}
+
+scanPushButton.addEventListener('click', () => {
+  // สแกน+ส่งทำในหน้าจัดการ ไม่ใช่ใน popup — popup ปิดทันทีที่คลิกที่อื่น งานจะขาดกลางทาง · เปิดแท็บใหม่
+  // เสมอ (ไม่ใช้ openOptionsPage ที่แค่โฟกัสแท็บเดิมถ้าเปิดค้างไว้ — แท็บเดิมไม่โหลดใหม่ จึงไม่เห็นคำสั่ง)
+  void (async () => {
+    await requestAutoScan()
+    await chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') })
+    window.close()
+  })()
+})
+
+// ---------- สถานะการสแกน ----------
+
 const statusCard = requireElement('status-card')
 const statusDot = requireElement('status-dot')
 const statusText = requireElement('status')
@@ -40,7 +99,7 @@ function showStatus(dotState: 'idle' | 'running', text: string): void {
 }
 
 // ใช้ `run.status` (สถานะจริงใน checkpoint store) ไม่ใช่ `status.get` ที่ hardcode 'idle' ไว้ตายตัว
-void (async (): Promise<void> => {
+async function renderScanStatus(): Promise<void> {
   const response = (await chrome.runtime.sendMessage({ type: 'run.status' })) as ResponseMap['run.status']
 
   if (!response.ok) {
@@ -51,6 +110,8 @@ void (async (): Promise<void> => {
 
   if (response.phase === 'running') {
     setPhase('running')
+    scanRunning = true
+    refreshScanButton()
     const staged = response.resume?.kind === 'running' ? response.resume.productCount : 0
     showStatus('running', `กำลังสแกน… เก็บแล้ว ${String(staged)} รายการ`)
     return
@@ -66,6 +127,8 @@ void (async (): Promise<void> => {
   }
 
   setPhase(response.phase === 'finished' ? 'finished' : 'idle')
-})()
+}
 
 renderChannelBanner()
+void renderScanStatus()
+void checkAppConnection().then(renderConnection)

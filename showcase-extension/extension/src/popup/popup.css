@@ -98,6 +98,33 @@ body {
   background: var(--green-600);
 }
 
+/* แอปหลักไม่ได้เปิด — แดงเพื่อแยกจาก "ยังตั้งค่าไม่ครบ" ที่เป็นเทา (เรื่องประจำวัน vs ครั้งเดียว) */
+.status-dot-bad {
+  background: var(--destructive);
+}
+
+/* การ์ดการเชื่อมต่อมี 2 บรรทัด — จุดต้องชิดบรรทัดหัว ไม่ใช่กลางการ์ด */
+#app-card {
+  align-items: flex-start;
+}
+
+#app-card .status-dot {
+  margin-top: 7px;
+}
+
+.status-card .card-title {
+  font-weight: 600;
+}
+
+.status-card .card-detail {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.status-card .card-detail:empty {
+  display: none;
+}
+
 @keyframes status-pulse {
   0%,
   100% {
@@ -131,6 +158,25 @@ button {
 
 button:hover {
   border-color: var(--primary);
+}
+
+button + button {
+  margin-top: 8px;
+}
+
+button.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--navy-25);
+  font-weight: 600;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  border-color: var(--border);
+  background: var(--navy-50);
+  color: var(--muted-foreground);
+  font-weight: 400;
 }
 
 button:focus-visible {

@@ -287,6 +287,36 @@ try {
     "b-new"
   );
 
+  // --- defaultVisibleRowIds ---
+  // Showcase สะสม (ชุดใหม่ไม่แทนที่ชุดเก่า) · แคปจัดอันดับแทนที่ตามหมวดเหมือนเดิม · สองแหล่งไม่ปนกัน
+  const t = (d) => new Date(`2026-09-${d}T05:00:00Z`);
+  const row = (id, batchId, categoryLabel, day, sourceProductId = null, linkedEntryId = null) => ({
+    id, batchId, categoryLabel, capturedOn: t(day), sourceProductId, linkedEntryId,
+  });
+  const vis = c.defaultVisibleRowIds([
+    row("sc-old-a", "sc-1", "สัตว์เลี้ยง", "24", "P-A"),
+    row("sc-old-b", "sc-1", "สัตว์เลี้ยง", "24", "P-B"),
+    row("sc-new-c", "sc-2", "สัตว์เลี้ยง", "29", "P-C"),
+    row("rk-old", "rk-1", "สัตว์เลี้ยง", "10"),
+    row("rk-new", "rk-2", "สัตว์เลี้ยง", "20"),
+  ]);
+  check("Showcase: ส่งชุดใหม่หมวดเดียวกัน สินค้าเก่ายังอยู่ (A)", vis.has("sc-old-a"), true);
+  check("Showcase: สินค้าเก่ายังอยู่ (B)", vis.has("sc-old-b"), true);
+  check("Showcase: สินค้าใหม่โชว์", vis.has("sc-new-c"), true);
+  check("แคปจัดอันดับ: ชุดเก่าถูกแทนที่เหมือนเดิม", vis.has("rk-old"), false);
+  check("แคปจัดอันดับ: ชุดใหม่โชว์ (Showcase หมวดชื่อเดียวกันไม่แย่ง)", vis.has("rk-new"), true);
+
+  const dup = c.defaultVisibleRowIds([
+    row("d-old-linked", "sc-1", "x", "24", "P-D", "entry-1"),
+    row("d-new", "sc-2", "x", "29", "P-D"),
+    row("e-old", "sc-1", "x", "24", "P-E"),
+    row("e-new", "sc-2", "x", "29", "P-E"),
+  ]);
+  check("สินค้าซ้ำ 2 ชุด: แถวที่สร้างงานแล้วชนะแม้เก่ากว่า", dup.has("d-old-linked"), true);
+  check("สินค้าซ้ำ 2 ชุด: แถวใหม่ที่ยังไม่สร้างงานซ่อน (ไม่เด้งปุ่มสร้างงานซ้ำ)", dup.has("d-new"), false);
+  check("สินค้าซ้ำ ไม่มีใครสร้างงาน: แถวใหม่สุดโชว์", dup.has("e-new"), true);
+  check("สินค้าซ้ำ ไม่มีใครสร้างงาน: แถวเก่าซ่อน", dup.has("e-old"), false);
+
   // --- คำนวณ ---
   checkClose3("%ค่าคอม 29.90/249", c.commissionPercent(249, 29.9), 12.0);
   checkClose3("%ค่าคอม 12.15/67.50", c.commissionPercent(67.5, 12.15), 18.0);

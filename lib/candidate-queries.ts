@@ -5,7 +5,7 @@ import {
   commissionPercent,
   demandTotal,
   detectFlags,
-  latestBatchPerCategory,
+  defaultVisibleRowIds,
   normalizeCategoryLabel,
   pickCandidateBadges,
   type CandidateBadge,
@@ -41,8 +41,10 @@ export type BatchSummary = {
   rowCount: number;
   /** หมวดในชุดนี้พร้อมจำนวนแถว เรียงจากแถวมากไปน้อย */
   categories: { label: string; count: number }[];
-  /** true ถ้าชุดนี้เป็นชุดล่าสุดของอย่างน้อย 1 หมวดที่อยู่ในนั้น */
+  /** true ถ้าชุดนี้ยังมีแถวโชว์ในมุมมองดีฟอลต์ (แคปจัดอันดับ: เป็นชุดล่าสุดของอย่างน้อย 1 หมวด) */
   isLatestForAnyCategory: boolean;
+  /** ชุดจาก Showcase import — สะสม ไม่มีวันหมดอายุ จึงไม่เตือน "ข้อมูลเก่า" เหมือนแคปจัดอันดับ */
+  isShowcase: boolean;
 };
 
 export type FocusCategory = {
@@ -68,7 +70,7 @@ export async function getCandidatesData(): Promise<{
     }),
   ]);
 
-  const latest = latestBatchPerCategory(candidates);
+  const visible = defaultVisibleRowIds(candidates);
 
   const rowsWithoutBadges = candidates.map((c) => ({
     id: c.id,
@@ -86,9 +88,8 @@ export async function getCandidatesData(): Promise<{
     commissionPercent: commissionPercent(c.price, c.commission),
     demandTotal: demandTotal(c.commission, c.weeklySales),
     flags: detectFlags(c.name),
-    // latest คีย์ด้วย normalizeCategoryLabel เสมอ (ดูคอมเมนต์ที่ latestBatchPerCategory) —
-    // lookup ต้อง normalize categoryLabel ของแถวนี้ก่อนด้วย ไม่งั้นคีย์ไม่ตรงกัน
-    isLatestForCategory: latest.get(normalizeCategoryLabel(c.categoryLabel)) === c.batchId,
+    // กติกาแยกตามแหล่ง (แคปจัดอันดับ = ชุดใหม่แทนที่ · Showcase = สะสม) — ดู defaultVisibleRowIds
+    isLatestForCategory: visible.has(c.id),
   }));
 
   const badgeMap = pickCandidateBadges(rowsWithoutBadges);
@@ -113,7 +114,9 @@ export async function getCandidatesData(): Promise<{
     perCategory.set(label, (perCategory.get(label) ?? 0) + 1);
   }
 
-  const latestBatchIds = new Set(latest.values());
+  // ชุดที่ยังมีแถวโชว์ในมุมมองดีฟอลต์ = "ล่าสุด" (ความหมายเดิมสำหรับแคปจัดอันดับทุกประการ)
+  const latestBatchIds = new Set(rowsWithoutBadges.filter((r) => r.isLatestForCategory).map((r) => r.batchId));
+  const showcaseBatchIds = new Set(candidates.filter((c) => c.sourceProductId !== null).map((c) => c.batchId));
   const batches: BatchSummary[] = batchRecords.map((b) => {
     const perCategory = countsByBatch.get(b.id) ?? new Map<string, number>();
     const categories = [...perCategory.entries()]
@@ -125,6 +128,7 @@ export async function getCandidatesData(): Promise<{
       rowCount: categories.reduce((sum, c) => sum + c.count, 0),
       categories,
       isLatestForAnyCategory: latestBatchIds.has(b.id),
+      isShowcase: showcaseBatchIds.has(b.id),
     };
   });
 

@@ -290,6 +290,53 @@ export function latestBatchPerCategory(
 }
 
 /**
+ * แถวที่มุมมองดีฟอลต์ของหน้า "หาสินค้า" ควรโชว์ — กติกาต่างกันตามแหล่งที่มาของแถว
+ *
+ * · แคปหน้าจัดอันดับ (sourceProductId null) = ภาพนิ่งของอันดับ ณ ตอนนั้น ชุดใหม่ของหมวด
+ *   เดียวกัน **แทนที่** ชุดเก่า (latestBatchPerCategory)
+ * · Showcase import (sourceProductId มีค่า) = รายการสะสมของสินค้าที่เพิ่มเข้า Showcase ส่งเข้ามา
+ *   ทีละส่วน (ปุ่มสแกนสินค้าใหม่ของ extension ส่งแค่ตัวที่ยังไม่มีในแอป) ชุดใหม่จึง **ต่อท้าย**
+ *   ไม่ใช่แทนที่ — ถ้าใช้กติกาแรก ส่งสินค้าใหม่ 6 ตัวเมื่อไหร่ สินค้าเก่าหมวดเดียวกันหลายสิบตัว
+ *   หายจากหน้าทันที (เจอก่อนผู้ใช้ส่งรอบแรก 2026-09-29) · ตัวเดียวกันซ้ำหลายชุดได้ (สแกนเต็มซ้ำ)
+ *   โชว์แถวเดียว: แถวที่ "สร้างงานแล้ว" ก่อน (ไม่งั้นสินค้าที่ทำไปแล้วจะกลับมามีปุ่มสร้างงานอีก)
+ *   ถ้าไม่มีก็แถวใหม่สุด
+ * · สองแหล่งไม่คิดรวมกัน — Showcase ที่มีหมวดชื่อเดียวกับแคปจัดอันดับต้องไม่ไปแทนที่แคปนั้น
+ */
+export function defaultVisibleRowIds(
+  rows: {
+    id: string;
+    batchId: string;
+    categoryLabel: string;
+    capturedOn: Date;
+    sourceProductId: string | null;
+    linkedEntryId: string | null;
+  }[]
+): Set<string> {
+  const visible = new Set<string>();
+
+  const ranked = rows.filter((r) => r.sourceProductId === null);
+  const latest = latestBatchPerCategory(ranked);
+  for (const r of ranked) {
+    if (latest.get(normalizeCategoryLabel(r.categoryLabel)) === r.batchId) visible.add(r.id);
+  }
+
+  const bestByProduct = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    if (r.sourceProductId === null) continue;
+    const prev = bestByProduct.get(r.sourceProductId);
+    const better =
+      prev === undefined ||
+      (r.linkedEntryId !== null && prev.linkedEntryId === null) ||
+      ((r.linkedEntryId !== null) === (prev.linkedEntryId !== null) &&
+        r.capturedOn.getTime() > prev.capturedOn.getTime());
+    if (better) bestByProduct.set(r.sourceProductId, r);
+  }
+  for (const r of bestByProduct.values()) visible.add(r.id);
+
+  return visible;
+}
+
+/**
  * จับกลุ่มหมวดจากคำในชื่อสินค้า — ใช้กับ "แถบเตือนหมวดที่ควรโฟกัส" เท่านั้น (ตัวเลข
  * advisory คร่าวๆ ไม่ใช่ตัวกรอง/จัดอันดับป้ายแนะนำสินค้า) จับกลุ่มพลาดบ้างก็แค่เลข
  * บนแถบคลาดเคลื่อน ไม่กระทบการตัดสินใจหลัก (ดู pickCandidateBadges ที่ไม่ใช้ % เทียบ

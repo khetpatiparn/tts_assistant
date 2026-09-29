@@ -30,6 +30,26 @@ test('popup เปิดได้และแสดงสถานะจาก s
   // ซ่อนโดยตั้งใจ (ข้อความ idle ไม่มีประโยชน์กับผู้ใช้) data-phase จึงเป็นหลักฐานว่าคุยกับ worker ได้
   await expect(page.locator('#status-card')).toHaveAttribute('data-phase', 'idle')
   await expect(page.locator('#status-card')).toBeHidden()
+  // โปรไฟล์ทดสอบไม่เคยให้สิทธิ์ localhost:3000 → ไฟเทา "ยังไม่ได้อนุญาต" และปุ่มสแกน+ส่งกดไม่ได้
+  await expect(page.locator('#app-title')).toContainText('ยังไม่ได้อนุญาตให้เชื่อมต่อ Angle')
+  await expect(page.locator('#scan-push')).toBeDisabled()
+})
+
+test('สแกนอัตโนมัติ — ถามรายการสินค้าจากแอปไม่ได้ต้องไม่สแกนเต็มแล้วส่งทั้ง Showcase', async ({
+  context,
+  extensionId,
+}) => {
+  const page = await context.newPage()
+  await page.goto(`chrome-extension://${extensionId}/dashboard/index.html`)
+  await expect(page.locator('#auto-status')).toBeHidden() // ไม่มีคำสั่ง = ไม่ทำอะไรเอง
+  // จำลองปุ่มใน popup (requestAutoScan) — โปรไฟล์ทดสอบไม่มีสิทธิ์ localhost:3000 จึงถาม known-ids ไม่ได้
+  await page.evaluate(() => chrome.storage.session.set({ autoScanRequestedAt: Date.now() }))
+  await page.reload()
+  await expect(page.locator('#auto-status')).toContainText('สแกนอัตโนมัติไม่ได้')
+  await expect(page.locator('#start-button')).toBeVisible()
+  // คำสั่งใช้ครั้งเดียว — refresh ต้องไม่รันซ้ำ
+  await page.reload()
+  await expect(page.locator('#auto-status')).toBeHidden()
 })
 
 test('.product-image-gallery[hidden] ซ่อนจริงในเบราว์เซอร์จริง (ไม่ใช่แค่ attribute)', async ({

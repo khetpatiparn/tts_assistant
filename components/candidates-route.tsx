@@ -313,7 +313,8 @@ export function CandidatesRoute({
               // เตือนเฉพาะชุดที่ยังเป็นชุดล่าสุดของอย่างน้อยหนึ่งหมวด — ชุดเก่าที่ถูก
               // แทนที่ไปแล้วจะเก่าแค่ไหนก็ไม่ใช่ข่าว ไม่ต้องเตือนซ้ำ
               const age = daysBetween(b.capturedOn, now);
-              const stale = b.isLatestForAnyCategory && age > IMPORT_STALE_DAYS;
+              // ชุด Showcase สะสมต่อกัน ไม่มี "แคปใหม่" มาแทน จึงไม่เตือน
+              const stale = b.isLatestForAnyCategory && !b.isShowcase && age > IMPORT_STALE_DAYS;
               return (
                 <li
                   key={b.id}

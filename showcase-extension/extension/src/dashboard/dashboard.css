@@ -69,6 +69,24 @@ body {
   font-weight: 600;
 }
 
+/* สถานะของโหมดสแกนอัตโนมัติ (ปุ่มใน popup) — หน้าตาแบบ banner แต่คนละ class โดยตั้งใจ ให้
+   selector .banner ยังหมายถึงป้ายช่องทาง build ตัวเดียว (E2E ใช้ตรวจ MOCK-ONLY) */
+.notice {
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.notice-warning {
+  border-color: var(--destructive);
+  background: var(--destructive-bg);
+  color: var(--destructive);
+}
+
 /* ข้อมูลไม่ครบ — ต้องเด่นกว่า banner ปกติเพราะเป็นคำเตือนเกี่ยวกับตัวข้อมูลที่กำลังจะถูก export */
 .banner-warning {
   border-color: var(--destructive);

@@ -3,6 +3,13 @@ import { APP_HOST_PERMISSION_ORIGIN, SHOWCASE_HOST_PERMISSION_ORIGIN } from '../
 import type { NormalizedProduct } from '../domain/product.js'
 import { buildProbeExport } from '../export/json.js'
 import type { ScannerMessage, ScannerMessageType, ResponseMap } from '../messaging/schema.js'
+import {
+  APP_IMPORT_URL,
+  APP_KNOWN_IDS_URL,
+  APP_SECRET_STORAGE_KEY,
+  consumeAutoScanRequest,
+  getSavedAppSecret,
+} from './app-link.js'
 import { appendLabeledRow, clearChildren, setText } from './dom.js'
 import { DEFAULT_PAGE_SIZE, renderPreviewPage, totalPages } from './preview.js'
 import type { SelectableFilter } from './selection.js'
@@ -128,8 +135,6 @@ grantAppPermissionButton.addEventListener('click', () => {
  * start.bat) หรือตอบกลับผิดรูป ทุกเส้นทางล้มเหลวคืน null (ปิดฟีเจอร์เฉพาะรอบนี้) ให้ผู้ใช้ fallback
  * ไปใช้ปุ่มจำกัดจำนวนหน้าด้านล่างแทนได้เสมอ ไม่มีการ throw ออกจากฟังก์ชันนี้เด็ดขาด
  */
-const APP_KNOWN_IDS_URL = 'http://localhost:3000/api/showcase-import/known-ids'
-
 async function resolveKnownProductIds(): Promise<readonly string[] | null> {
   const checkbox = requireElement('auto-stop-known-checkbox') as HTMLInputElement
   if (!checkbox.checked) return null
@@ -155,19 +160,12 @@ async function resolveKnownProductIds(): Promise<readonly string[] | null> {
 // เข้า DB ได้ (ต่างจาก known-ids ด้านบนที่แค่อ่าน) เก็บ secret ไว้ที่ chrome.storage.local เท่านั้น
 // (ไม่ใช่ .sync — PK02 ห้ามไว้) ผู้ใช้ต้องคัดลอกมาวางเองครั้งเดียว ไม่มีทางที่ extension จะรู้ค่านี้เอง
 // โดยไม่ต้องพึ่งผู้ใช้ เพราะถ้ามี endpoint ให้ถามค่านี้แบบไม่ต้องยืนยันตัวตน จะเปิดช่องให้เว็บอื่นแอบ
-// ถามค่าแทนได้เหมือนกัน (ทำลายจุดประสงค์ของ secret ไปเลย)
-const APP_SECRET_STORAGE_KEY = 'showcaseImportSecret'
-const APP_IMPORT_URL = 'http://localhost:3000/api/showcase-import'
+// ถามค่าแทนได้เหมือนกัน (ทำลายจุดประสงค์ของ secret ไปเลย) — ค่าคงที่/ตัวอ่าน secret อยู่ที่ app-link.ts
+// (popup ใช้ร่วมเพื่อเช็คการเชื่อมต่อก่อนเปิดปุ่มสแกน)
 
 const appSecretInput = requireElement('app-secret-input') as HTMLInputElement
 const saveAppSecretButton = requireElement('save-app-secret-button') as HTMLButtonElement
 const appSecretStatusEl = requireElement('app-secret-status')
-
-async function getSavedAppSecret(): Promise<string> {
-  const stored = (await chrome.storage.local.get(APP_SECRET_STORAGE_KEY)) as Record<string, unknown>
-  const value = stored[APP_SECRET_STORAGE_KEY]
-  return typeof value === 'string' ? value : ''
-}
 
 async function refreshAppSecretStatus(): Promise<void> {
   const secret = await getSavedAppSecret()
@@ -636,56 +634,129 @@ exportButton.addEventListener('click', () => {
   })()
 })
 
+/** ส่งสินค้าที่เลือกอยู่เข้าแอปหลัก — คืนข้อความผลลัพธ์ (ใช้ทั้งปุ่ม "ส่งเข้าระบบเลย" และโหมดอัตโนมัติ) */
+async function pushSelectedToApp(): Promise<{ ok: boolean; message: string }> {
+  const secret = await getSavedAppSecret()
+  if (secret === '') {
+    return { ok: false, message: 'ยังไม่ได้บันทึก secret — ใส่ค่าจาก .env (SHOWCASE_IMPORT_SECRET) ที่ช่องด้านบนก่อน' }
+  }
+  if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) {
+    return { ok: false, message: 'ยังไม่ได้เชื่อมต่อแอปหลัก — กดปุ่ม "เชื่อมต่อแอปหลัก" ด้านบนก่อน' }
+  }
+
+  const result = await send({ type: 'run.export', selectedIds: [...state.selected] })
+  if (!result.ok) return { ok: false, message: `เตรียมข้อมูลไม่สำเร็จ: ${result.code}` }
+
+  try {
+    const response = await fetch(APP_IMPORT_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-showcase-secret': secret },
+      body: JSON.stringify(result.payload),
+      signal: AbortSignal.timeout(30_000),
+    })
+    const body = (await response.json().catch(() => null)) as {
+      added?: number
+      skipped?: number
+      imagesFailed?: number
+      error?: string
+    } | null
+
+    if (!response.ok) {
+      return { ok: false, message: `ส่งไม่สำเร็จ (${String(response.status)}): ${body?.error ?? 'ไม่ทราบสาเหตุ'}` }
+    }
+    const skippedNote = body?.skipped ? ` · ข้าม ${String(body.skipped)}` : ''
+    const failedNote = body?.imagesFailed ? ` · โหลดรูปพลาด ${String(body.imagesFailed)}` : ''
+    return {
+      ok: true,
+      message: `✅ ส่งเข้าระบบสำเร็จ — เพิ่ม ${String(body?.added ?? 0)} รายการ${skippedNote}${failedNote}`,
+    }
+  } catch {
+    return { ok: false, message: 'เชื่อมต่อแอปหลักไม่ได้ — เช็คว่า start.bat เปิดอยู่ไหม' }
+  }
+}
+
 pushButton.addEventListener('click', () => {
   void (async () => {
     setText(pushResultEl, 'กำลังส่ง…')
-
-    const secret = await getSavedAppSecret()
-    if (secret === '') {
-      setText(pushResultEl, 'ยังไม่ได้บันทึก secret — ใส่ค่าจาก .env (SHOWCASE_IMPORT_SECRET) ที่ช่องด้านบนก่อน')
-      return
-    }
-    if (!(await chrome.permissions.contains({ origins: [APP_HOST_PERMISSION_ORIGIN] }))) {
-      setText(pushResultEl, 'ยังไม่ได้เชื่อมต่อแอปหลัก — กดปุ่ม "เชื่อมต่อแอปหลัก" ด้านบนก่อน')
-      return
-    }
-
-    const result = await send({ type: 'run.export', selectedIds: [...state.selected] })
-    if (!result.ok) {
-      setText(pushResultEl, `เตรียมข้อมูลไม่สำเร็จ: ${result.code}`)
-      return
-    }
-
-    try {
-      const response = await fetch(APP_IMPORT_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-showcase-secret': secret },
-        body: JSON.stringify(result.payload),
-        signal: AbortSignal.timeout(30_000),
-      })
-      const body = (await response.json().catch(() => null)) as {
-        added?: number
-        skipped?: number
-        imagesFailed?: number
-        error?: string
-      } | null
-
-      if (!response.ok) {
-        setText(pushResultEl, `ส่งไม่สำเร็จ (${String(response.status)}): ${body?.error ?? 'ไม่ทราบสาเหตุ'}`)
-        return
-      }
-      const skippedNote = body?.skipped ? ` · ข้าม ${String(body.skipped)}` : ''
-      const failedNote = body?.imagesFailed ? ` · โหลดรูปพลาด ${String(body.imagesFailed)}` : ''
-      setText(pushResultEl, `✅ ส่งเข้าระบบสำเร็จ — เพิ่ม ${String(body?.added ?? 0)} รายการ${skippedNote}${failedNote}`)
-    } catch {
-      setText(pushResultEl, 'เชื่อมต่อแอปหลักไม่ได้ — เช็คว่า start.bat เปิดอยู่ไหม')
-    }
+    setText(pushResultEl, (await pushSelectedToApp()).message)
   })()
 })
+
+// ---------- โหมดอัตโนมัติ: ปุ่ม "สแกนสินค้าใหม่ → ส่งเข้า Angle" ใน popup (คำสั่งผ่าน storage.session —
+// ดู requestAutoScan ใน app-link.ts) ----------
+//
+// สแกนแบบหยุดเมื่อเจอหน้าที่มีแต่สินค้าที่แอปรู้จักแล้ว → เลือกเฉพาะตัวที่แอปยังไม่มี → ส่งเข้าแอป
+// ทำในหน้านี้ ไม่ใช่ใน popup เพราะ popup ปิดทันทีที่ผู้ใช้คลิกที่อื่น งานจะขาดกลางทาง
+//
+// ห้ามสแกนเต็มแล้วส่งทั้งก้อนเมื่อถามรายการ "รู้จักแล้ว" จากแอปไม่ได้ — จะได้สินค้าเก่าซ้ำเข้าไปทั้ง
+// Showcase (ร้อยกว่าตัว) จึงหยุดแล้วบอกผู้ใช้แทน · หยุดด้วยเหตุผลอื่นที่ไม่ใช่ "ถึงปลายทาง/เจอหน้าที่
+// รู้จักแล้ว" (เช่น login TikTok หลุด) = ไม่ส่งอัตโนมัติ ให้ผู้ใช้ดูผลแล้วตัดสินใจเอง
+const autoStatusEl = requireElement('auto-status')
+
+function setAutoStatus(text: string, tone: 'info' | 'warning'): void {
+  autoStatusEl.hidden = false
+  autoStatusEl.className = tone === 'warning' ? 'notice notice-warning' : 'notice'
+  setText(autoStatusEl, text)
+}
+
+async function runAutoScanAndPush(): Promise<void> {
+  const autoStop = requireElement('auto-stop-known-checkbox') as HTMLInputElement
+  autoStop.checked = true
+  setAutoStatus('สแกนอัตโนมัติ: กำลังถามรายการสินค้าที่ Angle มีอยู่แล้ว…', 'info')
+  const knownProductIds = await resolveKnownProductIds()
+  if (knownProductIds === null) {
+    setAutoStatus('สแกนอัตโนมัติไม่ได้ — ถามรายการสินค้าจาก Angle ไม่ได้ (เช็คว่า start.bat เปิดอยู่) ยังไม่ได้สแกนอะไร', 'warning')
+    return
+  }
+
+  // ล้างผลเก่าก่อน — ถ้ารอบนี้จบแบบไม่มี report (อ่านสถานะไม่ได้/idle) ต้องไม่หยิบผลสแกนรอบก่อน
+  // (ที่ poll รอบแรกโหลดมาโชว์) ไปส่งแทน
+  state.report = null
+  const started = await send({ type: 'run.start', maxPages: null, knownProductIds })
+  if (!started.ok) {
+    setAutoStatus(`สแกนอัตโนมัติเริ่มไม่ได้: ${started.code}`, 'warning')
+    return
+  }
+  setAutoStatus('สแกนอัตโนมัติ: กำลังสแกนหาสินค้าใหม่ใน Showcase…', 'info')
+  await pollStatus()
+
+  // pollStatus เขียน state.report ผ่าน showFinished — TS ยังจำการตั้ง null ด้านบนไว้ จึงต้องบอกชนิดตรงๆ
+  const report = state.report as RunReport | null
+  if (report === null) {
+    setAutoStatus('สแกนอัตโนมัติ: สแกนไม่จบ — ดูสถานะด้านล่าง', 'warning')
+    return
+  }
+  if (report.stopReason !== 'known_ids_reached' && report.stopReason !== 'endpoint_end') {
+    setAutoStatus(`สแกนหยุดก่อนจบ (${report.stopReason}) — ยังไม่ได้ส่งอะไรเข้า Angle ดูผลด้านล่างแล้วตัดสินใจเอง`, 'warning')
+    return
+  }
+
+  const known = new Set(knownProductIds)
+  const newIds = report.products.filter((p) => !known.has(p.productId)).map((p) => p.productId)
+  if (newIds.length === 0) {
+    setAutoStatus('✅ ไม่มีสินค้าใหม่ — ทุกตัวใน Showcase มีใน Angle แล้ว', 'info')
+    return
+  }
+
+  state.selected = new Set(newIds)
+  renderPreview()
+  setAutoStatus(`สแกนอัตโนมัติ: เจอสินค้าใหม่ ${String(newIds.length)} ตัว กำลังส่งเข้า Angle…`, 'info')
+  const pushed = await pushSelectedToApp()
+  setAutoStatus(
+    pushed.ok ? `${pushed.message} — ไปเลือกทำต่อที่หน้า "หาสินค้า" ใน Angle ได้เลย` : pushed.message,
+    pushed.ok ? 'info' : 'warning',
+  )
+}
 
 renderChannelBanner()
 void renderBuildInfo()
 void refreshPermissionStatus()
 void refreshAppPermissionStatus()
 void refreshAppSecretStatus()
-void pollStatus()
+void (async () => {
+  // รอ poll รอบแรกจบก่อนเสมอ — pollStatus กันการ poll ซ้อน (state.polling) ถ้าโหมดอัตโนมัติเริ่มสแกน
+  // ระหว่างที่รอบแรกยังวิ่งอยู่ การรอผลสแกนจะหลุดทันทีโดยไม่เห็นผลจริง
+  await pollStatus()
+  // คำสั่งใช้ครั้งเดียว — refresh หน้านี้ทีหลังจะไม่สแกน/ส่งซ้ำเอง
+  if (await consumeAutoScanRequest()) await runAutoScanAndPush()
+})()

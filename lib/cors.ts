@@ -1,6 +1,6 @@
 /**
- * ใช้เฉพาะ 2 endpoint ของ showcase-extension (`/api/showcase-import` POST และ
- * `/api/showcase-import/known-ids` GET) — หน้า dashboard ของ extension (origin
+ * ใช้เฉพาะ endpoint ของ showcase-extension (`/api/showcase-import` POST,
+ * `/api/showcase-import/known-ids` GET และ `/api/showcase-import/health` GET) — หน้า dashboard ของ extension (origin
  * `chrome-extension://<id>`) เป็นคนละ origin จาก `localhost:3000` เสมอ browser จึงบังคับ CORS
  * เต็มรูปแบบกับ fetch จากหน้านั้น **แม้จะมี host permission ที่ manifest ประกาศไว้แล้วก็ตาม** —
  * host permission ควบคุมแค่ว่า extension "ยิง request ได้ไหม" ไม่ได้ยกเว้น CORS ของฝั่ง response
