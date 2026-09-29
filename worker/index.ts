@@ -4,12 +4,13 @@
  * แล้ว worker จะจบหลังงานปัจจุบันเสร็จ — ไม่ฆ่ากลางคลิก)
  */
 import "dotenv/config";
-import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  ERROR_KIND_LABELS, FLOW_STATUS, WORKER_STATE_ID, candidateFilename, queuedStatus, reviewStatus, runningStatus,
-  type FlowRound,
+  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID, buildRenderPrompt,
+  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, toJobRound, videoFilename,
+  type JobRound,
 } from "@/lib/flow-jobs";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
 import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
@@ -98,9 +99,12 @@ async function markJobFailedImmediately(jobId: string, e: unknown): Promise<void
     .catch((err) => log(`บันทึกงานพังไม่สำเร็จ (${jobId}): ${String(err)}`));
 }
 
-/** หยิบงาน: รอบ 2 ก่อน (คนรออยู่) แล้วค่อยรอบ 1 เรียงตามเวลาเข้าคิว — claim ด้วย updateMany กันหยิบซ้ำ */
-async function claimNextJob() {
-  for (const round of [2, 1] as FlowRound[]) {
+/**
+ * หยิบงานตามลำดับรอบใน `rounds` (claimOrder: โหลด 1080p → รอบ 2 → Render → รอบ 1 ตัดรอบที่ครบเพดานออกแล้ว)
+ * ในรอบเดียวกันเรียงตามเวลาเข้าคิว — claim ด้วย updateMany กันหยิบซ้ำ
+ */
+async function claimNextJob(rounds: JobRound[]) {
+  for (const round of rounds) {
     const candidate = await prisma.flowJob.findFirst({
       where: { status: queuedStatus(round) },
       orderBy: { createdAt: "asc" },
@@ -127,20 +131,40 @@ async function claimNextJob() {
 
 type ClaimedJob = NonNullable<Awaited<ReturnType<typeof claimNextJob>>>;
 
-function referencePathFor(job: ClaimedJob): string {
+/** รูปที่แนบเข้า Flow: รอบ 1 = รูปแคปแรก · รอบ 2 = รูปที่เลือกรอบ 1 · Render = รูปที่เลือกรอบ 1 + รอบ 2 · รอบ 4 = ไม่มี */
+function referencePathsFor(job: ClaimedJob, round: JobRound): string[] {
   const dir = path.join(UPLOAD_ROOT, job.entryId, "flow");
-  if (job.round === 1) {
+  if (round === 4) return [];
+  if (round === 1) {
     const src = job.images.filter((i) => i.kind === "source").sort((a, b) => a.index - b.index)[0];
     if (!src) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง");
-    return path.join(dir, src.filename);
+    return [path.join(dir, src.filename)];
   }
-  const chosen = job.images.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen);
-  if (!chosen) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ยังไม่ได้เลือกรูปรอบ 1");
-  return path.join(dir, chosen.filename);
+  const chosen = (r: number) => job.images.find((i) => i.kind === "candidate" && i.round === r && i.chosen);
+  const r1 = chosen(1);
+  if (!r1) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ยังไม่ได้เลือกรูปรอบ 1");
+  if (round === 2) return [path.join(dir, r1.filename)];
+  const r2 = chosen(2);
+  if (!r2) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ยังไม่ได้เลือกรูปรอบ 2");
+  return [path.join(dir, r1.filename), path.join(dir, r2.filename)];
+}
+
+/** แถวคลิปของงาน (มีได้แถวเดียว — ตัวอย่างของ attempt ปัจจุบัน หรือไฟล์ 1080p) */
+function videoRowOf(job: ClaimedJob) {
+  return job.images.find((i) => i.kind === "video") ?? null;
+}
+
+/** ลบไฟล์ใต้ uploads/<entryId>/flow/ แบบไม่ throw — ไฟล์ค้างดีกว่างานพังเพราะลบไฟล์ไม่ได้ */
+function removeFlowFile(entryId: string, filename: string): void {
+  try {
+    rmSync(path.join(UPLOAD_ROOT, entryId, "flow", filename), { force: true });
+  } catch (e) {
+    log(`ลบไฟล์ ${filename} ไม่สำเร็จ (ไม่กระทบงาน): ${String(e)}`);
+  }
 }
 
 async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean> {
-  const round = (job.round === 2 ? 2 : 1) as FlowRound;
+  const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
   const stepLog = new StepLog(true);
 
@@ -155,18 +179,33 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     await upsertState({ currentJobId: job.id, nextWakeAt: null });
     log(`เริ่มงาน ${job.id} (${job.entry.productName}) รอบ ${round} attempt ${job.attempt}`);
 
+    // รอบ 4 ต้องรู้ว่าคลิปที่ผ่านคือช่องไหนใน Flow (รอบ 3 เก็บ id ไว้) และต้องกลับโปรเจกต์เดิม
+    const approvedVideo = round === 4 ? videoRowOf(job) : null;
+    if (round === 4 && (approvedVideo === null || approvedVideo.flowMediaId === "" || job.flowProjectId === "")) {
+      throw new FlowStepError("find-video", "worker_crash", "ไม่มีข้อมูลคลิปที่ผ่าน (media id / project) ให้กลับไปโหลด 1080p");
+    }
+    // พรอมต์ของ Render อ่านตอนเริ่มทำ — ผู้ใช้แก้ 10-part prompt ในหน้า entry ก่อนบอทหยิบงานได้
+    const renderPrompt = round === 3 ? buildRenderPrompt(job.entry.chatgptOutput, job.extraPrompt) : undefined;
+    if (round === 3 && job.entry.chatgptOutput.trim() === "") {
+      throw new FlowStepError("paste-prompt", "worker_crash", "entry นี้ยังไม่มี 10-part prompt — กด สร้างด้วย AI ในหน้างานก่อน");
+    }
+
     const result = await runRound(
       page,
       {
         round,
         productName: job.entry.productName,
-        referencePath: referencePathFor(job),
+        referencePaths: referencePathsFor(job, round),
         outDir,
-        filePrefix: `r${round}-a${job.attempt}`,
+        // รูป r<round>-a<n>-<i>.png · ตัวอย่างคลิป r3-a<n>.mp4 (videoFilename) · คลิป 1080p r3-final.mp4
+        filePrefix: round === 4 ? FINAL_VIDEO_PREFIX : `r${round}-a${job.attempt}`,
         // ถ้า spike (Task 5) พบว่ารอบ 2 เปิด project เดิมไม่ได้ ให้เปลี่ยนบรรทัดนี้เป็น null เสมอ
         projectId: job.flowProjectId || null,
         extraPrompt: job.extraPrompt,
-        checkpointDir,
+        // รอบ 4 สั้นและไม่กดสร้างอะไร ไม่ต้องมีภาพจุดเช็ก (ชื่อไฟล์ r3-final ก็ไม่เข้ารูปแบบที่หน้า /flow อ่าน)
+        checkpointDir: round === 4 ? null : checkpointDir,
+        renderPrompt,
+        mediaId: approvedVideo?.flowMediaId,
       },
       cfg,
       sel,
@@ -175,6 +214,46 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       { forceFailStep: process.env.FLOW_FORCE_FAIL_STEP }
     );
 
+    if (round === 3) {
+      await prisma.$transaction(async (tx) => {
+        // มีได้แถวเดียว — "เรนเดอร์ใหม่" ลบของ attempt ก่อนไปแล้ว แต่ถ้ารันต่อหลังพังแล้วมีแถวค้าง ให้แทนที่
+        await tx.flowJobImage.deleteMany({ where: { jobId: job.id, kind: "video" } });
+        await tx.flowJobImage.create({
+          data: {
+            jobId: job.id,
+            kind: "video",
+            round: 3,
+            attempt: job.attempt,
+            index: 0,
+            filename: videoFilename(job.attempt),
+            mimeType: "video/mp4",
+            promptExtra: job.extraPrompt,
+            flowMediaId: result.mediaId ?? "",
+          },
+        });
+        await tx.flowJob.update({
+          where: { id: job.id },
+          data: { status: reviewStatus(3), flowProjectId: result.projectId },
+        });
+      });
+      log(`งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป`);
+      notify("คลิปพร้อมให้ดู", job.entry.productName);
+      return true;
+    }
+
+    if (round === 4 && approvedVideo !== null) {
+      await prisma.$transaction(async (tx) => {
+        // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
+        await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
+        await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
+      });
+      if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
+      log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
+      notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
+      return true;
+    }
+
+    const imageRound = round === 2 ? 2 : 1;
     await prisma.$transaction(async (tx) => {
       for (const [index, file] of result.files.entries()) {
         const ext = path.extname(file).slice(1) === "jpg" ? "jpg" : "png";
@@ -182,10 +261,10 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
           data: {
             jobId: job.id,
             kind: "candidate",
-            round,
+            round: imageRound,
             attempt: job.attempt,
             index,
-            filename: candidateFilename(round, job.attempt, index, ext),
+            filename: candidateFilename(imageRound, job.attempt, index, ext),
             mimeType: ext === "jpg" ? "image/jpeg" : "image/png",
             promptExtra: job.extraPrompt,
           },
@@ -193,7 +272,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       }
       await tx.flowJob.update({
         where: { id: job.id },
-        data: { status: reviewStatus(round), flowProjectId: result.projectId },
+        data: { status: reviewStatus(imageRound), flowProjectId: result.projectId },
       });
     });
     log(`งาน ${job.id} รอบ ${round} เสร็จ → รอผู้ใช้เลือก`);
@@ -210,6 +289,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       state: {
         jobId: job.id, round, attempt: job.attempt,
         todayBatches: state?.todayBatches ?? 0,
+        todayRenders: state?.todayRenders ?? 0,
         sessionStreak: state?.sessionStreak ?? 0,
         msSinceLastBatch: lastBatchAt > 0 ? Date.now() - lastBatchAt : null,
       },
@@ -264,7 +344,9 @@ async function main() {
   sweepOldCheckpoints();
 
   const stale = await prisma.flowJob.updateMany({
-    where: { status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2] } },
+    where: {
+      status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2, FLOW_STATUS.RUNNING_R3, FLOW_STATUS.RUNNING_UPSCALE] },
+    },
     data: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: "worker ตายกลางคันในรอบก่อน" },
   });
   if (stale.count > 0) {
@@ -330,7 +412,7 @@ async function main() {
   // login_required กลับเข้าคิวรอบเดิม แบบเดียวกับกด "รันต่อ" (resumeFlowWorker ใน app/actions.ts)
   const pausedReason = (await readState())?.pausedReason ?? "";
   if (pausedReason === "login_required") {
-    for (const round of [1, 2] as FlowRound[]) {
+    for (const round of [1, 2, 3, 4] as JobRound[]) {
       await prisma.flowJob.updateMany({
         where: { status: FLOW_STATUS.FAILED, errorKind: "login_required", round },
         data: { status: queuedStatus(round), failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
@@ -358,7 +440,7 @@ async function main() {
       continue;
     }
     if (state?.todayDate !== localDateKey(now)) {
-      await upsertState({ todayDate: localDateKey(now), todayBatches: 0 });
+      await upsertState({ todayDate: localDateKey(now), todayBatches: 0, todayRenders: 0 });
       continue;
     }
     if (!isWithinActiveHours(now, cfg.activeHours)) {
@@ -367,12 +449,10 @@ async function main() {
       await sleepUntil(Math.min(wake, Date.now() + 5 * 60_000));
       continue;
     }
-    if ((state?.todayBatches ?? 0) >= cfg.dailyBatchCap) {
-      const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
-      await upsertState({ nextWakeAt: midnight });
-      await sleepUntil(Math.min(midnight.getTime(), Date.now() + 5 * 60_000));
-      continue;
-    }
+    // เพดานรูปกับเพดานคลิปแยกกัน — ครบฝั่งไหนก็ข้ามเฉพาะงานฝั่งนั้น (claimOrder) · โหลด 1080p ไม่นับเพดานไหนเลย
+    // (ไม่เสียเครดิต ผู้ใช้กดผ่านแล้วรอไฟล์อยู่) จึงยังหยิบได้แม้ครบทั้งคู่
+    const imagesAllowed = (state?.todayBatches ?? 0) < cfg.dailyBatchCap;
+    const rendersAllowed = (state?.todayRenders ?? 0) < cfg.videoDailyCap;
     if ((state?.sessionStreak ?? 0) >= longBreakTarget) {
       const ms = randInt(cfg.longBreakMs);
       log(`พักยาว ${Math.round(ms / 60000)} นาที`);
@@ -382,8 +462,15 @@ async function main() {
       continue;
     }
 
-    const job = await claimNextJob();
+    const job = await claimNextJob(claimOrder(imagesAllowed, rendersAllowed));
     if (!job) {
+      if (!imagesAllowed && !rendersAllowed) {
+        // ครบทั้งสองเพดาน — ตื่นมาเช็กงานโหลด 1080p ทุก 5 นาที ที่เหลือรอข้ามวัน
+        const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+        await upsertState({ nextWakeAt: midnight });
+        await sleepUntil(Math.min(midnight.getTime(), Date.now() + 5 * 60_000));
+        continue;
+      }
       await upsertState({ nextWakeAt: null });
       await sleepMs(cfg.pollIdleMs);
       continue;
@@ -401,23 +488,25 @@ async function main() {
     }
 
     lastBatchAt = Date.now();
+    const doneRound = toJobRound(job.round);
     await prisma.flowWorkerState.update({
       where: { id: WORKER_STATE_ID },
       data: {
         currentJobId: null,
-        todayBatches: { increment: 1 },
+        // รูปนับ todayBatches · Render นับ todayRenders (videoDailyCap) · โหลด 1080p ไม่นับ (ไม่เสียเครดิต)
+        ...(doneRound === 1 || doneRound === 2 ? { todayBatches: { increment: 1 } } : {}),
+        ...(doneRound === 3 ? { todayRenders: { increment: 1 } } : {}),
         // sessionStreak นับ "สินค้า" ไม่ใช่ "รอบ" (1 สินค้า = รอบ 1 + รอบ 2) จึงบวกเฉพาะตอน
         // รอบ 2 จบ = สินค้านั้นเสร็จจริง — ถ้าบวกทุกรอบ longBreakEvery [4,6] จะกลายเป็น
         // พักยาวทุก 2-3 สินค้า ผิดจากที่สเปกกับ CLAUDE.md เขียนไว้
         // ผลข้างเคียงที่ยอมรับ: สินค้าที่ผู้ใช้ข้าม/สั่งทำใหม่ตั้งแต่รอบ 1 จะไม่ขยับ streak เลย
         // ช่วงนั้นจึงเหลือ dailyBatchCap + betweenProductsMs เป็นตัวคุมจังหวะแทน
-        ...(job.round === 2 ? { sessionStreak: { increment: 1 } } : {}),
+        ...(doneRound === 2 ? { sessionStreak: { increment: 1 } } : {}),
       },
     });
 
-    // betweenBatchesMs (config) ไม่ได้ใช้ตรงนี้โดยตั้งใจ — ตอนนี้มีแค่ 1 การส่งต่อสินค้าต่อรอบ
-    // จึง betweenProductsMs ก็คุมช่วงพักได้ครบอยู่แล้ว คีย์นี้เตรียมไว้ให้ worker วิดีโอในอนาคต
-    const pause = randInt(cfg.betweenProductsMs);
+    // โหลด 1080p เป็นงานสั้นที่ไม่ได้กดสร้างอะไร → พักสั้น (betweenBatchesMs) · งานอื่นพักแบบเปลี่ยนสินค้า (betweenProductsMs)
+    const pause = randInt(doneRound === 4 ? cfg.betweenBatchesMs : cfg.betweenProductsMs);
     await upsertState({ nextWakeAt: new Date(Date.now() + pause) });
     await sleepUntil(Date.now() + pause);
   }

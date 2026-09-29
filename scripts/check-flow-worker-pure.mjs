@@ -109,6 +109,39 @@ try {
   check("Jev 0.91 (ช่วงที่เคยผิดตอนทดสอบ) → ไม่รับ", fs2.acceptJevChoice({ choice: "e3", p: 0.91 }), null);
   check("Jev ตอบ none แม้มั่นใจ → ไม่กดอะไร", fs2.acceptJevChoice({ choice: "none", p: 0.99 }), null);
   check("เรียก Jev ไม่ได้ → ไม่กดอะไร", fs2.acceptJevChoice(null), null);
+
+  // ---------- Render คลิป ----------
+  check("ป้าย trigger หลังตั้งค่าครบ (ตามที่เห็นจริง) → ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 10s\ncrop_9_16\nx1"), true);
+  check("ป้ายยังเป็น 8s → ไม่ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 8s crop_9_16 x1"), false);
+  check("ป้ายเป็น 16:9 → ไม่ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 10s crop_16_9 x1"), false);
+  check("ป้ายเป็น x2 → ไม่ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 10s crop_9_16 x2"), false);
+  check("ป้ายโหมดรูป → ไม่ผ่าน", fs2.renderSettingsLabelOk("Image crop_9_16 x1"), false);
+  const mp4 = Uint8Array.from([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d]);
+  check("หัวไฟล์ ftypisom → mp4", fs2.isMp4Header(mp4), true);
+  check("หัวไฟล์ PNG → ไม่ใช่ mp4", fs2.isMp4Header(Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])), false);
+  check("ไฟล์สั้นเกิน → ไม่ใช่ mp4", fs2.isMp4Header(Uint8Array.from([0, 0, 0, 0x20, 0x66])), false);
+  check("thumbnail ใหม่ = src ที่ไม่มีก่อนกด", fs2.pickNewThumbnail(["a", "b"], ["c", "a", "b"]), "c");
+  check("src ว่าง (ยังโหลดไม่เสร็จ) ไม่นับ", fs2.pickNewThumbnail(["a"], ["", "a"]), null);
+  check("ไม่มีช่องใหม่ → null", fs2.pickNewThumbnail(["a"], ["a"]), null);
+  check(
+    "media id จาก flow-content.google/image/<uuid> (ตัดลายเซ็นใน query ทิ้ง)",
+    fs2.flowMediaIdFromSrc("https://flow-content.google/image/0f1e2d3c-aaaa-bbbb?sig=abc&w=400"),
+    "0f1e2d3c-aaaa-bbbb"
+  );
+  check("media id src แบบอื่น = host+path ไม่เอา query", fs2.flowMediaIdFromSrc("https://flow.google.com/asb/xyz/thumb?x=1"), "flow.google.com/asb/xyz/thumb");
+  check("media id src เดียวกันคนละลายเซ็น = id เดียวกัน",
+    fs2.flowMediaIdFromSrc("https://flow-content.google/image/U1?sig=1") === fs2.flowMediaIdFromSrc("https://flow-content.google/image/U1?sig=2"), true);
+  check("media id src ว่าง = ''", fs2.flowMediaIdFromSrc(""), "");
+  check("media id null = ''", fs2.flowMediaIdFromSrc(null), "");
+  check("default videoDailyCap = 10", good.videoDailyCap, 10);
+  check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);
+  check("default renderDownloadTimeoutMs = 10 นาที", good.renderDownloadTimeoutMs, 600000);
+  writeFileSync(badPath, JSON.stringify({ ...good, videoDailyCap: 0 }));
+  checkThrows("videoDailyCap must be >= 1", () => cfg.loadWorkerConfig(badPath), "videoDailyCap");
+  const noRender = { ...good };
+  delete noRender.renderTimeoutMs;
+  writeFileSync(badPath, JSON.stringify(noRender));
+  checkThrows("renderTimeoutMs ต้องมี", () => cfg.loadWorkerConfig(badPath), "renderTimeoutMs");
 } finally {
   rmSync(out, { recursive: true, force: true });
 }

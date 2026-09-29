@@ -84,6 +84,23 @@ export async function prepareHumanClick(
   };
 }
 
+/**
+ * เอาเมาส์ไปวางบน element แบบคน (หน่วง + เส้นโค้ง) ไม่กด — ปุ่มบางตัวของ Flow โผล่เฉพาะตอน hover จริง
+ * (ปุ่ม More options บนช่องวิดีโอ, เมนูย่อย Download) · ไม่มี bounding box = ใช้ locator.hover() ของ Playwright
+ */
+export async function humanHover(page: Page, locator: Locator, cfg: WorkerConfig): Promise<void> {
+  await sleepRange(cfg.actionDelayMs);
+  const box = await locator.boundingBox();
+  if (box === null || !cfg.mouse.curve) {
+    await locator.hover({ timeout: cfg.selectorTimeoutMs });
+    return;
+  }
+  await moveMouseCurve(page, {
+    x: box.x + box.width * (0.35 + Math.random() * 0.3),
+    y: box.y + box.height * (0.35 + Math.random() * 0.3),
+  });
+}
+
 /** คลิก element แบบคน = เตรียม (หน่วง + เลื่อนเมาส์) แล้วกดต่อทันที */
 export async function humanClick(page: Page, locator: Locator, cfg: WorkerConfig): Promise<void> {
   const click = await prepareHumanClick(page, locator, cfg);

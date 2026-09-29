@@ -100,6 +100,35 @@ export type SelectorSet = {
   uploadResponseUrlPart: string;
   promptBox: string[];
   submit: string[];
+  /**
+   * Render คลิป (รอบ 3) — ไม่ใส่ = โฮสต์นี้ Render ไม่ได้ (labs) · ทุกค่าเห็นจริงระหว่างทำคลิป 1 ตัวจนโหลดไฟล์ได้
+   * บนบัญชีสำรอง 2026-09-30 (ดู docs/superpowers/specs/2026-09-30-flow-video-render-design.md)
+   */
+  video?: {
+    /** toggle โหมดวิดีโอในแผงตั้งค่า (คู่กับ imageTab) */
+    modeTab: string;
+    /** toggle "Ingredient" (ไอคอน chrome_extension) — อีกตัวคือ Frame (crop_free) */
+    ingredientTab: string;
+    /** toggle ทุกตัวในแผง — กรองด้วยข้อความ 720p / 10s / x1 ตอนใช้ */
+    optionToggles: string;
+    /** ปุ่มโมเดลในแผง + ข้อความที่ต้องเป็น (ไม่เปลี่ยนโมเดลให้ — ผิดแปลว่าหน้าเปลี่ยน ให้คนดู) */
+    modelTrigger: string;
+    modelLabel: RegExp;
+    /** ชิปรูปที่แนบในช่องพรอมต์ — ต้องมี 2 ตัวพอดีก่อนกดสร้าง */
+    ingredientChip: string;
+    /** ช่องในกริดที่เป็นวิดีโอ (ทั้งกำลังทำและเสร็จ) · ตัววิดีโอในช่อง (ต้อง hover ตัวนี้) · thumbnail ของช่องที่เสร็จ */
+    tileContainer: string;
+    tile: string;
+    tileThumbnail: string;
+    /** ปุ่มในช่องที่โผล่เฉพาะตอน hover · เมนู Download (hover แล้วเมนูย่อยเลือกขนาดโผล่) */
+    moreOptions: string;
+    downloadMenuItem: string;
+    menuItem: string;
+    /** ตัวอย่างหลัง Render: "720p Original size" (เร็ว ไม่ต้องรอขยาย) — ทุก regex ต้องแมตช์ข้อความเมนูตัวเดียวกัน */
+    previewQuality: RegExp[];
+    /** หลังผู้ใช้กดผ่าน: "1080p Upscaled" (Flow ขยายให้ตอนโหลด ไม่เสียเครดิต แต่รอนาน) */
+    finalQuality: RegExp[];
+  };
   results: {
     /** network = ดัก response ของ endpoint เจนรูป · dom = เทียบ <img> ใหม่ที่โผล่ */
     strategy: "network" | "dom";
@@ -299,6 +328,27 @@ const MIGRATED: SelectorSet = {
   uploadResponseUrlPart: "batchexecute",
   promptBox: [".ProseMirror[contenteditable='true']", "[contenteditable='true']"],
   submit: ["button.generate-icon-button", "button[aria-label='Start generation']"],
+  // เห็นสดทั้งหมด 2026-09-30 (สำรวจด้วยมือบนบัญชีสำรอง ทำคลิปจริง 1 ตัวจนโหลดได้) — ใช้แผงตั้งค่าเดียวกับรูป
+  // (<flow-prompt-box-settings>) สถานะเลือก = class mat-button-toggle-checked เหมือนเดิม
+  video: {
+    modeTab: "flow-prompt-box-settings mat-button-toggle:has(mat-icon:text-is('videocam'))",
+    ingredientTab: "flow-prompt-box-settings mat-button-toggle:has(mat-icon:text-is('chrome_extension'))",
+    optionToggles: "flow-prompt-box-settings mat-button-toggle",
+    modelTrigger: "flow-prompt-box-settings button.mat-mdc-menu-trigger",
+    modelLabel: /Omni 1\.1 Flash/,
+    ingredientChip: "flow-ingredient-chip",
+    // ช่องใหม่หลังกดสร้าง = <flow-grid-tile-container> ที่มี <flow-video-tile> (+ <flow-pending-tile> ระหว่างทำ)
+    tileContainer: "flow-grid-tile-container:has(flow-video-tile)",
+    tile: "flow-video-tile",
+    // ช่องที่เสร็จมีแค่ <img class="thumbnail"> (alt "Generated video thumbnail") ไม่มี <video> ในหน้า
+    tileThumbnail: "img.thumbnail",
+    moreOptions: "button[aria-label='More options']",
+    downloadMenuItem: "[role='menuitem']:has(mat-icon:text-is('download'))",
+    menuItem: "[role='menuitem']",
+    // เมนูย่อยจริง: 270p Animated GIF / 720p Original size / 1080p Upscaled / 4K Upscaled [disabled]
+    previewQuality: [/720p/, /Original size/],
+    finalQuality: [/1080p/, /Upscaled/],
+  },
   results: {
     // เว็บใหม่ยิงทุกอย่างผ่าน RPC ก้อนเดียว (/_/AiSandboxAngularFrontend/data/batchexecute) ซึ่ง
     // ตอบเป็นข้อความ ไม่ใช่ JSON ที่เดินหา field ได้ จึงอ่านผลจาก <img> ที่โผล่ใหม่แทน

@@ -50,6 +50,48 @@ export function acceptJevChoice(answer: { choice: string; p: number } | null, mi
   return answer.p >= min ? answer.choice : null;
 }
 
+/**
+ * ป้ายบนปุ่มตั้งค่า (settings trigger) หลังตั้งค่า Render ครบ — เห็นจริง 2026-09-30: `Video · 720p · 10s` + ไอคอน
+ * `crop_9_16` + `x1` (innerText ของ mat-icon คือชื่อ ligature) ยืนยันทั้งชุดได้ในบรรทัดเดียวหลังปิดแผง
+ * ไม่ผูกลำดับ/ช่องว่างระหว่างชิ้น เพราะ innerText ขึ้นบรรทัดตาม layout
+ */
+export function renderSettingsLabelOk(text: string): boolean {
+  return (
+    /Video\s*·\s*720p\s*·\s*10s/.test(text) &&
+    /crop_9_16/.test(text) &&
+    /(^|\s)x1(\s|$)/.test(text)
+  );
+}
+
+/** ไฟล์ที่โหลดมาเป็น MP4 จริงไหม — ไบต์ 4-7 ของไฟล์ ISO BMFF คือกล่อง `ftyp` (ไฟล์ของ Flow = `ftypisom`) */
+export function isMp4Header(buf: Uint8Array): boolean {
+  return buf.length >= 12 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70;
+}
+
+/**
+ * id ของคลิปใน Flow จาก src ของ thumbnail ในช่องวิดีโอ — เก็บไว้ (FlowJobImage.flowMediaId) เพื่อกลับมาหาช่องเดิม
+ * ตอนโหลด 1080p · `flow-content.google/image/<uuid>` → uuid · src แบบอื่นใช้ host+path (ไม่เอา query ซึ่งอาจเป็น
+ * ลายเซ็นที่เปลี่ยนทุกครั้งที่โหลดหน้า) · src ว่าง/อ่านไม่ออก → "" (ห้ามจับคู่กับอะไรเลย)
+ */
+export function flowMediaIdFromSrc(src: string | null): string {
+  if (src === null || src.trim() === "") return "";
+  try {
+    const u = new URL(src, "https://flow.google.com");
+    const m = /\/image\/([^/]+)/.exec(u.pathname);
+    return m ? m[1] : `${u.host}${u.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * ช่องวิดีโอที่เพิ่งเสร็จ = id ที่ไม่มีก่อนกดสร้าง · ว่าง = thumbnail ยังไม่โหลด ไม่นับ
+ * (โปรเจกต์เดียวกันมีคลิปของครั้งก่อนอยู่ด้วยตอนเรนเดอร์ใหม่ — ต้องชี้ช่องใหม่ให้ถูกก่อนโหลด)
+ */
+export function pickNewThumbnail(before: string[], now: string[]): string | null {
+  return now.find((id) => id !== "" && !before.includes(id)) ?? null;
+}
+
 export function generateAccepted(s: {
   tilesBefore: number;
   tilesNow: number;

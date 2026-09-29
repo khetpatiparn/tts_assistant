@@ -16,9 +16,18 @@ export type WorkerConfig = {
   longBreakEvery: Range;
   longBreakMs: Range;
   dailyBatchCap: number;
+  /**
+   * เพดานคลิปที่ Render ต่อวัน (15 เครดิต/คลิป) — กันเครดิตหมดในวันเดียวถ้ามีอะไรผิด ครบแล้วบอทยังวาดรูปต่อได้
+   * แยกจาก dailyBatchCap (ชุดรูป) ครบฝั่งไหนก็หยุดเฉพาะงานฝั่งนั้น
+   */
+  videoDailyCap: number;
   /** ["22:00","07:00"] = ทำงานเฉพาะช่วงนี้ (ข้ามเที่ยงคืนได้) · null = ตลอดเวลา */
   activeHours: [string, string] | null;
   generationTimeoutMs: number;
+  /** รอคลิปเสร็จหลังกดสร้าง (วัดจริง ~1.5 นาที) */
+  renderTimeoutMs: number;
+  /** รอไฟล์ 1080p Upscaled หลังกดโหลด — Flow ขยายจาก 720p ตอนโหลด (ไม่เสียเครดิต) จึงนานกว่าโหลดตรง */
+  renderDownloadTimeoutMs: number;
   uploadTimeoutMs: number;
   selectorTimeoutMs: number;
   pollIdleMs: number;
@@ -32,7 +41,8 @@ const RANGE_KEYS = [
 ] as const;
 
 const POSITIVE_KEYS = [
-  "dailyBatchCap", "generationTimeoutMs", "uploadTimeoutMs", "selectorTimeoutMs", "pollIdleMs", "heartbeatMs",
+  "dailyBatchCap", "videoDailyCap", "generationTimeoutMs", "renderTimeoutMs", "renderDownloadTimeoutMs",
+  "uploadTimeoutMs", "selectorTimeoutMs", "pollIdleMs", "heartbeatMs",
 ] as const;
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
