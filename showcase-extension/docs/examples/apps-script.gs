@@ -11,6 +11,15 @@
  * Apps Script cannot set HTTP status codes (always 200) or read request headers, so a wrong/missing
  * token is reported with the body {"error":"unauthorized"} (the extension treats that like a 401).
  * The extension sends a text/plain POST, which Apps Script exposes as e.postData.contents.
+ *
+ * Honest limits (read before relying on this):
+ *  - Apps Script cannot set CORS headers or HTTP status codes. Browser access relies on Google's /exec redirect
+ *    response carrying CORS headers; this was NOT verified end to end. Test GET and POST from a browser
+ *    (INTEGRATION.md section 8) before giving the link to anyone.
+ *  - Because status is always 200, {"error":"invalid JSON body"} / {"error":"products must be an array"} are counted by
+ *    the extension as DELIVERED (it remembers those IDs although nothing was saved). Only the exact body
+ *    {"error":"unauthorized"} is treated as a failure. So the payload checks below matter: if you change them, keep them strict.
+ *  - Sheet cells are forced to plain text so seller-controlled titles/shop names beginning with = + - @ can never run as formulas.
  */
 var PROTOCOL = 'showcase-scanner/1';
 var SHEET_NAME = 'Products';
@@ -31,9 +40,18 @@ function sheet_() {
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
   if (sheet.getLastRow() === 0) sheet.appendRow(HEADERS);
-  // productId is a long digit string: force plain-text format so Sheets never turns it into a rounded number.
-  sheet.getRange('A:A').setNumberFormat('@');
   return sheet;
+}
+
+// commissionRate is number | string | null, in hundredths of a percent (1200 = 12%).
+function commissionPercent_(raw) {
+  var n = typeof raw === 'string' && raw.replace(/\s/g, '') !== '' ? Number(raw) : raw;
+  return typeof n === 'number' && isFinite(n) ? n / 100 : '';
+}
+
+// Cell values from the payload are seller-controlled: everything is written as a plain-text string.
+function str_(v) {
+  return v === null || v === undefined ? '' : String(v);
 }
 
 function doGet(e) {
@@ -85,21 +103,22 @@ function doPost(e) {
       }
       var row = [
         p.productId,
-        p.title || '',
-        p.priceDisplay || '',
-        typeof p.commissionRate === 'number' ? p.commissionRate / 100 : '', // 1200 -> 12 (percent)
-        p.shopName || '',
-        p.categoryLabel || '',
-        (p.imageUrls && p.imageUrls[0]) || '',
+        str_(p.title),
+        str_(p.priceDisplay),
+        str_(commissionPercent_(p.commissionRate)), // 1200 -> 12 (percent)
+        str_(p.shopName),
+        str_(p.categoryLabel),
+        str_(p.imageUrls && p.imageUrls[0]),
         now,
       ];
       var target = rowById[p.productId];
-      if (target) {
-        sheet.getRange(target, 1, 1, HEADERS.length).setValues([row]); // upsert
-      } else {
-        sheet.appendRow(row);
-        rowById[p.productId] = sheet.getLastRow();
+      if (!target) {
+        sheet.appendRow(HEADERS.map(function () { return ''; })); // reserve the row
+        target = sheet.getLastRow();
+        rowById[p.productId] = target;
       }
+      // Plain-text format BEFORE writing values, for every column (incl. productId and receivedAt ISO string).
+      sheet.getRange(target, 1, 1, HEADERS.length).setNumberFormat('@').setValues([row]);
       saved++;
     }
     return json_({ ok: true, saved: saved, skipped: skipped });

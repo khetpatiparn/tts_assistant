@@ -36,6 +36,12 @@ app.use((req, res, next) => {
   next()
 })
 
+// commissionRate is number | string | null, in hundredths of a percent (1200 = 12%).
+function commissionPercent(raw) {
+  const n = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw
+  return typeof n === 'number' && Number.isFinite(n) ? n / 100 : null
+}
+
 function tokenOk(given) {
   if (typeof given !== 'string') return false
   const a = Buffer.from(given)
@@ -74,7 +80,7 @@ app.post('/scanner', (req, res) => {
       productId: p.productId,
       title: p.title,
       priceDisplay: p.priceDisplay ?? null,
-      commissionPercent: typeof p.commissionRate === 'number' ? p.commissionRate / 100 : null, // 1200 -> 12 (%)
+      commissionPercent: commissionPercent(p.commissionRate), // 1200 -> 12 (%)
       shopName: p.shopName ?? null,
       categoryLabel: p.categoryLabel ?? null,
       imageUrls: Array.isArray(p.imageUrls) ? p.imageUrls : [],

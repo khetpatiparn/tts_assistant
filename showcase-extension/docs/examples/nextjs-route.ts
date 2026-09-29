@@ -42,6 +42,12 @@ async function getLastReceivedAt(): Promise<string | null> {
 }
 // ----------------------------------------------------
 
+// commissionRate is number | string | null, in hundredths of a percent (1200 = 12%).
+function commissionPercent(raw: unknown): number | null {
+  const n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
+  return typeof n === "number" && Number.isFinite(n) ? n / 100 : null;
+}
+
 function authorized(req: NextRequest): boolean {
   const expected = process.env.SCANNER_TOKEN ?? "";
   const given = req.nextUrl.searchParams.get("token");
@@ -91,7 +97,7 @@ export async function POST(req: NextRequest) {
       productId: raw.productId,
       title: typeof raw.title === "string" ? raw.title : "",
       priceDisplay: typeof raw.priceDisplay === "string" ? raw.priceDisplay : null,
-      commissionPercent: typeof raw.commissionRate === "number" ? raw.commissionRate / 100 : null, // 1200 -> 12 (%)
+      commissionPercent: commissionPercent(raw.commissionRate), // 1200 -> 12 (%)
       shopName: typeof raw.shopName === "string" ? raw.shopName : null,
       categoryLabel: typeof raw.categoryLabel === "string" ? raw.categoryLabel : null,
       imageUrls: Array.isArray(raw.imageUrls) ? raw.imageUrls.filter((u): u is string => typeof u === "string") : [],

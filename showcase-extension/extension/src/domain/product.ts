@@ -31,9 +31,9 @@ export interface NormalizedProduct {
   readonly reviewStatusRaw: number | string | null
   readonly canAddRaw: boolean | null
   /**
-   * observed: `affiliate_info.commission_rate` เป็นตัวเลข (เช่น 1100) — หน่วยยังไม่ยืนยัน
-   * (น่าจะ basis points แต่ยังไม่มีหลักฐานพิสูจน์) เก็บเป็น raw passthrough เหมือน stockStatusRaw
-   * ห้ามคำนวณ/แสดงเป็นเปอร์เซ็นต์จนกว่าจะยืนยันหน่วยได้ (docs/api-observations.md §4)
+   * observed: `affiliate_info.commission_rate` เป็นตัวเลข (เช่น 1100) — raw passthrough ในหน่วย
+   * หนึ่งในร้อยของเปอร์เซ็นต์ (1200 = 12%) ยืนยัน 14/14 ชิ้นกับ commission_expense จริงแล้ว
+   * (ดู lib/showcase-import.ts ใน repo Angle) · extension เองไม่แปลงหน่วย ส่งค่าดิบออกไป
    */
   readonly commissionRate: number | string | null
   readonly eligibility: Eligibility
