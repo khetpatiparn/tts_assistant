@@ -29,6 +29,7 @@ import type {
 import { playCompletionSound } from "@/lib/completion-sound";
 import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 import { cn } from "@/lib/utils";
+import { ScannerLinkBox } from "@/components/scanner-link-box";
 import { CandidateImagePicker } from "@/components/candidate-image-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -123,11 +124,13 @@ export function CandidatesRoute({
   batches,
   focus,
   now,
+  scannerToken,
 }: {
   rows: CandidateRow[];
   batches: BatchSummary[];
   focus: FocusCategory[];
   now: Date;
+  scannerToken: string;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -496,6 +499,8 @@ export function CandidatesRoute({
             นำเข้า
           </Button>
         </form>
+
+        <ScannerLinkBox token={scannerToken} />
 
         {result && <p className="text-sm text-foreground/80">{result}</p>}
         {error && <p className="text-sm text-destructive">{error}</p>}

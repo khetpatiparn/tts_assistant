@@ -1,11 +1,12 @@
 import { getCandidatesData } from "@/lib/candidate-queries";
+import { getScannerToken } from "@/app/actions";
 import { AppHeader } from "@/components/app-header";
 import { CandidatesRoute } from "@/components/candidates-route";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProductsPage() {
-  const data = await getCandidatesData();
+  const [data, scannerToken] = await Promise.all([getCandidatesData(), getScannerToken()]);
 
   return (
     <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
@@ -16,6 +17,7 @@ export default async function ProductsPage() {
           batches={data.batches}
           focus={data.focus}
           now={new Date()}
+          scannerToken={scannerToken}
         />
       </div>
     </div>
