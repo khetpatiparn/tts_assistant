@@ -8,6 +8,7 @@ import { findByIntent } from "./dom-heuristics";
 import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
+import { blockKindForStatus, errorKindForTileTexts, generateAccepted } from "./flow-signals";
 
 export type RoundInput = {
   round: 1 | 2;
@@ -43,6 +44,8 @@ export type FlowStep = (typeof FLOW_STEPS)[number];
 
 const ASPECT = "3:4";
 const COUNT = 4;
+/** Flow ขึ้นช่อง "กำลังวาด" ทันทีที่รับคำสั่ง — เผื่อเน็ตช้า 45 วิก่อนสรุปว่าคลิก Generate ไม่ติด */
+const GENERATE_ACCEPT_MS = 45_000;
 
 /** พรอมต์ตายตัว 2 แบบ (spec §3) — ต้องเหมือน buildFlowPrompt ใน lib/flow-jobs.ts ทุกตัวอักษร */
 export function flowPromptFor(round: 1 | 2, productName: string): string {
@@ -465,6 +468,7 @@ export async function runRound(
     // ต้องนับ "ก่อนกด" เพราะ ensure-project ใช้โปรเจกต์เดิมซ้ำได้ (รอบ retry) — การ์ด Failed เก่า
     // จากความพยายามก่อนหน้ายังค้างอยู่ในหน้า ถ้าไม่หักออกจะเข้าใจผิดว่ารอบนี้พังทันทีตั้งแต่ยังไม่ทันวาด
     const beforeErrorTiles = sel.errorTile ? await page.locator(sel.errorTile).count() : 0;
+    const beforeTiles = sel.resultTile ? await page.locator(sel.resultTile).count() : 0;
 
     await step("click-generate", async () => {
       const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
@@ -474,8 +478,18 @@ export async function runRound(
 
     const urls = await step("wait-results", async () => {
       const deadline = Date.now() + cfg.generationTimeoutMs;
+      // ยืนยันภายในเวลานี้ว่า Flow รับคำสั่งแล้ว — ไม่งั้นแปลว่าคลิก Generate ไม่ติด (ห้ามกดซ้ำเอง: AI4Next
+      // พบว่ากดซ้ำได้งานเจนซ้อน 2 ชุด) · ไม่มี resultTile = โฮสต์ที่ยังไม่ยืนยัน DOM ข้ามการเช็กนี้
+      const acceptBy = submitAt + GENERATE_ACCEPT_MS;
+      let accepted = !sel.resultTile;
       while (Date.now() < deadline) {
         let goodCount = 0;
+        // สัญญาณบอทก่อนอย่างอื่น — ถ้าหน้าเปลี่ยนเป็นหน้าบล็อกระหว่างรอ เดิมเช็กแค่ก่อนเริ่มแต่ละขั้น
+        for (const c of sel.captchaSignals) {
+          if ((await page.locator(c).count()) > 0) {
+            throw new FlowStepError("wait-results", "captcha", `เจอสัญญาณ captcha ระหว่างรอผล: ${c}`);
+          }
+        }
         if (sel.results.strategy === "network") {
           const fresh = responses.filter((r) => r.at >= submitAt);
           for (const r of fresh) {
@@ -492,6 +506,13 @@ export async function runRound(
             return collectImageUrls(responses.filter((r) => r.at >= submitAt).map((r) => r.body), sel.results.imageUrlHosts);
           }
         } else {
+          // เดิมโฮสต์นี้ไม่เช็ก HTTP status เลย (เช็กแต่ฝั่ง network strategy) — โดน 403/429 แล้วบอทไม่รู้ตัว
+          for (const r of responses.filter((x) => x.at >= submitAt)) {
+            const kind = blockKindForStatus(r.status);
+            if (kind !== null) {
+              throw new FlowStepError("wait-results", kind, `Flow ตอบ HTTP ${r.status} หลังกด Generate`);
+            }
+          }
           const now = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
           const fresh = now.filter((s) => !beforeImgs.includes(s));
           const good = collectImageUrls(fresh, sel.results.imageUrlHosts);
@@ -504,13 +525,39 @@ export async function runRound(
         // การ์ด "Failed — Sorry, this image failed to generate" ของ Flow เอง (ไม่เสียเครดิต) —
         // ไม่มี role=alert จึงไม่ถูกจับด้วยเช็ก alert ด้านล่าง ถ้าทุกช่องที่ขอ (COUNT) จบแล้วแต่ไม่ครบ
         // เป็นรูปดี ต้องหยุดทันที ไม่ใช่นั่งรอจน generationTimeoutMs แล้วรายงานผิดว่า "ช้า"
+        let freshFailed = 0;
         if (sel.errorTile) {
-          const freshFailed = (await page.locator(sel.errorTile).count()) - beforeErrorTiles;
-          if (freshFailed > 0 && freshFailed + goodCount >= COUNT) {
+          const tiles = page.locator(sel.errorTile);
+          freshFailed = (await tiles.count()) - beforeErrorTiles;
+          if (freshFailed > 0) {
+            // อ่านข้อความของการ์ด error เท่านั้น (ไม่ใช่ทั้งหน้า — พรอมต์เราอยู่ในหน้าด้วย) — element เดียวกัน
+            // ใช้ทั้งตอน "วาดไม่สำเร็จ" และตอนโดนบล็อก ต้องแยกให้ออก ห้ามรอให้ครบทุกช่องถ้าเป็นการบล็อก
+            const kind = errorKindForTileTexts(await tiles.allInnerTexts());
+            if (kind === "captcha") {
+              throw new FlowStepError("wait-results", "captcha", "Flow แจ้ง unusual activity (โดนจับว่าเป็นบอท) — พักก่อน");
+            }
+            if (freshFailed + goodCount >= COUNT) {
+              throw new FlowStepError(
+                "wait-results",
+                "flow_error",
+                `Flow วาดไม่สำเร็จ ${String(freshFailed)}/${String(COUNT)} รูป (failed to generate — ไม่เสียเครดิต)`,
+              );
+            }
+          }
+        }
+        if (!accepted && sel.resultTile) {
+          accepted = generateAccepted({
+            tilesBefore: beforeTiles,
+            tilesNow: await page.locator(sel.resultTile).count(),
+            pendingNow: sel.pendingTile ? await page.locator(sel.pendingTile).count() : 0,
+            freshErrorTiles: freshFailed,
+            goodCount,
+          });
+          if (!accepted && Date.now() > acceptBy) {
             throw new FlowStepError(
               "wait-results",
-              "flow_error",
-              `Flow วาดไม่สำเร็จ ${String(freshFailed)}/${String(COUNT)} รูป (failed to generate — ไม่เสียเครดิต)`,
+              "selector_drift",
+              `กด Generate แล้วแต่ Flow ไม่เริ่มวาดภายใน ${String(GENERATE_ACCEPT_MS / 1000)} วิ (คลิกไม่ติด หรือปุ่มเปลี่ยน)`,
             );
           }
         }

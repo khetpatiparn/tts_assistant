@@ -40,6 +40,12 @@ export type SelectorSet = {
    * จึงไม่ถูกจับโดยเช็ก alert เดิม ถ้าไม่ระบุ wait-results จะนั่งรอจนหมด generationTimeoutMs
    */
   errorTile?: string;
+  /**
+   * ช่องผลลัพธ์ 1 ช่องในกริดของโปรเจกต์ (ทั้งรูปเสร็จ/กำลังวาด/พัง) และช่องที่กำลังวาด — ใช้ยืนยันว่า
+   * Flow รับคำสั่ง Generate แล้ว (ดู generateAccepted ใน flow-signals.ts) ไม่ใส่ = ข้ามการยืนยันนี้ (labs)
+   */
+  resultTile?: string;
+  pendingTile?: string;
   /** ปุ่มเปิดเมนูโหมด/ตั้งค่า (ไอคอน crop_*) */
   modeTrigger: string[];
   /**
@@ -123,6 +129,8 @@ const LABS: SelectorSet = {
   captchaSignals: [
     "iframe[src*='recaptcha'][src*='bframe']",
     "text=/unusual traffic/i",
+    // Flow ใช้คำนี้กับการ์ด/ไดอะล็อกตอนบล็อกบอท (พบจากการแกะ AI4Next 2026-09-29) — เดิมดักแต่ "traffic"
+    "text=/unusual activity/i",
     "text=/verify you are human/i",
   ],
   newProject: [
@@ -247,6 +255,10 @@ const MIGRATED: SelectorSet = {
   // custom element ของ Flow เอง ไม่ผูกภาษา UI เลย — ยืนยันจาก page.html ของหลักฐานจริง
   // (uploads/_flow-failures/cmuatn0ud0005mkp72j2t1bgn-1790233471875, 2026-09-24)
   errorTile: "flow-error-tile",
+  // ยืนยันจาก page.html ของหลักฐานจริง (uploads/_flow-failures/cmumqwrz50001a4p7d6dkk75h-1790690647902,
+  // 2026-09-29): ทุกช่องในกริดห่อด้วย <flow-grid-tile-container> ช่องที่กำลังวาดคือ <flow-pending-tile>
+  resultTile: "flow-grid-tile-container",
+  pendingTile: "flow-pending-tile",
   // ปุ่ม "รูปภาพ/วิดีโอ" ใน popover ใหม่ — mat-button-toggle มี mat-icon ligature "image"/"videocam"
   // ข้างใน ยืนยันสดตรงกับที่คาดไว้ scope ด้วย <flow-prompt-box-settings> กันชนกับ toggle กลุ่มอื่น
   // ในหน้าเดียวกัน (อัตราส่วน/จำนวน ก็เป็น mat-button-toggle เหมือนกันหมด)

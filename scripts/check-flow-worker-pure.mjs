@@ -28,7 +28,7 @@ function checkThrows(name, fn, includes) {
 try {
   execFileSync(
     "npx",
-    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts",
+    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts",
      "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler",
      "--esModuleInterop", "--skipLibCheck"],
     { stdio: "inherit", shell: true }
@@ -85,6 +85,26 @@ try {
     for (let i = 0; i < 200; i++) { const t = sc.pickLongBreakTarget([4, 6]); if (t < 4 || t > 6) ok = false; }
     check("pickLongBreakTarget within range", ok, true);
   }
+
+  // ---------- flow-signals (แยกสัญญาณบอท/วาดพัง/คลิกไม่ติด) ----------
+  const fs2 = await import(pathToFileURL(join(out, "flow-signals.js")).href);
+  const failedText = "warning Failed Sorry, this image failed to generate. You have not been charged for this generation. refresh undo delete_forever";
+  check("การ์ด failed to generate (ข้อความจริงจาก page.html) → flow_error", fs2.errorKindForTileTexts([failedText]), "flow_error");
+  check("การ์ด unusual activity → captcha", fs2.errorKindForTileTexts(["Failed We noticed some unusual activity. Help Center"]), "captcha");
+  check("มีการ์ดบล็อกปนการ์ดพังธรรมดา → captcha (เอียงไปทางพัก)", fs2.errorKindForTileTexts([failedText, "unusual traffic from your network"]), "captcha");
+  check("ไม่มีการ์ด → flow_error", fs2.errorKindForTileTexts([]), "flow_error");
+  check("HTTP 403 → captcha", fs2.blockKindForStatus(403), "captcha");
+  check("HTTP 429 → captcha (พักยาว ไม่ใช่กดต่อ)", fs2.blockKindForStatus(429), "captcha");
+  check("HTTP 401 → login_required", fs2.blockKindForStatus(401), "login_required");
+  check("HTTP 404 ของ RPC อื่น → ไม่หยุด", fs2.blockKindForStatus(404), null);
+  check("HTTP 500 ของ RPC อื่น → ไม่หยุด", fs2.blockKindForStatus(500), null);
+  check("HTTP 200 → ไม่หยุด", fs2.blockKindForStatus(200), null);
+  const base = { tilesBefore: 5, tilesNow: 5, pendingNow: 0, freshErrorTiles: 0, goodCount: 0 };
+  check("ไม่มีอะไรเปลี่ยน → ยังไม่รับคำสั่ง", fs2.generateAccepted(base), false);
+  check("ช่องในกริดเพิ่ม → รับแล้ว", fs2.generateAccepted({ ...base, tilesNow: 9 }), true);
+  check("มีช่องกำลังวาด → รับแล้ว", fs2.generateAccepted({ ...base, pendingNow: 1 }), true);
+  check("มีการ์ด error ใหม่ → รับแล้ว (วาดแล้วพัง)", fs2.generateAccepted({ ...base, freshErrorTiles: 1 }), true);
+  check("ได้รูปแล้ว → รับแล้ว", fs2.generateAccepted({ ...base, goodCount: 2 }), true);
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
