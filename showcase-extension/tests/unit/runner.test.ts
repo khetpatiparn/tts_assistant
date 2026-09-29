@@ -320,6 +320,38 @@ describe('knownProductIds — หยุดอัตโนมัติเมื�
     expect(report.stopReason).toBe('page_limit_reached')
     expect(report.counters.uniqueValidProducts).toBe(6)
   })
+
+  it('หน้าที่มีสินค้าตาย (hasStatusPopup) ปนกับสินค้าที่รู้จักแล้ว ยังนับเป็นหน้าที่รู้จักแล้ว → หยุด', async () => {
+    // หน้า 1: '111' (รู้จักแล้ว) + '222' (status_popup = สินค้าตาย ไม่เคยถูกเก็บที่ปลายทาง)
+    // knownProductIds: ['111'] → stopReason ต้องเป็น 'known_ids_reached' ที่หน้า 1
+    const deadPage = JSON.stringify({
+      code: 0,
+      message: 'success',
+      data: {
+        products: [
+          {
+            product_id: '111',
+            title: 'สินค้ารู้จักแล้ว',
+            format_available_price: '฿10.00',
+            stock_status: 1,
+            review_status: 1,
+            can_added: true,
+          },
+          {
+            product_id: '222',
+            title: 'สินค้าที่ผู้ขายลบไปแล้ว',
+            format_available_price: '฿10.00',
+            stock_status: 1,
+            review_status: 1,
+            can_added: true,
+            status_popup: { title: 'Product not available', content: '', button: '', reason_code: 11 },
+          },
+        ],
+      },
+    })
+    const report = await start([{ bodyText: deadPage }], { knownProductIds: ['111'] })
+    expect(report.stopReason).toBe('known_ids_reached')
+  })
 })
 
 describe('PG11 — retry ที่ runner จริงต้องจำกัดจำนวนครั้งต่อ offset (R09)', () => {

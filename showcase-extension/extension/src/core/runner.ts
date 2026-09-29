@@ -489,7 +489,14 @@ export async function runImport(request: RunRequest, deps: RunnerDeps): Promise<
       // จำนวนหน้าเอง) — เช็คทั้งหน้า ไม่ใช่แค่บางตัว เพราะถ้ามีของใหม่ปนอยู่แม้ตัวเดียวก็ยังต้องสแกน
       // ต่อ เช็คหลัง pagination_stalled/endpoint_end/conflict เสมอ เพื่อให้เหตุผลที่แม่นยำกว่าชนะ
       // ถ้าหน้านี้บังเอิญเป็นหน้าสุดท้ายจริงของ Showcase พอดี ต้องรายงาน endpoint_end ไม่ใช่ known_ids_reached
-      if (knownIdSet !== null && page.products.length > 0 && page.products.every((p) => knownIdSet.has(p.productId))) {
+      //
+      // สินค้าที่ TikTok บอกว่าตายแล้ว (status_popup) ปลายทางไม่เก็บ จึงไม่มีวันอยู่ในรายการ "รู้จักแล้ว" —
+      // ถ้าไม่นับเป็นรู้จักแล้ว หน้าที่มีสินค้าตายปนจะไม่มีวันทำให้หยุด (สเปก 2026-09-29 ข้อ 5)
+      if (
+        knownIdSet !== null &&
+        page.products.length > 0 &&
+        page.products.every((p) => p.hasStatusPopup || knownIdSet.has(p.productId))
+      ) {
         return finish('known_ids_reached')
       }
 

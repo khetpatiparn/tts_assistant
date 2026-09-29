@@ -118,6 +118,7 @@ describe('UI03 — export ของ partial/unknown ต้องมี metadata 
         'dataQuality',
         'exportedAt',
         'products',
+        'protocol',
         'resultKind',
         'runId',
         'scanCoverage',
@@ -128,6 +129,12 @@ describe('UI03 — export ของ partial/unknown ต้องมี metadata 
     )
     // ไฟล์บอกตัวเองได้ว่ามาจาก full scan ไม่ใช่ผลทดสอบหนึ่งหน้า
     expect(payload.resultKind).toBe('full_scan')
+  })
+
+  it('payload บอก protocol ของลิงก์ปลายทาง', () => {
+    const report = baseReport([product('P0')])
+    const payload = buildExport(report, [], () => 0)
+    expect(payload.protocol).toBe('showcase-scanner/1')
   })
 
   it('exportedAt มาจาก clock ที่ inject ได้ ไม่ผูกกับ Date.now() ของเครื่องตรง ๆ', () => {

@@ -1,5 +1,6 @@
 import type { NormalizedProduct } from '../domain/product.js'
 import type { RunReport } from '../core/runner.js'
+import { PROTOCOL } from '../dashboard/destination.js'
 
 /**
  * §10 — export มี resultKind, runId, exportedAt, adapterVersion, sourceRef, coverage, quality,
@@ -11,6 +12,8 @@ import type { RunReport } from '../core/runner.js'
  */
 export interface ExportPayload {
   readonly resultKind: 'full_scan' | 'single_page_probe'
+  /** ลิงก์ปลายทางใช้แยกรุ่นของรูปแบบข้อมูล — ดู dashboard/destination.ts และ docs/INTEGRATION.md */
+  readonly protocol: typeof PROTOCOL
   readonly runId: string
   readonly exportedAt: string
   readonly adapterVersion: string
@@ -44,6 +47,7 @@ export function buildExport(
 
   return {
     resultKind: 'full_scan',
+    protocol: PROTOCOL,
     runId: report.runId,
     exportedAt: new Date(now()).toISOString(),
     adapterVersion: report.adapterVersion,
@@ -78,6 +82,7 @@ export function buildProbeExport(input: ProbeExportInput, now: () => number): Ex
   const at = now()
   return {
     resultKind: 'single_page_probe',
+    protocol: PROTOCOL,
     runId: `probe-${String(at)}`,
     exportedAt: new Date(at).toISOString(),
     adapterVersion: input.adapterVersion,
