@@ -7,6 +7,7 @@ import { ImageOff, Link2 } from "lucide-react";
 import {
   createEntryFromCandidate,
   importShowcaseFile,
+  retryShowcasePhoto,
   setShowcaseDismissed,
   startShowcaseProduct,
 } from "@/app/actions";
@@ -41,7 +42,8 @@ function formatThaiDate(d: Date): string {
  */
 export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; scannerToken: string }) {
   const [tab, setTab] = useState<ShowcaseStatus>("todo");
-  const [picking, setPicking] = useState<ShowcaseItem | null>(null);
+  // retry = สินค้าที่เริ่มทำแล้วแต่งาน Flow พัง/ถูกข้าม — ส่งรูปใหม่เข้าคิวโดยใช้งานเดิม
+  const [picking, setPicking] = useState<{ item: ShowcaseItem; retry: boolean } | null>(null);
   const [message, setMessage] = useState<{ text: string; entryId?: string; tone: "ok" | "error" } | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -51,6 +53,22 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
     return c;
   }, [items]);
   const visible = useMemo(() => itemsForTab(items, tab), [items, tab]);
+
+  function retry(item: ShowcaseItem, photo: File) {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const formData = new FormData();
+        formData.set("candidateId", item.id);
+        formData.set("photo", photo);
+        const { entryId } = await retryShowcasePhoto(formData);
+        setMessage({ tone: "ok", entryId, text: `ส่งรูปใหม่ของ "${item.name}" เข้าคิว Flow แล้ว` });
+      } catch (e) {
+        setMessage({ tone: "error", text: e instanceof Error ? e.message : "ส่งรูปใหม่ไม่สำเร็จ" });
+      }
+      setPicking(null);
+    });
+  }
 
   function start(item: ShowcaseItem, photo: File | null) {
     setMessage(null);
@@ -223,7 +241,7 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
                       </Button>
                       <Button
                         type="button"
-                        onClick={() => (item.images.length === 0 ? start(item, null) : setPicking(item))}
+                        onClick={() => (item.images.length === 0 ? start(item, null) : setPicking({ item, retry: false }))}
                         disabled={pending}
                       >
                         ทำคลิปตัวนี้
@@ -234,6 +252,29 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
                     <Button type="button" variant="outline" size="sm" onClick={() => dismiss(item, false)} disabled={pending}>
                       กู้คืน
                     </Button>
+                  )}
+                  {item.status === "in_progress" && item.flowState === "retry" && (
+                    <>
+                      <span className="text-xs leading-relaxed text-destructive">Flow วาดไม่สำเร็จ / ถูกข้าม</span>
+                      {item.images.length > 0 && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => setPicking({ item, retry: true })}
+                          disabled={pending}
+                        >
+                          เลือกรูปใหม่
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  {item.status === "in_progress" && item.flowState === "blocked" && (
+                    <Link
+                      href="/flow"
+                      className="inline-flex h-11 items-center px-2 text-xs leading-relaxed text-destructive underline underline-offset-2 lg:h-9"
+                    >
+                      งาน Flow หยุด — ดูที่คิว Flow
+                    </Link>
                   )}
                   {(item.status === "in_progress" || item.status === "posted") && item.linkedEntryId && (
                     <Link
@@ -252,11 +293,11 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
 
       {picking && (
         <ShowcasePhotoPicker
-          candidateId={picking.id}
-          productName={picking.name}
-          images={picking.images}
+          candidateId={picking.item.id}
+          productName={picking.item.name}
+          images={picking.item.images}
           busy={pending}
-          onConfirm={(photo) => start(picking, photo)}
+          onConfirm={(photo) => (picking.retry ? retry(picking.item, photo) : start(picking.item, photo))}
           onCancel={() => setPicking(null)}
         />
       )}

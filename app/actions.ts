@@ -25,6 +25,7 @@ import {
 import { normalizeName, parseCandidateRows } from "@/lib/candidates";
 import { commissionBahtFromPercent, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
+import { showcaseFlowState } from "@/lib/showcase";
 import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { parseCaptionOutput } from "@/lib/caption";
@@ -1160,6 +1161,33 @@ export async function startShowcaseProduct(
   revalidatePath("/showcase");
   revalidatePath("/");
   return { entryId: created.id, flowEnqueueError };
+}
+
+/**
+ * หน้า Showcase แท็บ "กำลังทำ": "เลือกรูปใหม่" — ใช้ Entry เดิม ส่งรูปต้นทางใหม่เข้าคิว Flow
+ * ใช้ได้เฉพาะเมื่องานล่าสุด Flow วาดไม่สำเร็จเอง (flow_error) / ถูกข้าม / ยังไม่มีงาน — ตรวจซ้ำฝั่ง server ด้วย
+ * showcaseFlowState เพราะ client อาจค้างหน้าเก่า · งานที่พังค้างอยู่ถูกเปลี่ยนเป็น "ข้าม" และปลดการหยุดของ
+ * worker เหมือนปุ่ม "ข้ามงานนี้" (ผู้ใช้เลือกแทนงานนั้นแล้ว) · **captcha ไม่เข้าเงื่อนไขโดยตั้งใจ** ดู showcaseFlowState
+ */
+export async function retryShowcasePhoto(formData: FormData): Promise<{ entryId: string }> {
+  const candidateId = String(formData.get("candidateId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File) || photo.size === 0) throw new Error("กรุณาเลือกรูป 1 รูป");
+
+  const candidate = await prisma.productCandidate.findUnique({ where: { id: candidateId } });
+  if (!candidate || candidate.sourceProductId === null || candidate.linkedEntryId === null) {
+    throw new Error("ไม่พบงานของสินค้านี้");
+  }
+  const entryId = candidate.linkedEntryId;
+  const latest = await prisma.flowJob.findFirst({ where: { entryId }, orderBy: { createdAt: "desc" } });
+  const state = showcaseFlowState(latest === null ? null : { status: latest.status, errorKind: latest.errorKind });
+  if (state === "blocked") throw new Error("งาน Flow ของสินค้านี้หยุดด้วยเหตุผลอื่น — ไปจัดการที่หน้า คิว Flow ก่อน");
+  if (state === "busy") throw new Error("งาน Flow ของสินค้านี้ยังทำงานอยู่ หรือเสร็จแล้ว");
+
+  if (latest !== null && latest.status === FLOW_STATUS.FAILED) await skipFlowJob(latest.id);
+  await enqueueFlowJobCore(entryId, [{ buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type }]);
+  revalidatePath("/showcase");
+  return { entryId };
 }
 
 /**

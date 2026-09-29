@@ -97,6 +97,16 @@ try {
   check("แท็บอื่น: ใหม่สุดขึ้นก่อน", s.itemsForTab(done, "dismissed").map((i) => i.sourceProductId), ["d2", "d1"]);
   check("แท็บกรองเฉพาะสถานะนั้น", s.itemsForTab(done, "todo").length, 0);
 
+  // --- ปุ่ม "เลือกรูปใหม่" ---
+  check("ยังไม่มีงาน Flow = เลือกรูปใหม่ได้", s.showcaseFlowState(null), "retry");
+  check("งานถูกข้าม = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "" }), "retry");
+  check("Flow วาดไม่สำเร็จเอง = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error" }), "retry");
+  check("โดนจับว่าเป็นบอท = ห้ามทางลัด (ต้องพัก 1 ชม.)", s.showcaseFlowState({ status: "failed", errorKind: "captcha" }), "blocked");
+  check("login หลุด = ห้ามทางลัด", s.showcaseFlowState({ status: "failed", errorKind: "login_required" }), "blocked");
+  check("กำลังวาด = ไม่มีปุ่ม", s.showcaseFlowState({ status: "running_r1", errorKind: "" }), "busy");
+  check("รอเลือกรูป = ไม่มีปุ่ม", s.showcaseFlowState({ status: "review_r1", errorKind: "" }), "busy");
+  check("เสร็จแล้ว = ไม่มีปุ่ม", s.showcaseFlowState({ status: "done", errorKind: "" }), "busy");
+
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {
   rmSync(out, { recursive: true, force: true });

@@ -13,6 +13,21 @@ export const SHOWCASE_TRACKING_SINCE = new Date("2026-09-29T00:00:00+07:00");
 
 export type ShowcaseStatus = "todo" | "in_progress" | "posted" | "dismissed";
 
+/**
+ * สถานะงาน Flow ล่าสุดของ Entry ที่ผูกอยู่ — ใช้ตัดสินว่าโชว์ปุ่ม "เลือกรูปใหม่" ได้ไหม
+ * - `retry`   = ไม่มีงาน Flow / ถูกข้าม / Flow วาดไม่สำเร็จเอง (flow_error) → เลือกรูปต้นทางใหม่ได้
+ * - `blocked` = พังด้วยเหตุผลอื่น (captcha/login/selector ฯลฯ) → ต้องไปจัดการที่หน้าคิว Flow ก่อน
+ *   **ห้ามเปิดทางลัดให้ captcha** เพราะการส่งรูปใหม่เท่ากับเข้าคิวใหม่ทันที ข้ามกฎพัก 1 ชั่วโมง
+ * - `busy`    = กำลังอยู่ในคิว/วาด/รอเลือก หรือเสร็จแล้ว → ไม่มีปุ่ม
+ */
+export type ShowcaseFlowState = "retry" | "blocked" | "busy";
+
+export function showcaseFlowState(latestJob: { status: string; errorKind: string } | null): ShowcaseFlowState {
+  if (latestJob === null || latestJob.status === "skipped") return "retry";
+  if (latestJob.status === "failed") return latestJob.errorKind === "flow_error" ? "retry" : "blocked";
+  return "busy";
+}
+
 export const SHOWCASE_STATUS_LABEL: Record<ShowcaseStatus, string> = {
   todo: "ยังไม่เริ่ม",
   in_progress: "กำลังทำ",
@@ -44,6 +59,8 @@ export type ShowcaseItem = {
   linkedEntryId: string | null;
   images: { id: string; filename: string }[];
   status: ShowcaseStatus;
+  /** มีความหมายเฉพาะ status "in_progress" — เติมทีหลังโดยผู้เรียก (ต้องอ่าน FlowJob) ค่าเริ่มต้น busy */
+  flowState: ShowcaseFlowState;
 };
 
 export function showcaseStatus(
@@ -105,6 +122,7 @@ export function buildShowcaseItems(
         { linkedEntryId, dismissedAt },
         linkedEntryId === null ? undefined : entryVideoUrls.get(linkedEntryId)
       ),
+      flowState: "busy",
     });
   }
 
