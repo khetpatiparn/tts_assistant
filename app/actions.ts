@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, unlink, copyFile } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { newToken } from "@/lib/scanner-link";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
 import {
@@ -1476,4 +1477,26 @@ export async function skipFlowJob(jobId: string): Promise<void> {
   ]);
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
+}
+
+/** token ของลิงก์ปลายทาง Showcase Scanner — สร้างครั้งแรกที่มีคนขอ */
+export async function getScannerToken(): Promise<string> {
+  const row = await prisma.scannerLink.upsert({
+    where: { id: "singleton" },
+    create: { id: "singleton", token: newToken() },
+    update: {},
+  });
+  return row.token;
+}
+
+/** "สร้างลิงก์ใหม่" — ลิงก์เก่าใช้ไม่ได้ทันที (extension จะเห็นไฟแดง "ลิงก์ใช้ไม่ได้แล้ว") */
+export async function regenerateScannerToken(): Promise<string> {
+  const token = newToken();
+  await prisma.scannerLink.upsert({
+    where: { id: "singleton" },
+    create: { id: "singleton", token },
+    update: { token, createdAt: new Date() },
+  });
+  revalidatePath("/products");
+  return token;
 }

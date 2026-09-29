@@ -252,3 +252,11 @@ model FlowWorkerState {
   nextWakeAt    DateTime?
   updatedAt     DateTime  @updatedAt
 }
+
+/// token ของ "ลิงก์ปลายทาง" ที่ Showcase Scanner ใช้ส่งผลสแกนเข้า Angle (แถวเดียว id = "singleton")
+/// เก็บใน DB ไม่ใช่ .env เพื่อให้กด "สร้างลิงก์ใหม่" ในแอปได้ — ดู docs/adr/0001-destination-link-secret-in-url.md
+model ScannerLink {
+  id        String   @id @default("singleton")
+  token     String
+  createdAt DateTime @default(now())
+}
