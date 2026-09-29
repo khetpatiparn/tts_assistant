@@ -37,6 +37,11 @@ try {
 
   check("prompt round 1", f.buildFlowPrompt(1, "ที่ลับเล็บแมว"), 'ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "ที่ลับเล็บแมว"');
   check("prompt round 2", f.buildFlowPrompt(2, "ที่ลับเล็บแมว"), 'ขอภาพสินค้าตอนใช้งาน สินค้าคือ "ที่ลับเล็บแมว"');
+  check("prompt + ข้อความเพิ่มเติม ต่อท้ายด้วยช่องว่างเดียว", f.buildFlowPrompt(1, "ที่ลับเล็บแมว", "เอาแค่แผ่นเดียว"), 'ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "ที่ลับเล็บแมว" เอาแค่แผ่นเดียว');
+  check("ข้อความเพิ่มเติมว่าง = พรอมต์เดิมทุกตัวอักษร", f.buildFlowPrompt(2, "ที่ลับเล็บแมว", ""), 'ขอภาพสินค้าตอนใช้งาน สินค้าคือ "ที่ลับเล็บแมว"');
+  check("normalize ยุบขึ้นบรรทัด (Enter ในช่อง Flow = ส่ง)", f.normalizeExtraPrompt("  เอาแค่\nแผ่นเดียว  "), "เอาแค่ แผ่นเดียว");
+  check("normalize ตัดความยาว", f.normalizeExtraPrompt("ก".repeat(500)).length, f.EXTRA_PROMPT_MAX);
+  check("normalize null = ว่าง", f.normalizeExtraPrompt(null), "");
   check("candidateFilename", f.candidateFilename(1, 2, 3, "png"), "r1-a2-3.png");
   check("sourceFilename", f.sourceFilename(0, "jpg"), "source-0.jpg");
 

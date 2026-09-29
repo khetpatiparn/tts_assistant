@@ -54,13 +54,14 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
   }, [items]);
   const visible = useMemo(() => itemsForTab(items, tab), [items, tab]);
 
-  function retry(item: ShowcaseItem, photo: File) {
+  function retry(item: ShowcaseItem, photo: File, extra: string) {
     setMessage(null);
     startTransition(async () => {
       try {
         const formData = new FormData();
         formData.set("candidateId", item.id);
         formData.set("photo", photo);
+        formData.set("extraPrompt", extra);
         const { entryId } = await retryShowcasePhoto(formData);
         setMessage({ tone: "ok", entryId, text: `ส่งรูปใหม่ของ "${item.name}" เข้าคิว Flow แล้ว` });
       } catch (e) {
@@ -70,7 +71,7 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
     });
   }
 
-  function start(item: ShowcaseItem, photo: File | null) {
+  function start(item: ShowcaseItem, photo: File | null, extra = "") {
     setMessage(null);
     startTransition(async () => {
       try {
@@ -83,6 +84,7 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
         const formData = new FormData();
         formData.set("candidateId", item.id);
         formData.set("photo", photo);
+        formData.set("extraPrompt", extra);
         const { entryId, flowEnqueueError } = await startShowcaseProduct(formData);
         setMessage(
           flowEnqueueError
@@ -297,7 +299,7 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
           productName={picking.item.name}
           images={picking.item.images}
           busy={pending}
-          onConfirm={(photo) => (picking.retry ? retry(picking.item, photo) : start(picking.item, photo))}
+          onConfirm={(photo, extra) => (picking.retry ? retry(picking.item, photo, extra) : start(picking.item, photo, extra))}
           onCancel={() => setPicking(null)}
         />
       )}

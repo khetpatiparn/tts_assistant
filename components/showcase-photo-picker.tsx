@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { ArrowLeft, Crop } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EXTRA_PROMPT_MAX } from "@/lib/flow-jobs";
 
 type Box = { x: number; y: number; w: number; h: number };
 
@@ -38,7 +39,8 @@ export function ShowcasePhotoPicker({
   productName: string;
   images: { id: string; filename: string }[];
   busy: boolean;
-  onConfirm: (photo: File) => void;
+  /** extra = ข้อความต่อท้ายพรอมต์ของ Flow ("" = พรอมต์ตั้งต้น) */
+  onConfirm: (photo: File, extra: string) => void;
   onCancel: () => void;
 }) {
   const [chosen, setChosen] = useState<{ id: string; filename: string } | null>(
@@ -46,6 +48,8 @@ export function ShowcasePhotoPicker({
   );
   const [box, setBox] = useState<Box | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // รู้ตั้งแต่ตอนเลือกรูปได้ว่ารูปมีสินค้าหลายชิ้น/มีตัวหนังสือ — บอก Flow ได้เลยตั้งแต่รอบแรก
+  const [extra, setExtra] = useState("");
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -63,7 +67,7 @@ export function ShowcasePhotoPicker({
       const mime = mimeFromFilename(chosen.filename);
       if (!useCrop || box === null) {
         const blob = await (await fetch(srcOf(chosen.filename))).blob();
-        onConfirm(new File([blob], chosen.filename, { type: mime }));
+        onConfirm(new File([blob], chosen.filename, { type: mime }), extra);
         return;
       }
       const img = imgRef.current;
@@ -80,7 +84,7 @@ export function ShowcasePhotoPicker({
       if (blob === null) throw new Error("ครอปรูปไม่สำเร็จ");
       // toBlob คืนชนิดที่เบราว์เซอร์ทำได้จริง (อาจไม่ตรง mime ที่ขอ) — ใช้ชนิดของ blob เสมอ
       const ext = blob.type === "image/png" ? "png" : blob.type === "image/webp" ? "webp" : "jpg";
-      onConfirm(new File([blob], `crop.${ext}`, { type: blob.type }));
+      onConfirm(new File([blob], `crop.${ext}`, { type: blob.type }), extra);
     } catch (e) {
       setError(e instanceof Error ? e.message : "เตรียมรูปไม่สำเร็จ");
     }
@@ -162,6 +166,23 @@ export function ShowcasePhotoPicker({
               </div>
             </div>
           </>
+        )}
+
+        {chosen !== null && (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="showcase-extra" className="text-sm leading-relaxed text-foreground">
+              ข้อความเพิ่มเติมถึง Flow (ไม่ใส่ก็ได้)
+            </label>
+            <input
+              id="showcase-extra"
+              type="text"
+              value={extra}
+              maxLength={EXTRA_PROMPT_MAX}
+              placeholder="เช่น เอาแค่แผ่นเดียว, ไม่ต้องมีป้ายห้อย"
+              onChange={(e) => setExtra(e.target.value)}
+              className="h-11 rounded-md border border-border-interactive bg-background px-3 text-sm lg:h-9"
+            />
+          </div>
         )}
 
         {error && <p className="text-sm leading-relaxed text-destructive">{error}</p>}

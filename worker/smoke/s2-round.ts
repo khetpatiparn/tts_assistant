@@ -31,7 +31,7 @@ async function main() {
     log.log("s2", `host=${host} selectorSet=${sel.name}`);
     const result = await runRound(
       page,
-      { round: 1, productName, referencePath: path.resolve(refPath), outDir, filePrefix: "r1-a1", projectId: null },
+      { round: 1, productName, referencePath: path.resolve(refPath), outDir, filePrefix: "r1-a1", projectId: null, extraPrompt: "", checkpointDir: null },
       cfg,
       sel,
       log,

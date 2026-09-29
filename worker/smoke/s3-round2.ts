@@ -29,7 +29,7 @@ async function main() {
     const sel = selectorSetForHost(host);
     const result = await runRound(
       page,
-      { round: 2, productName, referencePath: path.resolve(refPath), outDir, filePrefix: "r2-a1", projectId: projectId ?? null },
+      { round: 2, productName, referencePath: path.resolve(refPath), outDir, filePrefix: "r2-a1", projectId: projectId ?? null, extraPrompt: "", checkpointDir: null },
       cfg,
       sel,
       log

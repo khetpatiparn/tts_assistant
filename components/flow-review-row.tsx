@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, RotateCcw, SkipForward, Play } from "lucide-react";
+import { Check, Eraser, RotateCcw, SkipForward, Play } from "lucide-react";
 
 import {
   chooseFlowCandidate,
@@ -14,7 +14,16 @@ import {
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import type { FlowJobRow, FlowImageRow } from "@/lib/flow-queries";
-import { ERROR_KIND_LABELS, FLOW_STATUS, STATUS_LABELS, STEP_LABELS, type FlowStatus } from "@/lib/flow-jobs";
+import {
+  ERROR_KIND_LABELS,
+  EXTRA_PROMPT_MAX,
+  FLOW_STATUS,
+  STATUS_LABELS,
+  STEP_LABELS,
+  buildFlowPrompt,
+  normalizeExtraPrompt,
+  type FlowStatus,
+} from "@/lib/flow-jobs";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -43,6 +52,9 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // ข้อความต่อท้ายพรอมต์ของ Flow — เริ่มจากค่าที่ใช้อยู่ของงาน (ติดจากรอบ 1 มารอบ 2 เอง) ใช้กับทั้ง "วาดใหม่"
+  // และ "ใช้รูปนี้ → รอบ 2" · ล้างว่าง = กลับเป็นพรอมต์ตั้งต้นของบอท
+  const [extra, setExtra] = useState(job.extraPrompt);
   // entryId ที่เพิ่งปิดงาน Flow รอบ 2 เสร็จ ให้ useEffect ด้านล่างยิง generateWithAI ต่อ —
   // ต้องแยกออกจาก startTransition ข้างบนจริงๆ (ไม่ใช่แค่ไม่ await) เพราะเรียก Server Action
   // ตัวที่สองซ้อนอยู่ใน startTransition เดียวกันแบบไม่ await ก็ยังโดนนับเป็น pending เดียวกัน
@@ -79,7 +91,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
     setError(null);
     startTransition(async () => {
       try {
-        await chooseFlowCandidate(job.id, imageId);
+        await chooseFlowCandidate(job.id, imageId, isRound2Completion ? undefined : extra);
         if (isRound2Completion) setAutoGenerateEntryId(job.entryId);
       } catch (e) {
         setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
@@ -99,6 +111,8 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
       .catch(() => playCompletionSound("error"));
   }, [autoGenerateEntryId]);
 
+  // ข้อความที่ใช้วาดชุดที่โชว์อยู่ (ทุกรูปในชุดเดียวกันใช้ข้อความเดียวกัน)
+  const usedExtra = job.candidates[0]?.promptExtra ?? "";
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
   return (
@@ -169,6 +183,32 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
                 ))}
               </div>
             </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {usedExtra === "" ? "ชุดนี้วาดด้วยพรอมต์ตั้งต้น" : `ชุดนี้วาดด้วยข้อความเพิ่มเติม: “${usedExtra}”`}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor={`extra-${job.id}`} className="text-sm leading-relaxed text-foreground">
+                ข้อความเพิ่มเติมถึง Flow (ใช้กับครั้งถัดไป — วาดใหม่ หรือรอบ 2)
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  id={`extra-${job.id}`}
+                  type="text"
+                  value={extra}
+                  maxLength={EXTRA_PROMPT_MAX}
+                  placeholder="เช่น เอาแค่แผ่นเดียว"
+                  onChange={(e) => setExtra(e.target.value)}
+                  className="h-11 min-w-0 flex-1 rounded-md border border-border-interactive bg-background px-3 text-sm lg:h-9"
+                />
+                <Button type="button" variant="outline" disabled={extra === "" || isPending} onClick={() => setExtra("")}>
+                  <Eraser data-icon="inline-start" /> ล้าง กลับเป็นข้อความเดิม
+                </Button>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                พรอมต์ที่จะส่งถ้ากดวาดใหม่:{" "}
+                {buildFlowPrompt(job.round === 2 ? 2 : 1, job.productName, normalizeExtraPrompt(extra))}
+              </p>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
@@ -177,7 +217,7 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
               >
                 {job.status === FLOW_STATUS.REVIEW_R1 ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2" : "ใช้รูปนี้ → บันทึกเป็นรูปสินค้า"}
               </Button>
-              <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id))}>
+              <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
                 <RotateCcw data-icon="inline-start" /> ไม่ผ่านสักรูป วาดใหม่
               </Button>
               <Button type="button" variant="ghost" disabled={job.candidates.length === 0} onClick={() => setLightbox(0)}>
@@ -239,6 +279,29 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
           <p className="text-sm leading-relaxed text-muted-foreground">
             {job.status.startsWith("running_") ? "บอทกำลังทำอยู่ตอนนี้" : "รอบอทหยิบงาน"}
           </p>
+        )}
+
+        {/* ภาพจุดเช็ก 4 จุดของครั้งล่าสุด — ย้อนดูว่าบอทตั้งค่า/แนบรูป/พิมพ์พรอมต์ถูกไหม (ลบเองหลัง 14 วัน) */}
+        {job.checkpoints.length > 0 && (
+          <details className="text-sm leading-relaxed">
+            <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+              ดูขั้นตอนที่บอททำ ({job.checkpoints.length} ภาพ)
+            </summary>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {job.checkpoints.map((c) => (
+                <a key={c.path} href={`/api/uploads/${c.path}`} target="_blank" rel="noreferrer" className="flex w-56 flex-col gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/uploads/${c.path}`}
+                    alt={c.label}
+                    loading="lazy"
+                    className="aspect-video w-full rounded-md border border-border object-cover object-bottom"
+                  />
+                  <span className="text-xs text-muted-foreground">{c.label}</span>
+                </a>
+              ))}
+            </div>
+          </details>
         )}
 
         {error && <p className="text-xs leading-relaxed text-destructive">{error}</p>}

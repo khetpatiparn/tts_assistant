@@ -48,10 +48,21 @@ export function isOpenStatus(status: string): boolean {
 }
 
 /** พรอมต์ตายตัว (spec §3) — worker/flow-driver.ts มีสำเนาเดียวกัน ต้องแก้พร้อมกัน */
-export function buildFlowPrompt(round: FlowRound, productName: string): string {
-  return round === 1
-    ? `ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "${productName}"`
-    : `ขอภาพสินค้าตอนใช้งาน สินค้าคือ "${productName}"`;
+export function buildFlowPrompt(round: FlowRound, productName: string, extra = ""): string {
+  const base =
+    round === 1
+      ? `ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "${productName}"`
+      : `ขอภาพสินค้าตอนใช้งาน สินค้าคือ "${productName}"`;
+  // ข้อความเพิ่มเติมของผู้ใช้ต่อท้ายเสมอ ไม่แทนพรอมต์ตั้งต้น (ว่าง = เหมือนเดิมทุกตัวอักษร)
+  return extra === "" ? base : `${base} ${extra}`;
+}
+
+/** จำกัดความยาว — บอทพิมพ์ทีละตัวแบบคน ข้อความยาว = รอนานขึ้นทุกรอบ และพรอมต์สั้นๆ ก็พอบอกทิศทาง */
+export const EXTRA_PROMPT_MAX = 200;
+
+/** ทำความสะอาดข้อความเพิ่มเติมก่อนเก็บ: ยุบช่องว่าง/ขึ้นบรรทัดเป็นช่องว่างเดียว (ช่องพรอมต์ของ Flow กด Enter = ส่ง) */
+export function normalizeExtraPrompt(raw: unknown): string {
+  return String(raw ?? "").replace(/\s+/g, " ").trim().slice(0, EXTRA_PROMPT_MAX);
 }
 
 export function candidateFilename(round: FlowRound, attempt: number, index: number, ext: "png" | "jpg"): string {

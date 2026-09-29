@@ -214,6 +214,9 @@ model FlowJob {
   errorKind     String      @default("")
   errorMessage  String      @default("")
   failureDir    String      @default("")
+  /// ข้อความที่ผู้ใช้พิมพ์ต่อท้ายพรอมต์ตายตัวของ Flow (เช่น "เอาแค่แผ่นเดียว") — ใช้กับรอบ/attempt ถัดไปที่บอทวาด
+  /// ติดจากรอบ 1 ไปรอบ 2 เอง แก้/ล้างได้ตอนกดวาดใหม่หรือตอนเลือกรูปรอบ 1 · ว่าง = พรอมต์ตั้งต้น
+  extraPrompt   String      @default("")
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   startedAt     DateTime?
@@ -237,6 +240,8 @@ model FlowJobImage {
   filename  String
   mimeType  String
   chosen    Boolean  @default(false)
+  /// เฉพาะ kind "candidate": ข้อความเพิ่มเติมที่ใช้ตอนวาดชุดนี้ (สำเนาของ FlowJob.extraPrompt ณ ตอนนั้น) — โชว์ใต้รูป
+  promptExtra String @default("")
   createdAt DateTime @default(now())
 
   @@index([jobId])

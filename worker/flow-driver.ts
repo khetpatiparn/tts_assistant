@@ -20,6 +20,10 @@ export type RoundInput = {
   filePrefix: string;
   /** รอบ 2 ใช้ project เดิมของรอบ 1 · null = สร้างใหม่ */
   projectId: string | null;
+  /** ข้อความที่ผู้ใช้พิมพ์ต่อท้ายพรอมต์ตายตัว (FlowJob.extraPrompt, ทำความสะอาดแล้ว) · "" = พรอมต์ตั้งต้น */
+  extraPrompt: string;
+  /** โฟลเดอร์เก็บภาพจุดเช็ก 4 จุดต่อรอบ (ดู checkpoint ใน runRound) · null = ไม่เก็บ (smoke test) */
+  checkpointDir: string | null;
 };
 
 export type RoundResult = { files: string[]; projectId: string; responseBody: unknown };
@@ -62,10 +66,12 @@ const JEV_INTENT = {
 } as const;
 
 /** พรอมต์ตายตัว 2 แบบ (spec §3) — ต้องเหมือน buildFlowPrompt ใน lib/flow-jobs.ts ทุกตัวอักษร */
-export function flowPromptFor(round: 1 | 2, productName: string): string {
-  return round === 1
-    ? `ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "${productName}"`
-    : `ขอภาพสินค้าตอนใช้งาน สินค้าคือ "${productName}"`;
+export function flowPromptFor(round: 1 | 2, productName: string, extra = ""): string {
+  const base =
+    round === 1
+      ? `ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "${productName}"`
+      : `ขอภาพสินค้าตอนใช้งาน สินค้าคือ "${productName}"`;
+  return extra === "" ? base : `${base} ${extra}`;
 }
 
 function isTimeout(e: unknown): boolean {
@@ -245,6 +251,18 @@ export async function runRound(
     responses.push({ status: res.status(), body, at: Date.now() });
   };
 
+  /**
+   * ภาพจุดเช็กให้ผู้ใช้ย้อนดูว่าบอททำถูกไหม (ตั้งค่า / แนบรูป / พรอมต์ก่อนกด / ผลลัพธ์) — แยกจากหลักฐานตอนพัง
+   * (captureFailure) ซึ่งเก็บเฉพาะงานที่พัง · ถ่ายด้วย CDP ฝั่ง Chrome หน้าเว็บมองไม่เห็น ไม่เพิ่มสัญญาณบอท
+   * ห้ามทำให้งานพังเด็ดขาด — ถ่ายไม่ได้ก็ข้าม · ชื่อไฟล์ `${filePrefix}-${n}-${name}.jpg` (attempt เดียวกันรันซ้ำ = เขียนทับ)
+   * ลบเองหลัง CHECKPOINT_KEEP_DAYS วัน (worker/index.ts)
+   */
+  async function checkpoint(n: number, name: string): Promise<void> {
+    if (input.checkpointDir === null) return;
+    const file = path.join(input.checkpointDir, `${input.filePrefix}-${String(n)}-${name}.jpg`);
+    await page.screenshot({ path: file, type: "jpeg", quality: 55 }).catch(() => {});
+  }
+
   async function step<T>(name: FlowStep, fn: () => Promise<T>): Promise<T> {
     if (opts.forceFailStep === name) {
       throw new FlowStepError(name, "selector_drift", "บังคับพังด้วย FLOW_FORCE_FAIL_STEP");
@@ -420,6 +438,8 @@ export async function runRound(
         await sleepMs(randInt([400, 800]));
       }
       await assertSelected(target, "set-count-4", "x4");
+      // ถ่ายก่อนปิดแผง — ภาพต้องเห็นโมเดล/สัดส่วน/จำนวนที่เลือกไว้
+      await checkpoint(1, "settings");
       await closeSettings("set-count-4");
     });
 
@@ -472,6 +492,7 @@ export async function runRound(
         await dialog.waitFor({ state: "hidden", timeout: 15_000 });
       }
       await sleepMs(randInt([1000, 2000]));
+      await checkpoint(2, "reference");
     });
 
     await step("type-prompt", async () => {
@@ -480,8 +501,10 @@ export async function runRound(
       await page.keyboard.press("Control+A");
       await page.keyboard.press("Delete");
       await sleepMs(randInt([300, 700]));
-      await typeHuman(page, flowPromptFor(input.round, input.productName), cfg.typeCharDelayMs);
+      await typeHuman(page, flowPromptFor(input.round, input.productName, input.extraPrompt), cfg.typeCharDelayMs);
       await sleepMs(randInt([500, 1200]));
+      // ภาพนี้เห็นทั้งรูปที่แนบและพรอมต์ที่พิมพ์ครบแล้ว (รวมข้อความเพิ่มเติม) ก่อนกด Generate
+      await checkpoint(3, "prompt");
     });
 
     const beforeImgs = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
@@ -595,6 +618,8 @@ export async function runRound(
 
     await step("dwell", async () => {
       await sleepRange(cfg.dwellAfterResultsMs);
+      // หลังรอ dwell รูปโหลดครบแล้ว และก่อนเลื่อนจอเล่น (เลื่อนแล้วผลลัพธ์อาจหลุดจากเฟรม)
+      await checkpoint(4, "results");
       await maybeIdleScroll(page, cfg);
     });
 

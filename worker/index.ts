@@ -4,7 +4,7 @@
  * แล้ว worker จะจบหลังงานปัจจุบันเสร็จ — ไม่ฆ่ากลางคลิก)
  */
 import "dotenv/config";
-import { existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
@@ -25,6 +25,31 @@ import type { Page } from "playwright";
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
 const STOP_FILE = path.join(process.cwd(), ".flow-worker.stop");
 const SLEEP_CHUNK_MS = 20_000;
+/** ภาพจุดเช็กของงาน (uploads/<entryId>/flow/checkpoints/) เก็บไว้กี่วัน — หลักฐานตอนพังเก็บถาวรแยกกันเหมือนเดิม */
+const CHECKPOINT_KEEP_DAYS = 14;
+
+/** ลบภาพจุดเช็กเก่าเกิน CHECKPOINT_KEEP_DAYS — แตะแค่ไฟล์ในโฟลเดอร์ checkpoints/ เท่านั้น ห้ามพังการเปิดบอท */
+function sweepOldCheckpoints(): void {
+  const cutoff = Date.now() - CHECKPOINT_KEEP_DAYS * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  try {
+    for (const entry of readdirSync(UPLOAD_ROOT, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith("_")) continue;
+      const dir = path.join(UPLOAD_ROOT, entry.name, "flow", "checkpoints");
+      if (!existsSync(dir)) continue;
+      for (const f of readdirSync(dir)) {
+        const file = path.join(dir, f);
+        if (f.endsWith(".jpg") && statSync(file).mtimeMs < cutoff) {
+          unlinkSync(file);
+          removed++;
+        }
+      }
+    }
+  } catch (e) {
+    log(`ลบภาพจุดเช็กเก่าไม่สำเร็จ (ไม่กระทบงาน): ${String(e)}`);
+  }
+  if (removed > 0) log(`ลบภาพจุดเช็กเก่ากว่า ${CHECKPOINT_KEEP_DAYS} วัน ${removed} ไฟล์`);
+}
 
 function log(msg: string): void {
   console.log(`${new Date().toISOString()}  ${msg}`);
@@ -125,6 +150,8 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     // ด้านล่างบันทึกงานนี้เป็น failed ทันที ไม่ปล่อยค้าง running_* จนกว่า worker รอบหน้า
     // จะมาเจอตอน stale sweep
     mkdirSync(outDir, { recursive: true });
+    const checkpointDir = path.join(outDir, "checkpoints");
+    mkdirSync(checkpointDir, { recursive: true });
     await upsertState({ currentJobId: job.id, nextWakeAt: null });
     log(`เริ่มงาน ${job.id} (${job.entry.productName}) รอบ ${round} attempt ${job.attempt}`);
 
@@ -138,6 +165,8 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         filePrefix: `r${round}-a${job.attempt}`,
         // ถ้า spike (Task 5) พบว่ารอบ 2 เปิด project เดิมไม่ได้ ให้เปลี่ยนบรรทัดนี้เป็น null เสมอ
         projectId: job.flowProjectId || null,
+        extraPrompt: job.extraPrompt,
+        checkpointDir,
       },
       cfg,
       sel,
@@ -158,6 +187,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
             index,
             filename: candidateFilename(round, job.attempt, index, ext),
             mimeType: ext === "jpg" ? "image/jpeg" : "image/png",
+            promptExtra: job.extraPrompt,
           },
         });
       }
@@ -230,6 +260,9 @@ async function main() {
   }
 
   // งานที่ค้าง running_* = worker รอบก่อนตายกลางคัน → พัง ไม่ reset เป็น queued เอง (กัน loop)
+  // หลังเปิด Chrome สำเร็จเท่านั้น (ตัวที่สองที่เปิดซ้อนออกไปก่อนถึงตรงนี้) — แค่ลบไฟล์ ไม่แตะ DB
+  sweepOldCheckpoints();
+
   const stale = await prisma.flowJob.updateMany({
     where: { status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2] } },
     data: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: "worker ตายกลางคันในรอบก่อน" },
