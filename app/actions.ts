@@ -23,7 +23,7 @@ import {
   type AngleSuggestion,
 } from "@/lib/angle";
 import { normalizeName, parseCandidateRows } from "@/lib/candidates";
-import { commissionBahtFromPercent, parseShowcasePayload } from "@/lib/showcase-import";
+import { commissionBahtFromPercent, originalImageUrl, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
 import { showcaseFlowState } from "@/lib/showcase";
 import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
@@ -1298,7 +1298,9 @@ export async function importShowcaseBatch(
     const dir = path.join(CANDIDATE_IMAGE_ROOT, candidateId);
     let sortOrder = 0;
     for (const url of row.imageUrls) {
-      const downloaded = await downloadImage(url);
+      // ขนาดเต็มก่อน (thumbnail ของ Showcase 300px ดูไม่รู้เรื่อง) · โหลดไม่ได้/ใหญ่เกิน 10MB → ถอยไปลิงก์เดิม
+      const big = originalImageUrl(url);
+      const downloaded = (await downloadImage(big)) ?? (big === url ? null : await downloadImage(url));
       if (!downloaded) {
         imagesFailed++;
         continue;

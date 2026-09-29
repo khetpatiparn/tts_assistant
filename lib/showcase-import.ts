@@ -72,6 +72,16 @@ function parseCommissionRate(raw: number | string | null | undefined): number {
  * ในระบบตีความเป็นบาทผิดหน่วยทันที (แสดงผล "ค่าคอม" ผิด, commissionPercent/demandTotal/ป้าย
  * จัดอันดับคำนวณผิดหมด)
  */
+/**
+ * ลิงก์รูปขนาดเต็มจากลิงก์ thumbnail ของ TikTok — Showcase ให้รูปแบบ `…~tplv-<id>-resize-jpeg:300:300.jpeg`
+ * (300px เสมอ ครอปแล้วเล็กจนดูไม่รู้เรื่อง ผู้ใช้จริงบ่น 2026-09-29) · CDN ของ ByteDance ยอมให้ขอ `:0:0` = ขนาดต้นฉบับ
+ * โดยไม่ต้องมี signature (ทดสอบสดกับ p16-oec-sg.ibyteimg.com: 300x107 → 1861x661) · ลิงก์ที่ไม่ตรงรูปแบบคืนเดิม
+ * ผู้เรียกต้องถอยไปโหลดลิงก์เดิมเองถ้าลิงก์ขนาดเต็มโหลดไม่ได้
+ */
+export function originalImageUrl(url: string): string {
+  return url.replace(/(~tplv-[^/?#]*?-resize-(?:jpeg|webp|png)):\d+:\d+(\.(?:jpeg|jpg|webp|png))(?=$|[?#])/, "$1:0:0$2");
+}
+
 export function commissionBahtFromPercent(price: number, commissionPercent: number): number {
   return (price * commissionPercent) / 100;
 }

@@ -131,6 +131,14 @@ try {
     candidatesModule.normalizeName(dupRows[0].name) === candidatesModule.normalizeName(dupRows[1].name),
     true
   );
+
+  // --- ลิงก์รูปขนาดเต็ม ---
+  const thumb = "https://p16-oec-sg.ibyteimg.com/tos-alisg-i-aphluv4xwc-sg/908df4290824450bafdf809aa9ada706~tplv-aphluv4xwc-resize-jpeg:300:300.jpeg";
+  check("thumbnail 300:300 -> 0:0 (ขนาดเต็ม)", m.originalImageUrl(thumb), thumb.replace(":300:300.jpeg", ":0:0.jpeg"));
+  check("webp ก็แปลง", m.originalImageUrl("https://h/x/a~tplv-abc-resize-webp:48:48.webp"), "https://h/x/a~tplv-abc-resize-webp:0:0.webp");
+  check("มี query ต่อท้าย -> แปลงแต่คง query", m.originalImageUrl("https://h/x/a~tplv-abc-resize-jpeg:300:300.jpeg?from=1"), "https://h/x/a~tplv-abc-resize-jpeg:0:0.jpeg?from=1");
+  check("ไม่ใช่รูปแบบ resize -> คืนเดิม", m.originalImageUrl("https://p16-oec-sg.ibyteimg.com/a.jpeg"), "https://p16-oec-sg.ibyteimg.com/a.jpeg");
+  check("origin อยู่แล้ว -> คืนเดิม", m.originalImageUrl("https://h/x/a~tplv-abc-origin-jpeg.jpeg"), "https://h/x/a~tplv-abc-origin-jpeg.jpeg");
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
