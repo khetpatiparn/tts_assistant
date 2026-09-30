@@ -101,3 +101,22 @@ export function generateAccepted(s: {
 }): boolean {
   return s.tilesNow > s.tilesBefore || s.pendingNow > 0 || s.freshErrorTiles > 0 || s.goodCount > 0;
 }
+
+/**
+ * ลิงก์ไฟล์วิดีโอตรงจาก <video src> ที่ Flow ใส่ให้ตอน hover ช่องคลิป — รูปแบบจริง (page.html ของหลักฐาน 2026-09-30):
+ * `https://flow-content.google/video/<uuid>?Expires=…&KeyName=labs-flow-prod-cdn-key&Signature=…` ดึงได้โดยไม่ต้อง cookie
+ * (curl ไม่ล็อกอิน → 200 video/mp4) หมดอายุ ~6 ชม. · รับเฉพาะ host นี้ + path /video/ เท่านั้น: blob:, /image/, host อื่น = null
+ * ให้ผู้เรียกถอยไปใช้เมนู
+ */
+export function pickDirectVideoUrl(srcs: (string | null)[]): string | null {
+  for (const src of srcs) {
+    if (!src) continue;
+    try {
+      const u = new URL(src);
+      if (u.protocol === "https:" && u.host === "flow-content.google" && u.pathname.startsWith("/video/")) return src;
+    } catch {
+      // ไม่ใช่ URL
+    }
+  }
+  return null;
+}
