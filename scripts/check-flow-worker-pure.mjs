@@ -37,7 +37,12 @@ try {
   // ---------- config ----------
   const cfg = await import(pathToFileURL(join(out, "config.js")).href);
   const good = cfg.loadWorkerConfig("flow-worker.config.json");
-  check("default dailyBatchCap = 24", good.dailyBatchCap, 24);
+  check("dailyBatchCap = 60 (เร่งบอท 2026-09-30)", good.dailyBatchCap, 60);
+  check("videoDailyCap = 20", good.videoDailyCap, 20);
+  check("betweenProductsMs = [30000, 90000]", JSON.stringify(good.betweenProductsMs), "[30000,90000]");
+  check("betweenBatchesMs = [10000, 30000]", JSON.stringify(good.betweenBatchesMs), "[10000,30000]");
+  check("longBreakEvery = [12, 16]", JSON.stringify(good.longBreakEvery), "[12,16]");
+  check("longBreakMs = [300000, 600000] (5-10 นาที)", JSON.stringify(good.longBreakMs), "[300000,600000]");
   check("ไฟล์จริงเปิด Render อัตโนมัติ (ผู้ใช้เลือกกลับมาใช้ 2026-09-30)", good.renderEnabled, true);
   {
     const noKey = JSON.parse(readFileSync("flow-worker.config.json", "utf8"));
@@ -142,7 +147,7 @@ try {
     fs2.flowMediaIdFromSrc("https://flow-content.google/image/U1?sig=1") === fs2.flowMediaIdFromSrc("https://flow-content.google/image/U1?sig=2"), true);
   check("media id src ว่าง = ''", fs2.flowMediaIdFromSrc(""), "");
   check("media id null = ''", fs2.flowMediaIdFromSrc(null), "");
-  check("default videoDailyCap = 10", good.videoDailyCap, 10);
+  check("default videoDailyCap = 20", good.videoDailyCap, 20);
   check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);
   check("default renderDownloadTimeoutMs = 10 นาที", good.renderDownloadTimeoutMs, 600000);
   writeFileSync(badPath, JSON.stringify({ ...good, videoDailyCap: 0 }));
