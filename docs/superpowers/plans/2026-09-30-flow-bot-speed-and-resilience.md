@@ -23,6 +23,10 @@
 - Downloaded preview must be verified with `isMp4Header` before it is saved as a video row; a bad file never becomes `review_r3` with a broken player.
 - Once Flow has rendered a clip (the `wait-render` step succeeded), no later step may set the job to `failed` or pause the worker (spec §2 "หลักการรวม").
 
+## How this plan is executed and reviewed
+
+Implementer: a mid-tier model executes tasks in order. Reviewer: the most capable model reviews **each task** before the next starts. Tasks 4, 5 and 7 touch Playwright code that no automated test can run here; each carries a **Reviewer checklist** step the reviewer verifies by reading the diff. A task with any failing checklist line is rejected even if all scripts pass.
+
 ## Review Focus
 
 1. Idle-reset rule with a queue that empties for 4 minutes (less than `longBreakMs` min of 5): `sessionStreak` must NOT reset — only idle ≥ 5 min counts as a long break. Test in Task 2.
@@ -276,6 +280,50 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `pickDirectVideoUrl` (Task 3), existing `isMp4Header`, `videoTileIds`, `humanHover`, `checkpoint`, `FlowStepError`.
 - Produces: `RoundResult.files` may be `[]` for round 3 with a new field `downloadFailed: string | null` (the reason text). `worker/index.ts` treats `files.length === 0 && round === 3` as "rendered, not downloaded".
+- Produces (pure, testable): `renderOutcome(files: string[], downloadFailed: string | null, attempt: number): { status: "review_r3"; createVideoRow: boolean; filename: string | null; errorMessage: string }` in `worker/flow-signals.ts` — the single place that decides what the worker writes after a render. The Playwright part cannot be unit-tested, so every decision lives outside it.
+
+- [ ] **Step 0: Write the failing checks for the pure decision**
+
+In `scripts/check-flow-worker-pure.mjs`, at the end of the `// ---------- flow-signals` section add:
+
+```js
+  // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
+  const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
+  check("ได้ไฟล์ → review_r3 + สร้างแถว video ชื่อ r3-a1.mp4 ไม่มี errorMessage",
+    JSON.stringify(okOutcome), JSON.stringify({ status: "review_r3", createVideoRow: true, filename: "r3-a1.mp4", errorMessage: "" }));
+  const noFile = fs2.renderOutcome([], "ลิงก์ตรง 403 · เมนูไม่เจอ", 2);
+  check("ไม่ได้ไฟล์ → ยัง review_r3 ไม่สร้างแถว video", noFile.status + "|" + String(noFile.createVideoRow) + "|" + String(noFile.filename), "review_r3|false|null");
+  check("ไม่ได้ไฟล์ → errorMessage บอกว่าคลิปอยู่ใน Flow", noFile.errorMessage.startsWith("โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว)"), true);
+  check("errorMessage ยาวเกิน 2000 ถูกตัด", fs2.renderOutcome([], "x".repeat(5000), 1).errorMessage.length <= 2000, true);
+  check("attempt 3 → ชื่อไฟล์ r3-a3.mp4", fs2.renderOutcome(["C:/x/r3-a3.mp4"], null, 3).filename, "r3-a3.mp4");
+```
+
+Run: `node scripts/check-flow-worker-pure.mjs` → expected TypeError `fs2.renderOutcome is not a function`.
+
+Then append to `worker/flow-signals.ts`:
+
+```ts
+/**
+ * ผลของรอบ Render → สิ่งที่ worker เขียนลง DB (pure เพื่อทดสอบได้ — ส่วน Playwright ทดสอบไม่ได้)
+ * กติกา: หลัง Flow เรนเดอร์เสร็จ **ห้ามเป็น failed** ไม่ว่าจะโหลดไฟล์ได้หรือไม่ (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์)
+ * ไม่ได้ไฟล์ = review_r3 โดยไม่มีแถว video + errorMessage บอกเหตุ (UI ปิดปุ่ม "ผ่าน" ผ่าน canApproveRender)
+ */
+export function renderOutcome(
+  files: string[],
+  downloadFailed: string | null,
+  attempt: number
+): { status: "review_r3"; createVideoRow: boolean; filename: string | null; errorMessage: string } {
+  const gotFile = files.length > 0;
+  return {
+    status: "review_r3",
+    createVideoRow: gotFile,
+    filename: gotFile ? `r3-a${String(attempt)}.mp4` : null,
+    errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${downloadFailed ?? ""}`.slice(0, 2000),
+  };
+}
+```
+
+Run again → `all checks passed`. (Step 5 below must call `renderOutcome` instead of computing these values inline.)
 
 - [ ] **Step 1: Add the selector for the injected video element**
 
@@ -392,17 +440,17 @@ with:
       };
 ```
 
-- [ ] **Step 5: Handle the empty-files outcome in the worker**
+- [ ] **Step 5: Handle the empty-files outcome in the worker (via `renderOutcome`)**
 
-In `worker/index.ts` inside `if (round === 3) {` replace the transaction so that with no file the job still goes to review but without a video row and with the reason kept in `errorMessage` (the job is NOT failed; `errorKind` stays empty so Showcase/UI treat it as normal review):
+In `worker/index.ts` import `renderOutcome` from `./flow-signals` (add the import if the file has none). Inside `if (round === 3) {` replace the transaction so the decision comes from the pure helper (the job is NOT failed; `errorKind` stays empty so Showcase/UI treat it as normal review):
 
 ```ts
     if (round === 3) {
-      const gotFile = result.files.length > 0;
+      const outcome = renderOutcome(result.files, result.downloadFailed, job.attempt);
       await prisma.$transaction(async (tx) => {
         // มีได้แถวเดียว — "เรนเดอร์ใหม่" ลบของ attempt ก่อนไปแล้ว แต่ถ้ารันต่อหลังพังแล้วมีแถวค้าง ให้แทนที่
         await tx.flowJobImage.deleteMany({ where: { jobId: job.id, kind: "video" } });
-        if (gotFile) {
+        if (outcome.createVideoRow && outcome.filename !== null) {
           await tx.flowJobImage.create({
             data: {
               jobId: job.id,
@@ -410,7 +458,7 @@ In `worker/index.ts` inside `if (round === 3) {` replace the transaction so that
               round: 3,
               attempt: job.attempt,
               index: 0,
-              filename: videoFilename(job.attempt),
+              filename: outcome.filename,
               mimeType: "video/mp4",
               promptExtra: job.extraPrompt,
               flowMediaId: result.mediaId ?? "",
@@ -419,21 +467,16 @@ In `worker/index.ts` inside `if (round === 3) {` replace the transaction so that
         }
         await tx.flowJob.update({
           where: { id: job.id },
-          data: {
-            status: reviewStatus(3),
-            flowProjectId: result.projectId,
-            // คลิปเสร็จแต่โหลดไม่ได้ = ไม่ใช่งานพัง (เครดิตจ่ายแล้ว คลิปอยู่ใน Flow) เก็บเหตุผลไว้โชว์ ไม่ตั้ง errorKind
-            errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${result.downloadFailed ?? ""}`.slice(0, 2000),
-          },
+          data: { status: outcome.status, flowProjectId: result.projectId, errorMessage: outcome.errorMessage },
         });
       });
-      log(gotFile ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
-      notify(gotFile ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
+      log(outcome.createVideoRow ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
+      notify(outcome.createVideoRow ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
       return true;
     }
 ```
 
-Keep the rest of `processJob` exactly as it is (the `return true` for other rounds, the catch block). Check that no code after this block assumed `result.files[0]` exists for round 3.
+`videoFilename(attempt)` in `lib/flow-jobs.ts` must produce the same `r3-a<n>.mp4` as `renderOutcome` — add to `scripts/check-flow-jobs.mjs`: `check("videoFilename(2) ตรงกับ renderOutcome", f.videoFilename(2), "r3-a2.mp4");`.
 
 - [ ] **Step 6: Label text**
 
@@ -444,10 +487,19 @@ In `lib/flow-jobs.ts` `STEP_LABELS` change `"download-preview": "โหลดค
 Run: `npx tsc --noEmit && npm run lint && npm run check:flow`
 Expected: clean; `all checks passed` twice.
 
+- [ ] **Step 7b: Reviewer checklist (no automated test covers this — verify by reading)**
+
+Confirm each line by reading `worker/flow-driver.ts` and `worker/index.ts`; reject the task if any fails:
+- After `await step("wait-render", …)` returns, **no code path throws out of `runRound` for round 3** — `downloadVideoDirect` returns null on every failure, the menu path is wrapped in try/catch, and the `step("download-preview", …)` callback never throws. Search for `throw` between `wait-render` and the round-3 `return`.
+- `downloadVideoDirect` never calls `page.request.get` on a URL that did not pass `pickDirectVideoUrl` (host allow-list).
+- `renderOutcome` is the only place that builds `errorMessage`/`status` for round 3 in `worker/index.ts` (no inline duplicates).
+- The `catch` block of `processJob` in `worker/index.ts` is unchanged: a failure **before** `wait-render` (e.g. attach-reference) still marks the job `failed` and pauses — the new rule applies only after the render succeeded.
+- `checkpoint(4, "results")` still runs before any download attempt.
+
 - [ ] **Step 8: Commit**
 
 ```bash
-git add worker/flow-selectors.ts worker/flow-driver.ts worker/index.ts lib/flow-jobs.ts scripts/check-flow-worker-pure.mjs
+git add worker/flow-selectors.ts worker/flow-driver.ts worker/flow-signals.ts worker/index.ts lib/flow-jobs.ts scripts/check-flow-worker-pure.mjs scripts/check-flow-jobs.mjs
 git commit -m "Flow bot: download the clip from its direct URL first; a rendered clip never fails the job
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -465,6 +517,44 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `downloadFailed` from Task 4.
 - Produces: round 4 returns `files: []` + `downloadFailed` when the 1080p menu path fails; the worker then marks the job `done` keeping the 720p preview as the final video (renames nothing; the preview row stays kind `"video"`).
+- Produces (pure, testable): `submenuArrowDowns(menuTexts: string[], quality: RegExp[]): number | null` in `worker/flow-signals.ts` — how many `ArrowDown` presses after `ArrowRight` reach the wanted submenu item; `null` = not found or disabled.
+
+- [ ] **Step 0: Write the failing checks for the keyboard decision**
+
+In `scripts/check-flow-worker-pure.mjs`, flow-signals section, add:
+
+```js
+  // เมนูโหลดจริง (สำรวจสด 2026-09-30): เมนูหลัก 12 รายการ แล้วเมนูย่อย 4 รายการ — ArrowRight ไปที่รายการแรกของเมนูย่อย
+  const MENU = ["favorite | Favorite", "keyboard_return | Reuse prompt", "play_movies | Add to scene", "add_2 | Add to prompt",
+    "download | Download", "content_copy | Copy", "edit | Rename", "share | Share", "video_library | Publish to YouTube",
+    "photo_library | Set project cover", "flag | Flag output", "delete | Move to trash",
+    "270p | Animated GIF", "720p | Original size", "1080p | Upscaled", "4K | Upscaled [disabled]"];
+  check("720p Original size = รายการที่ 2 ของเมนูย่อย → ArrowDown 1 ครั้ง", fs2.submenuArrowDowns(MENU, [/720p/, /Original size/]), 1);
+  check("1080p Upscaled → ArrowDown 2 ครั้ง", fs2.submenuArrowDowns(MENU, [/1080p/, /Upscaled/]), 2);
+  check("4K [disabled] → null (กดไม่ได้)", fs2.submenuArrowDowns(MENU, [/4K/, /Upscaled/]), null);
+  check("ไม่มีเมนูย่อยเลย (Flow เปลี่ยนหน้า) → null", fs2.submenuArrowDowns(MENU.slice(0, 12), [/1080p/, /Upscaled/]), null);
+  check("เมนูย่อยสลับลำดับ ยังนับถูก", fs2.submenuArrowDowns([...MENU.slice(0, 12), "1080p | Upscaled", "720p | Original size"], [/720p/, /Original size/]), 1);
+  check("ต้องแมตช์ทุก regex (720p อย่างเดียวไม่พอ)", fs2.submenuArrowDowns([...MENU.slice(0, 12), "720p | Animated GIF", "720p | Original size"], [/720p/, /Original size/]), 1);
+```
+
+Run → TypeError. Then append to `worker/flow-signals.ts`:
+
+```ts
+/**
+ * เมนู Download ของ Flow: หลัง hover "Download" + ArrowRight โฟกัสอยู่ที่รายการแรกของเมนูย่อย — คืนจำนวน ArrowDown
+ * ที่ต้องกดจนถึงรายการที่ต้องการ · เมนูย่อย = รายการที่มีคำว่า Animated GIF / Original size / Upscaled (สำรวจสด 2026-09-30)
+ * null = ไม่เจอ หรือรายการนั้น [disabled] (เช่น 4K ที่ต้องอัปเกรด) ให้ผู้เรียกพังเป็น selector_drift
+ */
+export function submenuArrowDowns(menuTexts: string[], quality: RegExp[]): number | null {
+  const sub = menuTexts.filter((t) => /Animated GIF|Original size|Upscaled/.test(t));
+  if (sub.length === 0) return null;
+  const pos = sub.findIndex((t) => quality.every((q) => q.test(t)));
+  if (pos < 0 || /\[disabled\]/.test(sub[pos])) return null;
+  return pos;
+}
+```
+
+Run → `all checks passed`. (Step 1 below must use this helper instead of computing an index inline.)
 
 - [ ] **Step 1: Replace the mouse-into-submenu code with keyboard navigation**
 
@@ -478,23 +568,27 @@ In `downloadVideo`, replace everything from the comment `// ห้ามใช�
       await page.keyboard.press("ArrowRight");
       await sleepMs(randInt([300, 600]));
       const items = page.locator(v.menuItem);
-      const texts = await items.allInnerTexts();
-      const wantIdx = texts.findIndex((t) => quality.every((q) => q.test(t)));
-      const firstSub = texts.findIndex((t) => /Animated GIF|Original size|Upscaled/.test(t));
-      if (wantIdx < 0 || firstSub < 0) {
+      // ข้อความรวม [disabled] ด้วย เพื่อให้ submenuArrowDowns ปฏิเสธรายการที่กดไม่ได้ (เช่น 4K)
+      const texts = await items.evaluateAll((els) =>
+        els.map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim() + (e.getAttribute("aria-disabled") === "true" || (e as HTMLButtonElement).disabled ? " [disabled]" : ""))
+      );
+      const downs = submenuArrowDowns(texts, quality);
+      if (downs === null) {
         throw new FlowStepError(name, "selector_drift", `ไม่เจอเมนูโหลด ${quality.map(String).join(" + ")} — เมนูมี: ${texts.join(" / ")}`);
       }
       const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
       // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
       downloadEvent.catch(() => {});
-      for (let i = 0; i < wantIdx - firstSub; i++) {
+      for (let i = 0; i < downs; i++) {
         await page.keyboard.press("ArrowDown");
         await sleepMs(randInt([120, 250]));
       }
       await page.keyboard.press("Enter");
 ```
 
-Keep the lines that follow (`await sleepMs(3000); if (await target.isVisible()…` → adjust to check `items.nth(wantIdx)` instead of `target`), and delete the now-unused `dlBox/tBox` lines and the `target` locator/waitFor block above them (the `texts` scan replaces them). Keep `checkpoint(5, "menu")` before the keyboard part.
+Add `submenuArrowDowns` to the import from `./flow-signals`.
+
+Keep the lines that follow, but change the "did the click register" check to: `if ((await page.locator(v.menuItem).count()) > 0) { throw new FlowStepError(name, "selector_drift", "กด Enter แล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด"); }` (menu still open = Enter did not register). Delete the now-unused `dlBox/tBox` lines and the `target` locator/waitFor block above them. Keep `checkpoint(5, "menu")` before the keyboard part.
 
 - [ ] **Step 2: Make round 4 non-fatal**
 
@@ -543,6 +637,13 @@ In `worker/index.ts` find the `if (round === 4) {` block. Wrap the existing "rep
 
 Make sure `FLOW_STATUS` is imported in `worker/index.ts` (it is — it's used by `markJobFailedImmediately`).
 
+- [ ] **Step 3b: Reviewer checklist (read-only verification)**
+
+- In `downloadVideo`, no `page.mouse.move/down/up` remains between `checkpoint(5, "menu")` and `Enter` — the submenu is reached only by keyboard.
+- `submenuArrowDowns` is the only place that decides how many `ArrowDown`s to press.
+- In `upscaleRound`, every error from `downloadVideo` is caught. `find-video` failing (clip not in project) may still throw `selector_drift` — that is **before** any download and is acceptable, but confirm the round-4 catch path in `worker/index.ts` does not delete the 720p preview file or row.
+- Round 4 with `files: []` ends as `done` (not `failed`, not `review_r3`) and the preview `FlowJobImage` row (kind `"video"`) still exists.
+
 - [ ] **Step 4: Type-check, lint, checks**
 
 Run: `npx tsc --noEmit && npm run lint && npm run check:flow`
@@ -551,7 +652,7 @@ Expected: clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add worker/flow-driver.ts worker/index.ts
+git add worker/flow-driver.ts worker/flow-signals.ts worker/index.ts scripts/check-flow-worker-pure.mjs
 git commit -m "Flow bot: 1080p via keyboard menu; failing to upscale keeps the 720p and finishes
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -832,15 +933,70 @@ In `worker/index.ts` add `import { logActivity } from "./activity";`. After the 
 
 Before the long-break `await sleepUntil(Date.now() + ms);` add `logActivity({ kind: "break", detail: { ms, why: "long" } });`. Before the per-job pause `await sleepUntil(Date.now() + pause);` add `logActivity({ kind: "break", jobId: job.id, round: doneRound, detail: { ms: pause, why: "between" } });`.
 
-- [ ] **Step 4: Type-check, lint, checks**
+- [ ] **Step 4: Structural test — every hook is really there**
+
+The calls cannot be exercised without Flow, so pin their **presence and placement** with a source scan. Create `scripts/check-flow-activity-hooks.mjs`:
+
+```js
+/**
+ * ตรวจว่า worker เรียก logActivity ครบทุกจุดที่สเปก §3 กำหนด — อ่านซอร์สตรงๆ (รันบอทจริงไม่ได้ในเทสต์)
+ * รัน: node scripts/check-flow-activity-hooks.mjs
+ */
+import { readFileSync } from "node:fs";
+
+const driver = readFileSync("worker/flow-driver.ts", "utf8");
+const index = readFileSync("worker/index.ts", "utf8");
+let failed = 0;
+function must(name, ok) {
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+}
+/** `needle` ต้องอยู่ในบล็อกที่เริ่มด้วย `start` ก่อนถึง `end` ตัวถัดไป */
+function within(src, start, end, needle) {
+  const i = src.indexOf(start);
+  if (i < 0) return false;
+  const j = src.indexOf(end, i + start.length);
+  return src.slice(i, j < 0 ? undefined : j).includes(needle);
+}
+
+must("driver import logActivity", driver.includes('import { logActivity } from "./activity"'));
+must("click-generate → generate_image/generate_video", within(driver, 'step("click-generate"', "await step(", 'kind: input.round === 3 ? "generate_video" : "generate_image"'));
+must("attach-reference → upload หลัง setFiles", within(driver, "async function attachReferences", "\n    }\n", 'kind: "upload"'));
+must("ensure-project → new_project", within(driver, 'step("ensure-project"', "await step(", 'kind: "new_project"'));
+must("downloadVideoDirect → download via direct", within(driver, "async function downloadVideoDirect", "async function downloadVideo(", 'via: "direct"'));
+must("downloadVideo (menu) → download via menu", within(driver, "async function downloadVideo(", "\n    }\n", 'via: "menu"'));
+must("download-4 → download files:4", within(driver, 'step("download-4"', "return written;", "files: 4"));
+must("onResponse → http_warn on 429/403/5xx", within(driver, "const onResponse", "};", 'kind: "http_warn"') && within(driver, "const onResponse", "};", "res.status() === 429 || res.status() === 403 || res.status() >= 500"));
+must("assertPageUsable → bot_signal (captcha)", within(driver, "async function assertPageUsable", "\n}\n", 'kind: "bot_signal"'));
+must("assertPageUsable → bot_signal (login_required)", within(driver, "async function assertPageUsable", "\n}\n", 'signal: "login_required"'));
+must("wait loops → bot_signal ก่อน throw captcha (≥ 2 จุด: wait-results + wait-render)", (driver.match(/kind: "bot_signal"[^\n]*wait-loop/g) ?? []).length >= 2);
+must("index import logActivity", index.includes('import { logActivity } from "./activity"'));
+must("session_start with config หลังเปิด Flow", within(index, "เปิด Flow แล้ว", "let longBreakTarget", 'kind: "session_start"') && within(index, 'kind: "session_start"', "});", "longBreakMs: cfg.longBreakMs"));
+must("break why:long ก่อน sleepUntil ของพักยาว", within(index, "พักยาว ${", "longBreakTarget = pickLongBreakTarget", 'why: "long"'));
+must("break why:between ก่อน sleepUntil ต่อสินค้า", within(index, "const pause = randInt(", "await sleepUntil(Date.now() + pause)", 'why: "between"'));
+must("ห้าม await logActivity (fire-and-forget)", !/await logActivity\(/.test(driver) && !/await logActivity\(/.test(index));
+
+console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
+process.exit(failed === 0 ? 0 : 1);
+```
+
+Run: `node scripts/check-flow-activity-hooks.mjs` → expected `ผ่านทุกเคส`. If a `within(...)` anchor does not match your actual code layout, fix the **anchor** to the real text of the block — never weaken the assertion. Add the script to `check:flow` in `package.json`.
+
+- [ ] **Step 4b: Reviewer checklist**
+
+- Every `logActivity` call passes `jobId`/`round` when a job is in scope (driver: `input.jobId`, `input.round`; index: `job.id`, `doneRound`), so per-job frequency can be reconstructed.
+- No `logActivity` call is awaited, and none sits where a surrounding `catch` would hide a missing call.
+- `detail.url` in `http_warn` is truncated (≤ 120 chars) — signed URLs must not be stored whole.
+
+- [ ] **Step 5: Type-check, lint, checks**
 
 Run: `npx tsc --noEmit && npm run lint && npm run check:flow`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add worker/flow-driver.ts worker/index.ts worker/smoke/s2-round.ts worker/smoke/s3-round2.ts
+git add worker/flow-driver.ts worker/index.ts worker/smoke/s2-round.ts worker/smoke/s3-round2.ts scripts/check-flow-activity-hooks.mjs package.json
 git commit -m "Flow bot: write requests, warnings, breaks and session config to FlowActivity
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
