@@ -185,10 +185,10 @@ async function assertSelected(loc: Locator, step: FlowStep, what: string): Promi
 }
 
 /** สัญญาณอันตรายที่ต้องเช็กก่อนทุกขั้น — login หลุด / captcha / modal ที่กิน pointer events */
-async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cfg: WorkerConfig, log: StepLog): Promise<void> {
+async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cfg: WorkerConfig, log: StepLog, jobId: string, round: number): Promise<void> {
   const host = new URL(page.url()).host;
   if (host.includes("accounts.google.com") || (await hasSignInButton(page))) {
-    logActivity({ kind: "bot_signal", detail: { signal: "login_required" } });
+    logActivity({ kind: "bot_signal", jobId, round, detail: { signal: "login_required" } });
     throw new FlowStepError(step, "login_required", "ถูกส่งไปหน้า login / เจอปุ่ม Sign in");
   }
   if (!sel.hosts.includes(host)) {
@@ -196,7 +196,7 @@ async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cf
   }
   for (const c of sel.captchaSignals) {
     if ((await page.locator(c).count()) > 0) {
-      logActivity({ kind: "bot_signal", detail: { signal: c } });
+      logActivity({ kind: "bot_signal", jobId, round, detail: { signal: c } });
       throw new FlowStepError(step, "captcha", `เจอสัญญาณ captcha: ${c}`);
     }
   }
@@ -308,7 +308,7 @@ export async function runRound(
       throw new FlowStepError(name, "selector_drift", "บังคับพังด้วย FLOW_FORCE_FAIL_STEP");
     }
     log.log(name, "เริ่ม");
-    await assertPageUsable(page, name, sel, cfg, log);
+    await assertPageUsable(page, name, sel, cfg, log, input.jobId, input.round);
     try {
       const out = await fn();
       log.log(name, "เสร็จ");
@@ -331,7 +331,7 @@ export async function runRound(
     }
     log.log(name, "เริ่ม");
     try {
-      await assertPageUsable(page, name, sel, cfg, log);
+      await assertPageUsable(page, name, sel, cfg, log, input.jobId, input.round);
       const value = await fn();
       log.log(name, "เสร็จ");
       return { ok: true, value };
@@ -838,7 +838,10 @@ export async function runRound(
           }
           for (const r of responses.filter((x) => x.at >= submitAt)) {
             const kind = blockKindForStatus(r.status);
-            if (kind !== null) throw new FlowStepError("wait-render", kind, `Flow ตอบ HTTP ${r.status} หลังกดสร้างคลิป`);
+            if (kind !== null) {
+              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
+              throw new FlowStepError("wait-render", kind, `Flow ตอบ HTTP ${r.status} หลังกดสร้างคลิป`);
+            }
           }
           // การ์ดพังของวิดีโอ — สันนิษฐานว่าเป็น <flow-error-tile> เหมือนรูป (ยังไม่เคยเห็นวิดีโอพังจริง ดู spec)
           let freshFailed = 0;
@@ -1011,6 +1014,7 @@ export async function runRound(
           for (const r of fresh) {
             const kind = kindForStatus(r.status);
             if (kind !== null) {
+              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
               const snippet = typeof r.body === "string" ? r.body.slice(0, 300) : JSON.stringify(r.body).slice(0, 300);
               throw new FlowStepError("wait-results", kind, `Flow ตอบ HTTP ${r.status}: ${snippet}`);
             }
@@ -1026,6 +1030,7 @@ export async function runRound(
           for (const r of responses.filter((x) => x.at >= submitAt)) {
             const kind = blockKindForStatus(r.status);
             if (kind !== null) {
+              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
               throw new FlowStepError("wait-results", kind, `Flow ตอบ HTTP ${r.status} หลังกด Generate`);
             }
           }
