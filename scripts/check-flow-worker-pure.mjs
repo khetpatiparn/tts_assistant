@@ -3,7 +3,7 @@
  * รัน: node scripts/check-flow-worker-pure.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -38,6 +38,15 @@ try {
   const cfg = await import(pathToFileURL(join(out, "config.js")).href);
   const good = cfg.loadWorkerConfig("flow-worker.config.json");
   check("default dailyBatchCap = 24", good.dailyBatchCap, 24);
+  check("Render อัตโนมัติปิดเป็นค่าเริ่มต้น (ผู้ใช้ทำคลิปเองใน Flow)", good.renderEnabled, false);
+  {
+    const noKey = JSON.parse(readFileSync("flow-worker.config.json", "utf8"));
+    delete noKey.renderEnabled;
+    writeFileSync(join(out, "nokey.json"), JSON.stringify(noKey));
+    check("ไม่มี key renderEnabled = ปิด", cfg.loadWorkerConfig(join(out, "nokey.json")).renderEnabled, false);
+    writeFileSync(join(out, "badkey.json"), JSON.stringify({ ...noKey, renderEnabled: "yes" }));
+    checkThrows("renderEnabled ต้องเป็น boolean", () => cfg.loadWorkerConfig(join(out, "badkey.json")), "renderEnabled");
+  }
   check("default activeHours = null", good.activeHours, null);
   check("actionDelayMs is a range", Array.isArray(good.actionDelayMs) && good.actionDelayMs.length === 2, true);
 

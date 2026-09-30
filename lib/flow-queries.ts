@@ -23,6 +23,8 @@ export type FlowJobRow = {
   id: string;
   entryId: string;
   productName: string;
+  /** 10-part prompt ของ Entry — ใช้ในแผง "ทำคลิปเองใน Flow" ("" = ยังไม่ได้สร้าง) */
+  prompt: string;
   status: string;
   round: number;
   attempt: number;
@@ -61,6 +63,8 @@ export type FlowWorkerView = {
   videoDailyCap: number;
   nextWakeAt: Date | null;
   currentJobId: string | null;
+  /** บอท Render คลิปเองไหม (flow-worker.config.json) — ปิด = โชว์แผงทำคลิปเองแทน */
+  renderEnabled: boolean;
 };
 
 const DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -120,7 +124,7 @@ export async function getFlowQueueData(): Promise<{
         ],
       },
       include: {
-        entry: { select: { productName: true } },
+        entry: { select: { productName: true, chatgptOutput: true } },
         images: { orderBy: [{ round: "asc" }, { attempt: "asc" }, { index: "asc" }] },
       },
     }),
@@ -137,6 +141,7 @@ export async function getFlowQueueData(): Promise<{
         id: j.id,
         entryId: j.entryId,
         productName: j.entry.productName,
+        prompt: j.entry.chatgptOutput,
         status: j.status,
         round: j.round,
         attempt: j.attempt,
@@ -177,6 +182,7 @@ export async function getFlowQueueData(): Promise<{
     videoDailyCap: cfg.videoDailyCap,
     nextWakeAt: state?.nextWakeAt ?? null,
     currentJobId: state?.currentJobId ?? null,
+    renderEnabled: cfg.renderEnabled,
   };
 
   return { jobs: withCheckpoints, worker, summary: summarizeQueue(withCheckpoints) };

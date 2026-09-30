@@ -7,6 +7,7 @@ import { Check, Download, Eraser, RotateCcw, SkipForward, Play } from "lucide-re
 
 import {
   approveFlowRender,
+  finishRenderManually,
   chooseFlowCandidate,
   generateWithAI,
   redoFlowRound,
@@ -32,6 +33,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepper } from "@/components/flow-stepper";
+import { ManualRenderPanel } from "@/components/manual-render-panel";
 
 function badgeVariant(status: string): BadgeVariant {
   if (status.startsWith("review_")) return "warning";
@@ -52,7 +54,7 @@ function timeLabel(d: Date | null): string {
   return d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
-export function FlowReviewRow({ job }: { job: FlowJobRow }) {
+export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderEnabled: boolean }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,23 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
   const isRenderReview = job.status === FLOW_STATUS.REVIEW_R3;
   const isUpscale = job.status === FLOW_STATUS.QUEUED_UPSCALE || job.status === FLOW_STATUS.RUNNING_UPSCALE;
   const source = job.sources[0] ?? null;
+  // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
+  const isStuckInRender =
+    job.status === FLOW_STATUS.AWAITING_PROMPT ||
+    job.status === FLOW_STATUS.QUEUED_R3 ||
+    job.status === FLOW_STATUS.REVIEW_R3 ||
+    (job.status === FLOW_STATUS.FAILED && job.round >= 3);
+  // รูป 2 รูปที่เลือกไว้ สำหรับแผงทำคลิปเอง (รอบ 1 = พื้นหลังขาว · รอบ 2 = ตอนใช้งาน)
+  const manualImages = [job.chosenRound1, job.chosenRound2].flatMap((c, i) =>
+    c
+      ? [{
+          id: c.id,
+          src: imgUrl(job.entryId, c.filename),
+          label: i === 0 ? "รูปพื้นหลังขาว" : "รูปตอนใช้งาน",
+          downloadName: `${job.productName.slice(0, 40)}-${i === 0 ? "white" : "inuse"}${c.filename.slice(c.filename.lastIndexOf("."))}`,
+        }]
+      : []
+  );
 
   function run(action: () => Promise<void>) {
     setError(null);
@@ -143,7 +162,11 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
         <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
       </div>
 
-      <FlowStepper status={job.status} round={job.round} />
+      <FlowStepper
+        status={job.status}
+        round={job.round}
+        imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
+      />
 
       <div className="flex flex-col gap-3">
         {isImageReview && (
@@ -209,7 +232,11 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
                 disabled={selected === null || isPending}
                 onClick={() => selected && chooseAndMaybeAutoGenerate(selected)}
               >
-                {job.status === FLOW_STATUS.REVIEW_R1 ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2" : "ใช้รูปนี้ → สร้างพรอมต์แล้วทำคลิป"}
+                {job.status === FLOW_STATUS.REVIEW_R1
+                  ? "ใช้รูปนี้ → ให้บอทวาดรอบ 2"
+                  : renderEnabled
+                    ? "ใช้รูปนี้ → สร้างพรอมต์แล้วทำคลิป"
+                    : "ใช้รูปนี้ → บันทึกรูปและสร้างพรอมต์"}
               </Button>
               <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
                 <RotateCcw data-icon="inline-start" /> ไม่ผ่านสักรูป วาดใหม่
@@ -261,7 +288,18 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
           </div>
         )}
 
-        {job.status === FLOW_STATUS.AWAITING_PROMPT && (
+        {/* Render อัตโนมัติปิดอยู่: งานที่ค้างขั้นทำคลิป (ส่วนใหญ่ค้างมาจากก่อนปิด) ให้ทำคลิปเองแล้วกดปิดงาน */}
+        {!renderEnabled && isStuckInRender && (
+          <ManualRenderPanel
+            entryId={job.entryId}
+            prompt={job.prompt}
+            images={manualImages}
+            onFinish={() => run(() => finishRenderManually(job.id))}
+            finishDisabled={isPending}
+          />
+        )}
+
+        {renderEnabled && job.status === FLOW_STATUS.AWAITING_PROMPT && (
           <p className="text-sm leading-relaxed text-muted-foreground">
             รอ Angle สร้าง 10-part prompt — ถ้าค้างนาน ไปกด &quot;สร้างด้วย AI&quot; ใน{" "}
             <Link href={`/entry/${job.entryId}`} className="text-primary underline-offset-4 hover:underline">
@@ -302,7 +340,12 @@ export function FlowReviewRow({ job }: { job: FlowJobRow }) {
           </div>
         )}
 
-        {job.status === FLOW_STATUS.DONE && (
+        {/* งานรูปจบแล้ว ยังไม่มีคลิป และบอทไม่ทำคลิปให้ → ยื่นของสำหรับทำคลิปเองใน Flow บัญชีหลัก */}
+        {job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null && (
+          <ManualRenderPanel entryId={job.entryId} prompt={job.prompt} images={manualImages} collapsed />
+        )}
+
+        {job.status === FLOW_STATUS.DONE && (renderEnabled || job.video !== null) && (
           <div className="flex flex-wrap items-center gap-3">
             {[job.chosenRound1, job.chosenRound2].map((c, i) =>
               c ? (

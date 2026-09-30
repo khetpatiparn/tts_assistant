@@ -70,6 +70,8 @@ try {
 
   check("afterChoose review_r1 → queued_r2", f.afterChoose("review_r1").status, "queued_r2");
   check("afterChoose review_r2 → awaiting_prompt (ยังไม่จบ ต้อง Render ก่อน)", f.afterChoose("review_r2").status, "awaiting_prompt");
+  check("afterChoose review_r2 + ปิด Render อัตโนมัติ → done (ผู้ใช้ทำคลิปเอง)", f.afterChoose("review_r2", false).status, "done");
+  check("afterChoose review_r1 + ปิด Render ยังไปรอบ 2 ตามปกติ", f.afterChoose("review_r1", false).status, "queued_r2");
   checkThrows("afterChoose queued_r1 throws", () => f.afterChoose("queued_r1"));
   checkThrows("afterChoose review_r3 throws (คลิปไม่มีให้เลือก)", () => f.afterChoose("review_r3"));
   check("afterRedo review_r1 → queued_r1", f.afterRedo("review_r1").status, "queued_r1");

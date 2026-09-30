@@ -452,7 +452,7 @@ async function main() {
     // เพดานรูปกับเพดานคลิปแยกกัน — ครบฝั่งไหนก็ข้ามเฉพาะงานฝั่งนั้น (claimOrder) · โหลด 1080p ไม่นับเพดานไหนเลย
     // (ไม่เสียเครดิต ผู้ใช้กดผ่านแล้วรอไฟล์อยู่) จึงยังหยิบได้แม้ครบทั้งคู่
     const imagesAllowed = (state?.todayBatches ?? 0) < cfg.dailyBatchCap;
-    const rendersAllowed = (state?.todayRenders ?? 0) < cfg.videoDailyCap;
+    const rendersAllowed = cfg.renderEnabled && (state?.todayRenders ?? 0) < cfg.videoDailyCap;
     if ((state?.sessionStreak ?? 0) >= longBreakTarget) {
       const ms = randInt(cfg.longBreakMs);
       log(`พักยาว ${Math.round(ms / 60000)} นาที`);

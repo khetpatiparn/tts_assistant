@@ -10,6 +10,7 @@
   "longBreakEvery": [4, 6],
   "longBreakMs": [900000, 2400000],
   "dailyBatchCap": 24,
+  "renderEnabled": false,
   "videoDailyCap": 10,
   "activeHours": null,
   "generationTimeoutMs": 300000,

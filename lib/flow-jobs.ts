@@ -153,9 +153,10 @@ export function buildRenderPrompt(tenPartPrompt: string, extra = ""): string {
  * รอบ 1 → รอบ 2 · รอบ 2 → รอ 10-part prompt ก่อน Render (ไม่ใช่ done แล้ว — รูปถูกก๊อปเป็น ProductImage ตอนนี้
  * เหมือนเดิม แต่งานยังไม่จบจนกว่าผู้ใช้กด "ผ่าน" คลิป)
  */
-export function afterChoose(status: string): { status: FlowStatus } {
+export function afterChoose(status: string, renderEnabled = true): { status: FlowStatus } {
   if (status === FLOW_STATUS.REVIEW_R1) return { status: FLOW_STATUS.QUEUED_R2 };
-  if (status === FLOW_STATUS.REVIEW_R2) return { status: FLOW_STATUS.AWAITING_PROMPT };
+  // ปิด Render อัตโนมัติ (flow-worker.config.json renderEnabled) = งานจบที่รูป 2 รอบ ผู้ใช้ทำคลิปเองใน Flow
+  if (status === FLOW_STATUS.REVIEW_R2) return { status: renderEnabled ? FLOW_STATUS.AWAITING_PROMPT : FLOW_STATUS.DONE };
   throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
 }
 

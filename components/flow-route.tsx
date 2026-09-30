@@ -158,7 +158,7 @@ export function FlowRoute({
 
           <ul className="flex flex-col">
             {visibleJobs.map((job) => (
-              <FlowReviewRow key={job.id} job={job} />
+              <FlowReviewRow key={job.id} job={job} renderEnabled={worker.renderEnabled} />
             ))}
           </ul>
         </>

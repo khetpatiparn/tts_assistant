@@ -20,6 +20,12 @@ export type WorkerConfig = {
    * เพดานคลิปที่ Render ต่อวัน (15 เครดิต/คลิป) — กันเครดิตหมดในวันเดียวถ้ามีอะไรผิด ครบแล้วบอทยังวาดรูปต่อได้
    * แยกจาก dailyBatchCap (ชุดรูป) ครบฝั่งไหนก็หยุดเฉพาะงานฝั่งนั้น
    */
+  /**
+   * ให้บอท Render คลิปเองไหม — ปิดไว้ตั้งแต่ 2026-09-30 (ผู้ใช้เลือกทำคลิปเองใน Flow บัญชีหลัก: ดูตัวอย่างได้ทันที
+   * แก้/กดใหม่ได้เลย ไม่ต้องรอจังหวะพักของบอท) · ปิด = เลือกรูปรอบ 2 แล้วงานจบ (done) หน้าคิว Flow มีปุ่มช่วยทำเอง
+   * โค้ด Render ยังอยู่ครบ เปิดคืนได้ด้วย true · ไม่มี key นี้ในไฟล์ = ปิด
+   */
+  renderEnabled: boolean;
   videoDailyCap: number;
   /** ["22:00","07:00"] = ทำงานเฉพาะช่วงนี้ (ข้ามเที่ยงคืนได้) · null = ตลอดเวลา */
   activeHours: [string, string] | null;
@@ -90,5 +96,9 @@ export function loadWorkerConfig(file = "flow-worker.config.json"): WorkerConfig
     throw new Error("config mouse ต้องมี curve (boolean) และ idleScrollChance (0..1)");
   }
 
-  return raw as unknown as WorkerConfig;
+  if (raw.renderEnabled !== undefined && typeof raw.renderEnabled !== "boolean") {
+    throw new Error("config renderEnabled ต้องเป็น true/false");
+  }
+
+  return { ...raw, renderEnabled: raw.renderEnabled === true } as unknown as WorkerConfig;
 }

@@ -105,11 +105,17 @@ const CLASSES_BY_STATE: Record<StepState, string> = {
  * (2026-09-08) ไม่มี label ข้อความ "รอระบบ/รอคุณ" กำกับเพิ่ม — ตั้งใจให้สี+ไอคอนสื่อความหมาย
  * พอในตัว (Loader2 หมุน = รอระบบ, MousePointerClick = รอคุณ) ตามที่ยืนยันกับผู้ใช้แล้ว
  */
-export function FlowStepper({ status, round }: { status: string; round: number }) {
-  const { states, current } = deriveSteps(status, round);
+export function FlowStepper({ status, round, imagesOnly = false }: { status: string; round: number; imagesOnly?: boolean }) {
+  const derived = deriveSteps(status, round);
+  // imagesOnly = งานที่จบที่รูป 2 รอบ (บอทไม่ได้ทำคลิป — ผู้ใช้ทำเองใน Flow) ตัดขั้น "ทำคลิป/ดูคลิป" ทิ้ง ไม่งั้นติ๊กถูก
+  // ทั้งที่ไม่มีคลิปจริง · เก็บ index เดิมไว้ใช้หา label
+  const keep = imagesOnly ? [0, 1, 2, 3, 4, 7] : derived.states.map((_, i) => i);
+  const states = keep.map((i) => derived.states[i]);
+  const labels = keep.map((i) => STEP_SHORT_LABELS[i]);
+  const current = Math.max(0, keep.indexOf(derived.current));
 
   return (
-    <div className="flex items-start" aria-label={`ความคืบหน้า: ${STEP_SHORT_LABELS[current]}`}>
+    <div className="flex items-start" aria-label={`ความคืบหน้า: ${labels[current]}`}>
       {states.map((state, i) => {
         const Icon = ICON_BY_STATE[state];
         return (
@@ -131,7 +137,7 @@ export function FlowStepper({ status, round }: { status: string; round: number }
                 i === current && "font-semibold text-foreground"
               )}
             >
-              {STEP_SHORT_LABELS[i]}
+              {labels[i]}
             </span>
           </div>
         );

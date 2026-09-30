@@ -26,6 +26,7 @@ import { normalizeName, parseCandidateRows } from "@/lib/candidates";
 import { commissionBahtFromPercent, originalImageUrl, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
 import { showcaseFlowState } from "@/lib/showcase";
+import { loadWorkerConfig } from "@/worker/config";
 import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { parseCaptionOutput } from "@/lib/caption";
@@ -1440,7 +1441,8 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
   if (!image || image.kind !== "candidate" || image.round !== job.round || image.attempt !== job.attempt) {
     throw new Error("รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
   }
-  const next = afterChoose(job.status);
+  // Render อัตโนมัติปิดอยู่ (ค่าเริ่มต้น) = จบงานที่รูปรอบ 2 ผู้ใช้ทำคลิปเองใน Flow บัญชีหลัก — ดู WorkerConfig.renderEnabled
+  const next = afterChoose(job.status, loadWorkerConfig().renderEnabled);
 
   await prisma.$transaction(async (tx) => {
     await tx.flowJobImage.updateMany({
@@ -1506,13 +1508,46 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
     // ถ้าติดไปต่อท้าย 10-part prompt จะกลายเป็นคำสั่งแปลกๆ ท้ายพรอมต์วิดีโอ
     await tx.flowJob.update({
       where: { id: jobId },
-      data: { status: next.status, round: 3, attempt: 1, extraPrompt: "" },
+      data:
+        next.status === FLOW_STATUS.DONE
+          ? { status: next.status, finishedAt: new Date() }
+          : { status: next.status, round: 3, attempt: 1, extraPrompt: "" },
     });
   });
 
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
   revalidatePath("/");
+}
+
+/**
+ * "ทำคลิปเองแล้ว — ปิดงานนี้" — งานที่ค้างอยู่ในขั้น Render (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) ตอนที่ผู้ใช้เลือกทำคลิปเอง
+ * ใน Flow แทน รูป 2 รูปอยู่ใน ProductImage ตั้งแต่เลือกรอบ 2 แล้ว จึงปิดเป็น done ได้เลย · งานที่บอทกำลังทำอยู่ (running)
+ * ห้ามปิดกลางคัน · งานพังที่ปิด = ปลดการหยุดของบอทด้วยเหมือน "ข้ามงานนี้"
+ */
+export async function finishRenderManually(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  const renderStage =
+    job.status === FLOW_STATUS.AWAITING_PROMPT ||
+    job.status === FLOW_STATUS.QUEUED_R3 ||
+    job.status === FLOW_STATUS.REVIEW_R3 ||
+    (job.status === FLOW_STATUS.FAILED && job.round >= 3);
+  if (!renderStage) throw new Error("ปิดได้เฉพาะงานที่อยู่ขั้นทำคลิป (และบอทไม่ได้กำลังทำอยู่)");
+  await prisma.$transaction([
+    prisma.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } }),
+    ...(job.status === FLOW_STATUS.FAILED
+      ? [
+          prisma.flowWorkerState.upsert({
+            where: { id: WORKER_STATE_ID },
+            create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
+            update: { pausedReason: "", pausedAt: null },
+          }),
+        ]
+      : []),
+  ]);
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
 }
 
 /**
