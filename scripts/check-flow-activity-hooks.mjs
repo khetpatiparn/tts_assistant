@@ -40,7 +40,7 @@ must("assertPageUsable bot_signal มี jobId/round", (driver.match(/kind: "bot
 must("download-4 → download files:4", within(driver, 'step("download-4"', "return written;", "files: 4"));
 must("onResponse → http_warn on 429/403/5xx", within(driver, "const onResponse", "};", 'kind: "http_warn"') && within(driver, "const onResponse", "};", "res.status() === 429 || res.status() === 403 || res.status() >= 500"));
 must("http_warn ตัด url ≤ 120", within(driver, "const onResponse", "};", "res.url().slice(0, 120)"));
-must("assertPageUsable → bot_signal (captcha)", within(driver, "async function assertPageUsable", "\n}\n", 'kind: "bot_signal", detail: { signal: c }'));
+must("assertPageUsable → bot_signal (captcha)", within(driver, "async function assertPageUsable", "\n}\n", 'kind: "bot_signal", jobId, round, detail: { signal: c }'));
 must("assertPageUsable → bot_signal (login_required)", within(driver, "async function assertPageUsable", "\n}\n", 'signal: "login_required"'));
 must("wait loops → bot_signal ก่อน throw captcha (≥ 2 จุด: wait-results + wait-render)", (driver.match(/kind: "bot_signal"[^\n]*wait-loop/g) ?? []).length >= 2);
 must("index import logActivity", index.includes('import { logActivity } from "./activity"'));
