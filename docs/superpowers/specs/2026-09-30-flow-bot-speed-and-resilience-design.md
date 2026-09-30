@@ -1,5 +1,7 @@
 # Flow bot: เร่งความเร็ว · โหลดคลิปแบบทน · สมุดบันทึกการกระทำ — Design
 
+> สถานะ: implemented 2026-09-30 (plan `docs/superpowers/plans/2026-09-30-flow-bot-speed-and-resilience.md`) · ยังไม่ได้รันสดบน Flow — รอผู้ใช้กด "รันต่อ" งานแรก
+
 คำศัพท์: ดู `CONTEXT.md` (Flow queue, Render, Checkpoint, Attended time) · ต่อยอดจาก
 `2026-09-30-flow-video-render-design.md` และ `2026-09-06-flow-image-bot-design.md`
 
