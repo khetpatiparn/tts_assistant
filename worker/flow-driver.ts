@@ -9,7 +9,7 @@ import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import {
-  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail,
+  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason,
   renderSettingsLabelOk,
 } from "./flow-signals";
 
@@ -308,6 +308,28 @@ export async function runRound(
       if (e instanceof FlowStepError) throw e;
       if (isTimeout(e)) throw new FlowStepError(name, "selector_drift", `timeout: ${(e as Error).message}`);
       throw new FlowStepError(name, "worker_crash", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /**
+   * ขั้นหลัง Render สำเร็จ: ห้ามทำให้งาน failed/pause (เครดิตจ่ายแล้ว) — assertPageUsable และตัวขั้นเองถูกจับไว้หมด
+   * แล้วคืน {ok:false} ให้ผู้เรียกข้ามการโหลด (ไม่ hover/คลิกหน้าที่โดนธง) · ขั้น pre-render ของงานถัดไปยัง fail-fast
+   * เรื่อง captcha ผ่าน assertPageUsable ตามเดิม · FLOW_FORCE_FAIL_STEP ยัง throw ได้ (hook ทดสอบเท่านั้น)
+   */
+  async function softStep<T>(name: FlowStep, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
+    if (opts.forceFailStep === name) {
+      throw new FlowStepError(name, "selector_drift", "บังคับพังด้วย FLOW_FORCE_FAIL_STEP");
+    }
+    log.log(name, "เริ่ม");
+    try {
+      await assertPageUsable(page, name, sel, cfg, log);
+      const value = await fn();
+      log.log(name, "เสร็จ");
+      return { ok: true, value };
+    } catch (e) {
+      const reason = postRenderFailReason(name, e instanceof Error ? e.message : String(e));
+      log.log(name, `${reason} — ไม่ทำให้งานพัง คลิปยังอยู่ใน Flow`);
+      return { ok: false, reason };
     }
   }
 
@@ -843,15 +865,18 @@ export async function runRound(
         throw new FlowStepError("wait-render", "generation_timeout", `รอคลิปเกิน ${String(cfg.renderTimeoutMs)} ms`);
       });
 
-      await step("dwell", async () => {
+      const dwell = await softStep("dwell", async () => {
         await sleepRange(cfg.dwellAfterResultsMs);
         await checkpoint(4, "results");
         await maybeIdleScroll(page, cfg);
       });
+      if (!dwell.ok) {
+        return { files: [], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: dwell.reason };
+      }
 
       // หลังจากนี้ห้ามทำให้งาน failed — เครดิตจ่ายแล้ว คลิปมีจริงในโปรเจกต์ (spec 2026-09-30 §2 "หลักการรวม")
       // ลำดับ: ลิงก์ตรง → เมนู (โค้ดเดิม) → ยอมแพ้แบบไม่พัง ให้ผู้ใช้ไปโหลดเองใน Flow
-      const preview = await step("download-preview", async () => {
+      const previewStep = await softStep("download-preview", async () => {
         try {
           const direct = await downloadVideoDirect("download-preview", mediaId, `${input.filePrefix}.mp4`);
           if (direct !== null) return { file: direct, failed: null as string | null };
@@ -867,6 +892,10 @@ export async function runRound(
           return { file: null as string | null, failed: reason };
         }
       });
+      if (!previewStep.ok) {
+        return { files: [], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: previewStep.reason };
+      }
+      const preview = previewStep.value;
       return {
         files: preview.file === null ? [] : [preview.file],
         projectId: projectId as string,

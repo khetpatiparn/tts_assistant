@@ -139,3 +139,8 @@ export function renderOutcome(
     errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${downloadFailed ?? ""}`.slice(0, 2000),
   };
 }
+
+/** เหตุผลที่ขั้นหลัง Render พังก่อนเริ่มโหลด → ข้อความใน downloadFailed (ไม่ทำให้งาน failed — ดู renderOutcome) */
+export function postRenderFailReason(step: string, reason: string): string {
+  return `${step} พังก่อนเริ่มโหลด: ${reason}`;
+}

@@ -173,6 +173,7 @@ try {
   check("ไม่ได้ไฟล์ → errorMessage บอกว่าคลิปอยู่ใน Flow", noFile.errorMessage.startsWith("โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว)"), true);
   check("errorMessage ยาวเกิน 2000 ถูกตัด", fs2.renderOutcome([], "x".repeat(5000), 1).errorMessage.length <= 2000, true);
   check("attempt 3 → ชื่อไฟล์ r3-a3.mp4", fs2.renderOutcome(["C:/x/r3-a3.mp4"], null, 3).filename, "r3-a3.mp4");
+  check("ขั้นหลัง Render พัง → เหตุผลระบุชื่อขั้น", fs2.postRenderFailReason("dwell", "เจอสัญญาณ captcha: x"), "dwell พังก่อนเริ่มโหลด: เจอสัญญาณ captcha: x");
 
   check("default videoDailyCap = 20", good.videoDailyCap, 20);
   check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);
