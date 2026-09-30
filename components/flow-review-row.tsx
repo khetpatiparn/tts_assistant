@@ -266,7 +266,7 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 <p className="text-sm font-medium text-foreground">คลิปเสร็จแล้วใน Flow แต่โหลดมาไม่ได้</p>
                 {job.errorMessage && <p className="text-xs text-muted-foreground">{job.errorMessage}</p>}
                 <p className="text-xs text-muted-foreground">
-                  เปิดโปรเจกต์ในบัญชีสำรองแล้วโหลดเอง (⋯ → Download → 1080p) หรือกด &quot;เรนเดอร์ใหม่&quot; ให้บอทลองอีกครั้ง
+                  เปิดโปรเจกต์ในบัญชีสำรองแล้วโหลดเอง (⋯ → Download → 1080p) แล้วกดปิดงาน · หรือกด &quot;เรนเดอร์ใหม่&quot; ซึ่งจะสร้างคลิปใหม่อีกตัวและเสีย 15 เครดิต
                 </p>
                 {job.flowProjectId && (
                   <a
@@ -307,6 +307,11 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
                   <RotateCcw data-icon="inline-start" /> เรนเดอร์ใหม่
                 </Button>
+                {job.video === null && (
+                  <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => finishRenderManually(job.id))}>
+                    <Check data-icon="inline-start" /> โหลดเองแล้ว — ปิดงานนี้
+                  </Button>
+                )}
               </div>
             </div>
           </div>

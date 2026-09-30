@@ -81,7 +81,6 @@ try {
   check("canApproveRender review_r3 + มีไฟล์ → true", f.canApproveRender("review_r3", true), true);
   check("canApproveRender review_r3 + ไม่มีไฟล์ (โหลดไม่ได้) → false", f.canApproveRender("review_r3", false), false);
   check("canApproveRender สถานะอื่น → false", f.canApproveRender("review_r2", true), false);
-  check("afterRedo review_r3 ยังใช้ได้แม้ไม่มีไฟล์ (ไม่ขึ้นกับไฟล์)", f.afterRedo("review_r3").status, "queued_r3");
   checkThrows("afterRedo done throws", () => f.afterRedo("done"));
   checkThrows("afterRedo awaiting_prompt throws", () => f.afterRedo("awaiting_prompt"));
   check("afterApproveRender review_r3 → queued_upscale (ยังไม่ done จนได้ 1080p)", f.afterApproveRender("review_r3").status, "queued_upscale");

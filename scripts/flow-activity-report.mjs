@@ -10,10 +10,11 @@ const dbPath = process.argv[3] ?? "dev.db";
 const start = new Date(`${day}T00:00:00`);
 const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
 const db = new Database(path.resolve(dbPath), { readonly: true });
+const iso = (d) => d.toISOString().replace("Z", "+00:00"); // รูปแบบเดียวกับที่ adapter เขียน
 // Prisma เก็บ DateTime ใน SQLite เป็นข้อความ ISO (ยืนยันจากไฟล์จริง) — เทียบเป็นสตริง ISO
 const rows = db
   .prepare("SELECT at, kind, jobId, round, detail FROM FlowActivity WHERE at >= ? AND at < ? ORDER BY at")
-  .all(start.toISOString(), end.toISOString())
+  .all(iso(start), iso(end))
   .map((r) => ({ ...r, at: new Date(r.at) }));
 
 const REQUEST = new Set(["generate_image", "generate_video", "upload", "new_project", "download"]);
@@ -34,6 +35,13 @@ for (const w of warns) console.log(`  ${w.at.toTimeString().slice(0, 8)}  ${w.ki
 const sessions = rows.filter((r) => r.kind === "session_start");
 console.log(`\nเปิดบอท ${sessions.length} ครั้ง:`);
 for (const s of sessions) console.log(`  ${s.at.toTimeString().slice(0, 8)}  ${s.detail}`);
+function breakMs(detail) {
+  try {
+    return JSON.parse(detail || "{}").ms ?? 0;
+  } catch {
+    return 0;
+  }
+}
 const breaks = rows.filter((r) => r.kind === "break");
-const totalBreak = breaks.reduce((sum, b) => sum + (JSON.parse(b.detail || "{}").ms ?? 0), 0);
+const totalBreak = breaks.reduce((sum, b) => sum + breakMs(b.detail), 0);
 console.log(`\nพักจริงรวม ${Math.round(totalBreak / 60000)} นาที (${breaks.length} ครั้ง)`);

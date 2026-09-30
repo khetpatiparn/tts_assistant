@@ -1555,9 +1555,13 @@ export async function finishRenderManually(jobId: string): Promise<void> {
  * ก่อนงานอื่นและไม่นับเพดาน · งานเป็น done เมื่อบอทได้ไฟล์ 1080p แล้ว (worker/index.ts)
  */
 export async function approveFlowRender(jobId: string): Promise<void> {
-  const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
   const next = afterApproveRender(job.status);
+  // กันกดผ่านทั้งที่ไม่มีไฟล์คลิป (ปุ่มถูก disable ในหน้าเว็บอยู่แล้ว แต่ action ต้องกันเองด้วย)
+  if (!job.images.some((i) => i.kind === "video")) {
+    throw new Error("ยังไม่มีไฟล์คลิป — กด เรนเดอร์ใหม่ หรือโหลดเองแล้วปิดงาน");
+  }
   await prisma.flowJob.update({ where: { id: jobId }, data: { status: next.status, round: next.round } });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);

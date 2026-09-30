@@ -165,6 +165,37 @@ function removeFlowFile(entryId: string, filename: string): void {
   }
 }
 
+/**
+ * เขียน DB หลัง Render เสร็จ (ไฟล์คลิปอยู่บนดิสก์แล้ว และเสียเครดิตไปแล้ว) — ถ้าเขียนพลาดเพราะ dev.db ล็อกชั่วคราว
+ * ห้ามตีงานเป็น failed/pause คิว (จะดูเหมือนบอทพัง ทั้งที่คลิปได้มาแล้ว) จึงลองซ้ำ 3 ครั้ง (รอ 0.5 วิ / 1.5 วิ)
+ * ยังไม่ได้ → log + notify แล้วลองย้ายงานไปสถานะที่ผู้ใช้กู้เองได้ (lastDitch) โดยไม่ throw · คืน true = เขียนสำเร็จ
+ */
+async function persistAfterRender(
+  label: string,
+  job: ClaimedJob,
+  write: () => Promise<unknown>,
+  lastDitch: () => Promise<unknown>
+): Promise<boolean> {
+  const backoff = [500, 1500];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await write();
+      return true;
+    } catch (e) {
+      log(`งาน ${job.id} บันทึกผล${label}ลง DB ไม่สำเร็จ (ครั้งที่ ${attempt + 1}/3): ${String(e)}`);
+      if (attempt < backoff.length) await sleepMs(backoff[attempt]);
+    }
+  }
+  log(`งาน ${job.id} บันทึกผล${label}ไม่ได้ — ไฟล์อยู่บนดิสก์แล้ว ไม่ตีงานเป็น failed`);
+  notify(`บันทึกผล${label}ลง DB ไม่ได้`, job.entry.productName);
+  try {
+    await lastDitch();
+  } catch (e) {
+    log(`งาน ${job.id} ย้ายสถานะกู้งานก็ไม่สำเร็จ: ${String(e)}`);
+  }
+  return false;
+}
+
 async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean> {
   const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
@@ -219,7 +250,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
 
     if (round === 3) {
       const outcome = renderOutcome(result.files, result.downloadFailed, job.attempt);
-      await prisma.$transaction(async (tx) => {
+      const saved = await persistAfterRender("คลิป", job, () => prisma.$transaction(async (tx) => {
         // มีได้แถวเดียว — "เรนเดอร์ใหม่" ลบของ attempt ก่อนไปแล้ว แต่ถ้ารันต่อหลังพังแล้วมีแถวค้าง ให้แทนที่
         await tx.flowJobImage.deleteMany({ where: { jobId: job.id, kind: "video" } });
         if (outcome.createVideoRow && outcome.filename !== null) {
@@ -241,7 +272,11 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
           where: { id: job.id },
           data: { status: outcome.status, flowProjectId: result.projectId, errorMessage: outcome.errorMessage },
         });
-      });
+      }), () => prisma.flowJob.update({
+        where: { id: job.id },
+        data: { status: FLOW_STATUS.REVIEW_R3, errorMessage: "คลิปเสร็จแล้วแต่บันทึกลง DB ไม่ได้ — ดูไฟล์ในโฟลเดอร์ flow ของ entry หรือกดเรนเดอร์ใหม่" },
+      }));
+      if (!saved) return true;
       log(outcome.createVideoRow ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
       notify(outcome.createVideoRow ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
       return true;
@@ -249,11 +284,15 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
 
     if (round === 4 && approvedVideo !== null) {
       if (result.files.length > 0) {
-        await prisma.$transaction(async (tx) => {
+        const saved = await persistAfterRender("คลิป 1080p", job, () => prisma.$transaction(async (tx) => {
           // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
           await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
           await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
-        });
+        }), () => prisma.flowJob.update({
+          where: { id: job.id },
+          data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ — ดู r3-final.mp4 ในโฟลเดอร์ flow ของ entry" },
+        }));
+        if (!saved) return true;
         if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
         log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
         notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);

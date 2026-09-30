@@ -137,6 +137,10 @@ export async function getFlowQueueData(): Promise<{
     prisma.flowActivity.findMany({
       where: { at: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
       select: { at: true, kind: true },
+    }).catch((e: unknown) => {
+      // dev.db ที่ยังไม่ migrate (ไม่มีตาราง FlowActivity) ต้องไม่ทำให้ทั้งหน้า /flow ล่ม — โชว์ยิง 0 แทน
+      console.error("อ่าน FlowActivity ไม่ได้ (ยังไม่ได้ migrate?):", e instanceof Error ? e.message : e);
+      return [] as { at: Date; kind: string }[];
     }),
   ]);
 

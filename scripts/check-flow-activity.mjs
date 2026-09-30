@@ -26,7 +26,14 @@ try {
   check("นับเฉพาะ kind ที่เป็นการยิง (generate/upload/new_project) ไม่นับ break/session_start",
     a.summarizeActivity([gen(1), { at: at(2), kind: "break" }, { at: at(3), kind: "session_start" }, { at: at(4), kind: "upload" }], now).today, 2);
   check("peak = จำนวนมากสุดในช่วง 10 นาทีใดๆ", a.summarizeActivity([gen(0), gen(1), gen(2), gen(30), gen(31)], now).peakPer10Min, 3);
-  check("แถวเมื่อวาน (ก่อนเที่ยงคืนท้องถิ่น) ไม่นับ today", a.summarizeActivity([gen(11 * 60)], now).today, 0);
+  // สร้างวันด้วย local getter — ไม่ขึ้นกับ timezone เครื่องที่รัน
+  const localNow = new Date(2026, 9, 1, 10, 0);
+  const yesterdayNoon = new Date(2026, 9, 0, 12, 0);
+  check("แถวเมื่อวาน (ก่อนเที่ยงคืนท้องถิ่น) ไม่นับ today", a.summarizeActivity([{ at: yesterdayNoon, kind: "generate_image" }, { at: localNow, kind: "generate_image" }], localNow).today, 1);
+  const t0 = new Date(2026, 9, 1, 9, 0);
+  const plus = (ms) => ({ at: new Date(t0.getTime() + ms), kind: "generate_image" });
+  check("t กับ t+10:00 เป๊ะ ไม่อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(10 * 60000)], localNow).peakPer10Min, 1);
+  check("t กับ t+9:59 อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(9 * 60000 + 59000)], localNow).peakPer10Min, 2);
   check("lastWarnAt = http_warn หรือ bot_signal ล่าสุด", a.summarizeActivity([{ at: at(50), kind: "http_warn" }, { at: at(20), kind: "bot_signal" }, gen(1)], now).lastWarnAt, at(20));
   check("ACTIVITY_KINDS มีครบตามสเปก", a.ACTIVITY_KINDS, ["generate_image", "generate_video", "upload", "new_project", "download", "http_warn", "bot_signal", "break", "session_start"]);
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
