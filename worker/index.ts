@@ -9,7 +9,7 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
   ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID, buildRenderPrompt,
-  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, toJobRound, videoFilename,
+  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, toJobRound,
   type JobRound,
 } from "@/lib/flow-jobs";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -17,6 +17,7 @@ import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser
 import { notify } from "./notify";
 import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
 import { runRound } from "./flow-driver";
+import { renderOutcome } from "./flow-signals";
 import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
 import { randInt, sleepMs } from "./humanize";
@@ -215,29 +216,32 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     );
 
     if (round === 3) {
+      const outcome = renderOutcome(result.files, result.downloadFailed, job.attempt);
       await prisma.$transaction(async (tx) => {
         // มีได้แถวเดียว — "เรนเดอร์ใหม่" ลบของ attempt ก่อนไปแล้ว แต่ถ้ารันต่อหลังพังแล้วมีแถวค้าง ให้แทนที่
         await tx.flowJobImage.deleteMany({ where: { jobId: job.id, kind: "video" } });
-        await tx.flowJobImage.create({
-          data: {
-            jobId: job.id,
-            kind: "video",
-            round: 3,
-            attempt: job.attempt,
-            index: 0,
-            filename: videoFilename(job.attempt),
-            mimeType: "video/mp4",
-            promptExtra: job.extraPrompt,
-            flowMediaId: result.mediaId ?? "",
-          },
-        });
+        if (outcome.createVideoRow && outcome.filename !== null) {
+          await tx.flowJobImage.create({
+            data: {
+              jobId: job.id,
+              kind: "video",
+              round: 3,
+              attempt: job.attempt,
+              index: 0,
+              filename: outcome.filename,
+              mimeType: "video/mp4",
+              promptExtra: job.extraPrompt,
+              flowMediaId: result.mediaId ?? "",
+            },
+          });
+        }
         await tx.flowJob.update({
           where: { id: job.id },
-          data: { status: reviewStatus(3), flowProjectId: result.projectId },
+          data: { status: outcome.status, flowProjectId: result.projectId, errorMessage: outcome.errorMessage },
         });
       });
-      log(`งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป`);
-      notify("คลิปพร้อมให้ดู", job.entry.productName);
+      log(outcome.createVideoRow ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
+      notify(outcome.createVideoRow ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
       return true;
     }
 

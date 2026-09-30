@@ -120,3 +120,22 @@ export function pickDirectVideoUrl(srcs: (string | null)[]): string | null {
   }
   return null;
 }
+
+/**
+ * ผลของรอบ Render → สิ่งที่ worker เขียนลง DB (pure เพื่อทดสอบได้ — ส่วน Playwright ทดสอบไม่ได้)
+ * กติกา: หลัง Flow เรนเดอร์เสร็จ **ห้ามเป็น failed** ไม่ว่าจะโหลดไฟล์ได้หรือไม่ (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์)
+ * ไม่ได้ไฟล์ = review_r3 โดยไม่มีแถว video + errorMessage บอกเหตุ (UI ปิดปุ่ม "ผ่าน" ผ่าน canApproveRender)
+ */
+export function renderOutcome(
+  files: string[],
+  downloadFailed: string | null,
+  attempt: number
+): { status: "review_r3"; createVideoRow: boolean; filename: string | null; errorMessage: string } {
+  const gotFile = files.length > 0;
+  return {
+    status: "review_r3",
+    createVideoRow: gotFile,
+    filename: gotFile ? `r3-a${String(attempt)}.mp4` : null,
+    errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${downloadFailed ?? ""}`.slice(0, 2000),
+  };
+}

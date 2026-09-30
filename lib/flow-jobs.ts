@@ -248,7 +248,7 @@ export const STEP_LABELS: Record<string, string> = {
   "set-video-settings": "ตั้งค่าคลิป (Ingredients · 9:16 · Omni 1.1 Flash · 720p · 10s · x1)",
   "paste-prompt": "วาง 10-part prompt",
   "wait-render": "รอคลิป",
-  "download-preview": "โหลดคลิปตัวอย่าง 720p",
+  "download-preview": "โหลดคลิปตัวอย่าง 720p (ลิงก์ตรง → เมนู)",
   "find-video": "หาคลิปที่ผ่านในโปรเจกต์เดิม",
   "download-final": "โหลดคลิป 1080p Upscaled",
 };

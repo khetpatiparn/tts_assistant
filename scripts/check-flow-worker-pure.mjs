@@ -164,6 +164,16 @@ try {
   check("หลายตัว เอาตัวแรกที่ใช่", fs2.pickDirectVideoUrl(["blob:x", direct]), direct);
   check("host อื่นที่ไม่ใช่ flow-content.google → null (กันโดนหลอกให้โหลดจากที่อื่น)", fs2.pickDirectVideoUrl(["https://evil.example/video/abc"]), null);
 
+  // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
+  const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
+  check("ได้ไฟล์ → review_r3 + สร้างแถว video ชื่อ r3-a1.mp4 ไม่มี errorMessage",
+    JSON.stringify(okOutcome), JSON.stringify({ status: "review_r3", createVideoRow: true, filename: "r3-a1.mp4", errorMessage: "" }));
+  const noFile = fs2.renderOutcome([], "ลิงก์ตรง 403 · เมนูไม่เจอ", 2);
+  check("ไม่ได้ไฟล์ → ยัง review_r3 ไม่สร้างแถว video", noFile.status + "|" + String(noFile.createVideoRow) + "|" + String(noFile.filename), "review_r3|false|null");
+  check("ไม่ได้ไฟล์ → errorMessage บอกว่าคลิปอยู่ใน Flow", noFile.errorMessage.startsWith("โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว)"), true);
+  check("errorMessage ยาวเกิน 2000 ถูกตัด", fs2.renderOutcome([], "x".repeat(5000), 1).errorMessage.length <= 2000, true);
+  check("attempt 3 → ชื่อไฟล์ r3-a3.mp4", fs2.renderOutcome(["C:/x/r3-a3.mp4"], null, 3).filename, "r3-a3.mp4");
+
   check("default videoDailyCap = 20", good.videoDailyCap, 20);
   check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);
   check("default renderDownloadTimeoutMs = 10 นาที", good.renderDownloadTimeoutMs, 600000);

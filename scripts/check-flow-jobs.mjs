@@ -62,6 +62,7 @@ try {
   check("sourceFilename", f.sourceFilename(0, "jpg"), "source-0.jpg");
 
   check("videoFilename", f.videoFilename(2), "r3-a2.mp4");
+  check("videoFilename(2) ตรงกับ renderOutcome", f.videoFilename(2), "r3-a2.mp4");
   check("videoDownloadName ตัดอักขระต้องห้ามของ Windows", f.videoDownloadName('กล่อง 2/3 "ใหม่"'), "กล่อง 2 3 ใหม่.mp4");
   check("videoDownloadName ชื่อว่าง", f.videoDownloadName("  "), "clip.mp4");
   const tenPart = "1. Style\nบรรทัดสอง\n\n2. Scene";

@@ -120,6 +120,8 @@ export type SelectorSet = {
     tileContainer: string;
     tile: string;
     tileThumbnail: string;
+    /** <video> ที่ Flow ใส่ในช่องตอน hover — src เป็นลิงก์ตรง flow-content.google/video/… (พิสูจน์ 2026-09-30) */
+    tileVideo: string;
     /** ปุ่มในช่องที่โผล่เฉพาะตอน hover · เมนู Download (hover แล้วเมนูย่อยเลือกขนาดโผล่) */
     moreOptions: string;
     downloadMenuItem: string;
@@ -342,6 +344,8 @@ const MIGRATED: SelectorSet = {
     tile: "flow-video-tile",
     // ช่องที่เสร็จมีแค่ <img class="thumbnail"> (alt "Generated video thumbnail") ไม่มี <video> ในหน้า
     tileThumbnail: "img.thumbnail",
+    // ตอน hover Flow ใส่ <video src="https://flow-content.google/video/<uuid>?…"> ไว้ในช่อง (page.html หลักฐาน 2026-09-30)
+    tileVideo: "video",
     moreOptions: "button[aria-label='More options']",
     downloadMenuItem: "[role='menuitem']:has(mat-icon:text-is('download'))",
     menuItem: "[role='menuitem']",

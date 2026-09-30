@@ -9,7 +9,7 @@ import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import {
-  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickNewThumbnail,
+  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail,
   renderSettingsLabelOk,
 } from "./flow-signals";
 
@@ -38,7 +38,10 @@ export type RoundInput = {
 };
 
 /** mediaId = id ของคลิปใน Flow (รอบ 3-4) ให้ worker เก็บไว้หาช่องเดิมตอนโหลด 1080p */
-export type RoundResult = { files: string[]; projectId: string; responseBody: unknown; mediaId?: string };
+export type RoundResult = { files: string[]; projectId: string; responseBody: unknown; mediaId?: string;
+  /** รอบ 3 เท่านั้น: Flow เรนเดอร์เสร็จแล้วแต่โหลดไฟล์มาไม่ได้ทั้งสองทาง — เหตุผลสั้นๆ · null = ได้ไฟล์ */
+  downloadFailed: string | null;
+};
 
 /** ลำดับขั้นตายตัว — ชื่อพวกนี้คือค่าใน FlowJob.failedStep และ UI ใช้แปลเป็นคำอธิบาย (STEP_LABELS) */
 export const FLOW_STEPS = [
@@ -572,6 +575,49 @@ export async function runRound(
     }
 
     /**
+     * ทางแรกของการโหลดคลิป: hover ช่อง → อ่าน <video src> ที่ Flow ใส่ให้ → ดึงไฟล์ตรงด้วย page.request (แนบ cookie ของบอท
+     * ให้เองเผื่อวันหน้า Google บังคับ) · ไม่แตะเมนู ⋯ เลย — เมนูซ้อน 3 ชั้นคือขั้นที่พังบ่อยที่สุด (2 ใน 2 รอบจริง)
+     * คืน null เมื่อ (ก) ไม่มี <video src> ที่ใช้ได้ใน 10 วิ (ข) HTTP ไม่ใช่ 2xx เช่น ลายเซ็นหมดอายุ (ค) ไฟล์ไม่ใช่ MP4 —
+     * ผู้เรียกถอยไปเมนู · ไม่ throw เพราะยังมีทางถอย
+     */
+    async function downloadVideoDirect(name: FlowStep, mediaId: string, filename: string): Promise<string | null> {
+      const v = videoSel(name);
+      const idx = (await videoTileIds(name)).indexOf(mediaId);
+      if (idx < 0) return null;
+      const container = page.locator(v.tileContainer).nth(idx);
+      await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
+      await humanHover(page, container.locator(v.tile).first(), cfg);
+      let url: string | null = null;
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const srcs = await container.locator(v.tileVideo).evaluateAll((els) =>
+          els.map((e) => (e as HTMLVideoElement).currentSrc || e.getAttribute("src"))
+        );
+        url = pickDirectVideoUrl(srcs);
+        if (url !== null) break;
+        await sleepMs(500);
+      }
+      if (url === null) {
+        log.log(name, "ไม่เจอ <video src> ลิงก์ตรงใน 10 วิ — ถอยไปใช้เมนู");
+        return null;
+      }
+      const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs }).catch(() => null);
+      if (res === null || !res.ok()) {
+        log.log(name, `ลิงก์ตรงตอบ ${res === null ? "network error" : `HTTP ${String(res.status())}`} — ถอยไปใช้เมนู`);
+        return null;
+      }
+      const buf = await res.body();
+      if (!isMp4Header(buf)) {
+        log.log(name, `ลิงก์ตรงให้ไฟล์ที่ไม่ใช่ MP4 (${String(buf.length)} bytes) — ถอยไปใช้เมนู`);
+        return null;
+      }
+      const file = path.join(input.outDir, filename);
+      writeFileSync(file, buf);
+      log.log(name, `ได้ไฟล์ ${filename} ${String(Math.round(buf.length / 1024))} KB (ลิงก์ตรง)`);
+      return file;
+    }
+
+    /**
      * โหลดคลิปของช่องที่มี id นี้ด้วยเมนู More options → Download → ขนาดที่ต้องการ — ปุ่มโผล่เฉพาะตอนเอาเมาส์
      * วางบน <flow-video-tile> จริง (ยืนยันสด 2026-09-30) · Flow ยิงเป็น blob download จึงจับด้วย event "download"
      * แล้ว saveAs · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน
@@ -803,10 +849,31 @@ export async function runRound(
         await maybeIdleScroll(page, cfg);
       });
 
-      const file = await step("download-preview", () =>
-        downloadVideo("download-preview", mediaId, videoSel("download-preview").previewQuality, `${input.filePrefix}.mp4`)
-      );
-      return { files: [file], projectId: projectId as string, responseBody: null, mediaId };
+      // หลังจากนี้ห้ามทำให้งาน failed — เครดิตจ่ายแล้ว คลิปมีจริงในโปรเจกต์ (spec 2026-09-30 §2 "หลักการรวม")
+      // ลำดับ: ลิงก์ตรง → เมนู (โค้ดเดิม) → ยอมแพ้แบบไม่พัง ให้ผู้ใช้ไปโหลดเองใน Flow
+      const preview = await step("download-preview", async () => {
+        try {
+          const direct = await downloadVideoDirect("download-preview", mediaId, `${input.filePrefix}.mp4`);
+          if (direct !== null) return { file: direct, failed: null as string | null };
+        } catch (e) {
+          log.log("download-preview", `ลิงก์ตรงพัง (${e instanceof Error ? e.message : String(e)}) — ถอยไปใช้เมนู`);
+        }
+        try {
+          const viaMenu = await downloadVideo("download-preview", mediaId, videoSel("download-preview").previewQuality, `${input.filePrefix}.mp4`);
+          return { file: viaMenu as string | null, failed: null as string | null };
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
+          log.log("download-preview", `โหลดไม่ได้ทั้งลิงก์ตรงและเมนู — คลิปยังอยู่ใน Flow ให้ผู้ใช้โหลดเอง: ${reason}`);
+          return { file: null as string | null, failed: reason };
+        }
+      });
+      return {
+        files: preview.file === null ? [] : [preview.file],
+        projectId: projectId as string,
+        responseBody: null,
+        mediaId,
+        downloadFailed: preview.failed,
+      };
     }
 
     /**
@@ -834,7 +901,7 @@ export async function runRound(
       const file = await step("download-final", () =>
         downloadVideo("download-final", mediaId, videoSel("download-final").finalQuality, `${input.filePrefix}.mp4`)
       );
-      return { files: [file], projectId: projectId as string, responseBody: null, mediaId };
+      return { files: [file], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: null };
     }
 
     await step("attach-reference", () => attachReferences(input.referencePaths));
@@ -988,7 +1055,7 @@ export async function runRound(
       return written;
     });
 
-    return { files, projectId: projectId as string, responseBody: responses.filter((r) => r.at >= submitAt).map((r) => r.body) };
+    return { files, projectId: projectId as string, responseBody: responses.filter((r) => r.at >= submitAt).map((r) => r.body), downloadFailed: null };
   } finally {
     page.off("response", onResponse);
   }
