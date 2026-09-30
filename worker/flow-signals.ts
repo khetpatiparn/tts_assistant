@@ -144,3 +144,16 @@ export function renderOutcome(
 export function postRenderFailReason(step: string, reason: string): string {
   return `${step} พังก่อนเริ่มโหลด: ${reason}`;
 }
+
+/**
+ * เมนู Download ของ Flow: หลัง hover "Download" + ArrowRight โฟกัสอยู่ที่รายการแรกของเมนูย่อย — คืนจำนวน ArrowDown
+ * ที่ต้องกดจนถึงรายการที่ต้องการ · เมนูย่อย = รายการที่มีคำว่า Animated GIF / Original size / Upscaled (สำรวจสด 2026-09-30)
+ * null = ไม่เจอ หรือรายการนั้น [disabled] (เช่น 4K ที่ต้องอัปเกรด) ให้ผู้เรียกพังเป็น selector_drift
+ */
+export function submenuArrowDowns(menuTexts: string[], quality: RegExp[]): number | null {
+  const sub = menuTexts.filter((t) => /Animated GIF|Original size|Upscaled/.test(t));
+  if (sub.length === 0) return null;
+  const pos = sub.findIndex((t) => quality.every((q) => q.test(t)));
+  if (pos < 0 || /\[disabled\]/.test(sub[pos])) return null;
+  return pos;
+}

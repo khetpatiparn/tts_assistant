@@ -246,14 +246,27 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     }
 
     if (round === 4 && approvedVideo !== null) {
-      await prisma.$transaction(async (tx) => {
-        // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
-        await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
-        await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
-      });
-      if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
-      log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
-      notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
+      if (result.files.length > 0) {
+        await prisma.$transaction(async (tx) => {
+          // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
+          await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
+          await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
+        });
+        if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
+        log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
+        notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
+      } else {
+        await prisma.flowJob.update({
+          where: { id: job.id },
+          data: {
+            status: FLOW_STATUS.DONE,
+            finishedAt: new Date(),
+            errorMessage: `ได้ 720p (โหลด 1080p ไม่ได้: ${result.downloadFailed ?? ""})`.slice(0, 2000),
+          },
+        });
+        log(`งาน ${job.id} จบด้วย 720p (1080p โหลดไม่ได้)`);
+        notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
+      }
       return true;
     }
 

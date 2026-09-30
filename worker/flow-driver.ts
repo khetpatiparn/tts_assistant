@@ -10,7 +10,7 @@ import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import {
   blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason,
-  renderSettingsLabelOk,
+  renderSettingsLabelOk, submenuArrowDowns,
 } from "./flow-signals";
 
 export type RoundInput = {
@@ -660,37 +660,35 @@ export async function runRound(
       await dl.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
       await humanHover(page, dl, cfg);
       await sleepMs(randInt([600, 1000]));
-      let option = page.locator(v.menuItem);
-      for (const q of quality) option = option.filter({ hasText: q });
-      const target = option.first();
-      try {
-        await target.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-      } catch {
-        const labels = await page.locator(v.menuItem).allInnerTexts().catch(() => [] as string[]);
-        throw new FlowStepError(name, "selector_drift", `ไม่เจอเมนูโหลด ${quality.map(String).join(" + ")} — เมนูมี: ${labels.join(" / ")}`);
-      }
       // ภาพเมนูที่เปิดอยู่ก่อนกด — ย้อนดูได้ว่าเปิดเมนูของช่องไหน และเมนูย่อยโผล่จริงไหม
       await checkpoint(5, "menu");
-      // ห้ามใช้ humanClick กับเมนูย่อย: เส้นโค้งสุ่มของเมาส์ผ่านรายการอื่นในเมนูหลัก (Copy/Rename…) เมนูย่อยของ
-      // Download ปิดตัวทันที แล้วคลิกไปโดนที่ว่าง → ไม่มีไฟล์ บอทนั่งรอจนครบ renderDownloadTimeoutMs (เจอจริง
-      // 2026-09-30 งานแรกบน Flow จริง: รอ 600 วิเปล่า) · เดินเมาส์เป็นมุมฉาก: แนวนอนจากแถว Download เข้าเมนูย่อยก่อน
-      // แล้วค่อยขึ้น/ลงไปที่ตัวเลือก — ตัวเลือกอยู่ในเมนูย่อยทั้งเส้น ไม่ผ่านรายการอื่นของเมนูหลักเลย
-      const dlBox = await dl.boundingBox();
-      const tBox = await target.boundingBox();
-      if (dlBox === null || tBox === null) throw new FlowStepError(name, "selector_drift", "วัดตำแหน่งเมนูโหลดไม่ได้");
-      await page.mouse.move(tBox.x + Math.min(24, tBox.width / 3), dlBox.y + dlBox.height / 2, { steps: randInt([6, 10]) });
-      await sleepMs(randInt([150, 300]));
-      await page.mouse.move(tBox.x + tBox.width / 2, tBox.y + tBox.height / 2, { steps: randInt([5, 8]) });
-      await sleepMs(randInt([150, 350]));
+      // เมนูย่อยด้วยคีย์บอร์ด (Angular Material รองรับ ArrowDown/ArrowRight/Enter มาตรฐาน) — เมาส์เดินเส้นโค้งผ่านรายการอื่น
+      // ทำให้เมนูย่อยปิด (เจอจริง 2026-09-30) · โฟกัสอยู่ที่ "Download" แล้วหลัง hover → ArrowRight เปิดเมนูย่อย →
+      // ArrowDown ไปทีละรายการจนถึงตัวเลือกที่ต้องการ → Enter
+      await dl.focus();
+      await page.keyboard.press("ArrowRight");
+      await sleepMs(randInt([300, 600]));
+      const items = page.locator(v.menuItem);
+      // ข้อความรวม [disabled] ด้วย เพื่อให้ submenuArrowDowns ปฏิเสธรายการที่กดไม่ได้ (เช่น 4K)
+      const texts = await items.evaluateAll((els) =>
+        els.map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim() + (e.getAttribute("aria-disabled") === "true" || (e as HTMLButtonElement).disabled ? " [disabled]" : ""))
+      );
+      const downs = submenuArrowDowns(texts, quality);
+      if (downs === null) {
+        throw new FlowStepError(name, "selector_drift", `ไม่เจอเมนูโหลด ${quality.map(String).join(" + ")} — เมนูมี: ${texts.join(" / ")}`);
+      }
       const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
       // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
       downloadEvent.catch(() => {});
-      await page.mouse.down();
-      await page.mouse.up();
+      for (let i = 0; i < downs; i++) {
+        await page.keyboard.press("ArrowDown");
+        await sleepMs(randInt([120, 250]));
+      }
+      await page.keyboard.press("Enter");
       // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
       await sleepMs(3000);
-      if (await target.isVisible().catch(() => false)) {
-        throw new FlowStepError(name, "selector_drift", "กดตัวเลือกโหลดแล้วเมนูไม่ปิด (คลิกไม่ติด) — ยังไม่ได้เริ่มโหลด");
+      if ((await page.locator(v.menuItem).count()) > 0) {
+        throw new FlowStepError(name, "selector_drift", "กด Enter แล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
       }
       const download = await downloadEvent.catch((e: unknown) => {
         if (isTimeout(e)) {
@@ -927,10 +925,17 @@ export async function runRound(
           `ไม่เจอคลิปที่ผ่าน (${mediaId}) ในโปรเจกต์ — มีช่องวิดีโอ ${String(ids.length)} ช่อง: ${ids.join(", ") || "ไม่มี"}`,
         );
       });
-      const file = await step("download-final", () =>
-        downloadVideo("download-final", mediaId, videoSel("download-final").finalQuality, `${input.filePrefix}.mp4`)
-      );
-      return { files: [file], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: null };
+      // 1080p ล้ม = ไม่พัง: ผู้ใช้มี 720p อยู่แล้ว งานจบด้วยหมายเหตุ (spec 2026-09-30 §2)
+      const final = await step("download-final", async () => {
+        try {
+          return { file: await downloadVideo("download-final", mediaId, videoSel("download-final").finalQuality, `${input.filePrefix}.mp4`), failed: null as string | null };
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
+          log.log("download-final", `โหลด 1080p ไม่ได้ — ใช้ 720p ที่มีอยู่แล้ว: ${reason}`);
+          return { file: null as string | null, failed: reason };
+        }
+      });
+      return { files: final.file === null ? [] : [final.file], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: final.failed };
     }
 
     await step("attach-reference", () => attachReferences(input.referencePaths));
