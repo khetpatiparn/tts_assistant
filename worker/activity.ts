@@ -6,16 +6,21 @@ import type { ActivityKind } from "@/lib/flow-activity";
  * อาจชน SQLITE_BUSY) พังก็พิมพ์บรรทัดเดียวแล้วไปต่อ · ไม่ await ที่จุดเรียก
  */
 export function logActivity(input: { kind: ActivityKind; jobId?: string; round?: number; detail?: Record<string, unknown> }): void {
-  prisma.flowActivity
-    .create({
-      data: {
-        kind: input.kind,
-        jobId: input.jobId ?? "",
-        round: input.round ?? 0,
-        detail: input.detail === undefined ? "" : JSON.stringify(input.detail).slice(0, 2000),
-      },
-    })
-    .catch((e: unknown) => {
-      console.log(`${new Date().toISOString()}  บันทึก FlowActivity ไม่สำเร็จ (ไม่กระทบงาน): ${e instanceof Error ? e.message : String(e)}`);
-    });
+  const report = (e: unknown): void => {
+    console.log(`${new Date().toISOString()}  บันทึก FlowActivity ไม่สำเร็จ (ไม่กระทบงาน): ${e instanceof Error ? e.message : String(e)}`);
+  };
+  try {
+    prisma.flowActivity
+      .create({
+        data: {
+          kind: input.kind,
+          jobId: input.jobId ?? "",
+          round: input.round ?? 0,
+          detail: input.detail === undefined ? "" : JSON.stringify(input.detail).slice(0, 2000),
+        },
+      })
+      .catch(report);
+  } catch (e) {
+    report(e);
+  }
 }

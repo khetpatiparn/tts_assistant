@@ -15,6 +15,7 @@ import {
 import { loadWorkerConfig, type WorkerConfig } from "./config";
 import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
 import { notify } from "./notify";
+import { logActivity } from "./activity";
 import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
 import { runRound } from "./flow-driver";
 import { renderOutcome } from "./flow-signals";
@@ -194,6 +195,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     const result = await runRound(
       page,
       {
+        jobId: job.id,
         round,
         productName: job.entry.productName,
         referencePaths: referencePathsFor(job, round),
@@ -423,6 +425,16 @@ async function main() {
     return pauseAndExit("host_unsupported", `เปิด Flow ไม่ได้: ${String(e)}`, 1);
   }
   log(`เปิด Flow แล้ว host=${host} selectorSet=${sel.name}`);
+  logActivity({
+    kind: "session_start",
+    detail: {
+      config: {
+        betweenProductsMs: cfg.betweenProductsMs, betweenBatchesMs: cfg.betweenBatchesMs,
+        longBreakEvery: cfg.longBreakEvery, longBreakMs: cfg.longBreakMs,
+        dailyBatchCap: cfg.dailyBatchCap, videoDailyCap: cfg.videoDailyCap,
+      },
+    },
+  });
 
   // มาถึงตรงนี้ = session ใช้ได้ ถ้ารอบก่อนหยุดเพราะ session หลุด แปลว่าผู้ใช้ login ใหม่แล้ว
   // (การเปิดบอทใหม่คือการกระทำของคน ไม่ใช่บอท retry เอง) → ปลดการหยุด และคืนงานที่พังเพราะ
@@ -481,6 +493,7 @@ async function main() {
       const ms = randInt(cfg.longBreakMs);
       log(`พักยาว ${Math.round(ms / 60000)} นาที`);
       await upsertState({ nextWakeAt: new Date(Date.now() + ms), sessionStreak: 0 });
+      logActivity({ kind: "break", detail: { ms, why: "long" } });
       await sleepUntil(Date.now() + ms);
       longBreakTarget = pickLongBreakTarget(cfg.longBreakEvery);
       continue;
@@ -532,6 +545,7 @@ async function main() {
     // โหลด 1080p เป็นงานสั้นที่ไม่ได้กดสร้างอะไร → พักสั้น (betweenBatchesMs) · งานอื่นพักแบบเปลี่ยนสินค้า (betweenProductsMs)
     const pause = randInt(doneRound === 4 ? cfg.betweenBatchesMs : cfg.betweenProductsMs);
     await upsertState({ nextWakeAt: new Date(Date.now() + pause) });
+    logActivity({ kind: "break", jobId: job.id, round: doneRound, detail: { ms: pause, why: "between" } });
     await sleepUntil(Date.now() + pause);
   }
 

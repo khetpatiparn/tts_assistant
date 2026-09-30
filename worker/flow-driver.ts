@@ -8,12 +8,15 @@ import { findByIntent, findByJev } from "./dom-heuristics";
 import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
+import { logActivity } from "./activity";
 import {
   blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason,
   renderSettingsLabelOk, submenuArrowDowns,
 } from "./flow-signals";
 
 export type RoundInput = {
+  /** สำหรับ FlowActivity เท่านั้น */
+  jobId: string;
   /** 1-2 = วาดรูป · 3 = Render คลิป (โหลดตัวอย่าง 720p) · 4 = กลับไปโหลดคลิปที่ผ่านแบบ 1080p */
   round: 1 | 2 | 3 | 4;
   productName: string;
@@ -185,6 +188,7 @@ async function assertSelected(loc: Locator, step: FlowStep, what: string): Promi
 async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cfg: WorkerConfig, log: StepLog): Promise<void> {
   const host = new URL(page.url()).host;
   if (host.includes("accounts.google.com") || (await hasSignInButton(page))) {
+    logActivity({ kind: "bot_signal", detail: { signal: "login_required" } });
     throw new FlowStepError(step, "login_required", "ถูกส่งไปหน้า login / เจอปุ่ม Sign in");
   }
   if (!sel.hosts.includes(host)) {
@@ -192,6 +196,7 @@ async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cf
   }
   for (const c of sel.captchaSignals) {
     if ((await page.locator(c).count()) > 0) {
+      logActivity({ kind: "bot_signal", detail: { signal: c } });
       throw new FlowStepError(step, "captcha", `เจอสัญญาณ captcha: ${c}`);
     }
   }
@@ -280,6 +285,10 @@ export async function runRound(
       }
     }
     responses.push({ status: res.status(), body, at: Date.now() });
+    // สัญญาณเตือนล่วงหน้า — Google ตอบไม่ปกติแม้งานยังไม่พัง (spec 2026-09-30 §3)
+    if (res.status() === 429 || res.status() === 403 || res.status() >= 500) {
+      logActivity({ kind: "http_warn", jobId: input.jobId, round: input.round, detail: { status: res.status(), url: res.url().slice(0, 120) } });
+    }
   };
 
   /**
@@ -353,6 +362,7 @@ export async function runRound(
       }
       const btn = await firstVisible(page, "ensure-project", sel.newProject, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.newProject, log });
       await humanClick(page, btn, cfg);
+      logActivity({ kind: "new_project", jobId: input.jobId, round: input.round });
       await page.waitForURL((u) => u.toString().includes(sel.projectUrlFragment), { timeout: 20_000 });
       await sleepMs(randInt([2000, 4000]));
       await dismissOverlays(page, sel, cfg, log);
@@ -532,6 +542,7 @@ export async function runRound(
         clickUpload(),
       ]);
       await chooser.setFiles(paths);
+      logActivity({ kind: "upload", jobId: input.jobId, round: input.round, detail: { files: paths.length } });
       const up = await uploadResponse;
       if (up.status() >= 400) {
         throw new FlowStepError("attach-reference", "flow_error", `อัปโหลดรูปตอบ HTTP ${up.status()}`);
@@ -636,6 +647,7 @@ export async function runRound(
       const file = path.join(input.outDir, filename);
       writeFileSync(file, buf);
       log.log(name, `ได้ไฟล์ ${filename} ${String(Math.round(buf.length / 1024))} KB (ลิงก์ตรง)`);
+      logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "direct" } });
       return file;
     }
 
@@ -715,6 +727,7 @@ export async function runRound(
         throw new FlowStepError(name, "download_failed", `ไฟล์ที่ได้ไม่ใช่ MP4 (${String(buf.length)} bytes)`);
       }
       log.log(name, `ได้ไฟล์ ${filename} ${String(Math.round(buf.length / 1024))} KB`);
+      logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "menu" } });
       return file;
     }
 
@@ -808,6 +821,7 @@ export async function runRound(
       await step("click-generate", async () => {
         const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
         submitAt = Date.now();
+        logActivity({ kind: input.round === 3 ? "generate_video" : "generate_image", jobId: input.jobId, round: input.round });
         await humanClick(page, btn, cfg);
       });
 
@@ -818,6 +832,7 @@ export async function runRound(
         while (Date.now() < deadline) {
           for (const c of sel.captchaSignals) {
             if ((await page.locator(c).count()) > 0) {
+              logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
               throw new FlowStepError("wait-render", "captcha", `เจอสัญญาณ captcha ระหว่างรอคลิป: ${c}`);
             }
           }
@@ -833,6 +848,7 @@ export async function runRound(
             if (freshFailed > 0) {
               const kind = errorKindForTileTexts(await tiles.allInnerTexts());
               if (kind === "captcha") {
+                logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
                 throw new FlowStepError("wait-render", "captcha", "Flow แจ้ง unusual activity (โดนจับว่าเป็นบอท) — พักก่อน");
               }
               throw new FlowStepError("wait-render", "flow_error", "Flow ทำคลิปไม่สำเร็จ (การ์ด error ในกริด)");
@@ -971,6 +987,7 @@ export async function runRound(
     await step("click-generate", async () => {
       const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
       submitAt = Date.now();
+      logActivity({ kind: input.round === 3 ? "generate_video" : "generate_image", jobId: input.jobId, round: input.round });
       await humanClick(page, btn, cfg);
     });
 
@@ -985,6 +1002,7 @@ export async function runRound(
         // สัญญาณบอทก่อนอย่างอื่น — ถ้าหน้าเปลี่ยนเป็นหน้าบล็อกระหว่างรอ เดิมเช็กแค่ก่อนเริ่มแต่ละขั้น
         for (const c of sel.captchaSignals) {
           if ((await page.locator(c).count()) > 0) {
+            logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
             throw new FlowStepError("wait-results", "captcha", `เจอสัญญาณ captcha ระหว่างรอผล: ${c}`);
           }
         }
@@ -1032,6 +1050,7 @@ export async function runRound(
             // ใช้ทั้งตอน "วาดไม่สำเร็จ" และตอนโดนบล็อก ต้องแยกให้ออก ห้ามรอให้ครบทุกช่องถ้าเป็นการบล็อก
             const kind = errorKindForTileTexts(await tiles.allInnerTexts());
             if (kind === "captcha") {
+              logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
               throw new FlowStepError("wait-results", "captcha", "Flow แจ้ง unusual activity (โดนจับว่าเป็นบอท) — พักก่อน");
             }
             if (freshFailed + goodCount >= COUNT) {
@@ -1096,6 +1115,7 @@ export async function runRound(
         written.push(file);
         await sleepMs(randInt([300, 900]));
       }
+      logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { files: 4 } });
       return written;
     });
 
