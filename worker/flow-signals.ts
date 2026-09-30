@@ -155,5 +155,6 @@ export function submenuArrowDowns(menuTexts: string[], quality: RegExp[]): numbe
   if (sub.length === 0) return null;
   const pos = sub.findIndex((t) => quality.every((q) => q.test(t)));
   if (pos < 0 || /\[disabled\]/.test(sub[pos])) return null;
-  return pos;
+  // FocusKeyManager ข้ามรายการ [disabled] — นับเฉพาะที่กดได้ก่อนถึงเป้า
+  return sub.slice(0, pos).filter((t) => !/\[disabled\]/.test(t)).length;
 }

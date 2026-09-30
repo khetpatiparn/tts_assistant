@@ -665,9 +665,19 @@ export async function runRound(
       // เมนูย่อยด้วยคีย์บอร์ด (Angular Material รองรับ ArrowDown/ArrowRight/Enter มาตรฐาน) — เมาส์เดินเส้นโค้งผ่านรายการอื่น
       // ทำให้เมนูย่อยปิด (เจอจริง 2026-09-30) · โฟกัสอยู่ที่ "Download" แล้วหลัง hover → ArrowRight เปิดเมนูย่อย →
       // ArrowDown ไปทีละรายการจนถึงตัวเลือกที่ต้องการ → Enter
-      await dl.focus();
+      // ห้าม dl.focus(): hover ที่ Download เปิดเมนูย่อยและ Angular Material โฟกัสรายการแรกของเมนูย่อยให้แล้ว
+      // การดึงโฟกัสกลับมาที่ปุ่ม Download ทำให้ ArrowDown ไปวิ่งในเมนูหลัก (Enter โดน "Add to scene")
       await page.keyboard.press("ArrowRight");
       await sleepMs(randInt([300, 600]));
+      const submenuRe = /Animated GIF|Original size|Upscaled/;
+      const activeText = () =>
+        page.evaluate(() => (document.activeElement?.textContent ?? "").replace(/\s+/g, " ").trim());
+      const focusBefore = await activeText();
+      log.log(name, `โฟกัสก่อน guard: "${focusBefore}"`);
+      if (!submenuRe.test(focusBefore)) {
+        await page.locator(v.menuItem).filter({ hasText: submenuRe }).first().focus({ timeout: cfg.selectorTimeoutMs });
+        log.log(name, `โฟกัสหลัง guard: "${await activeText()}"`);
+      }
       const items = page.locator(v.menuItem);
       // ข้อความรวม [disabled] ด้วย เพื่อให้ submenuArrowDowns ปฏิเสธรายการที่กดไม่ได้ (เช่น 4K)
       const texts = await items.evaluateAll((els) =>
@@ -687,7 +697,7 @@ export async function runRound(
       await page.keyboard.press("Enter");
       // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
       await sleepMs(3000);
-      if ((await page.locator(v.menuItem).count()) > 0) {
+      if ((await page.locator(v.menuItem).filter({ visible: true }).count()) > 0) {
         throw new FlowStepError(name, "selector_drift", "กด Enter แล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
       }
       const download = await downloadEvent.catch((e: unknown) => {

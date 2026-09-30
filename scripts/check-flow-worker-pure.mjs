@@ -143,6 +143,8 @@ try {
   check("เมนูย่อยสลับลำดับ ยังนับถูก", fs2.submenuArrowDowns([...MENU.slice(0, 12), "1080p | Upscaled", "720p | Original size"], [/720p/, /Original size/]), 1);
   check("ต้องแมตช์ทุก regex (720p อย่างเดียวไม่พอ)", fs2.submenuArrowDowns([...MENU.slice(0, 12), "720p | Animated GIF", "720p | Original size"], [/720p/, /Original size/]), 1);
 
+  check("รายการ disabled ก่อนเป้าไม่นับ (FocusKeyManager ข้าม)", fs2.submenuArrowDowns([...MENU.slice(0, 12), "270p | Animated GIF [disabled]", "720p | Original size"], [/720p/, /Original size/]), 0);
+
   // ---------- Render คลิป ----------
   check("ป้าย trigger หลังตั้งค่าครบ (ตามที่เห็นจริง) → ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 10s\ncrop_9_16\nx1"), true);
   check("ป้ายยังเป็น 8s → ไม่ผ่าน", fs2.renderSettingsLabelOk("Video · 720p · 8s crop_9_16 x1"), false);
