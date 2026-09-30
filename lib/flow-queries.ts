@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { loadWorkerConfig } from "@/worker/config";
+import { summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 
 export type FlowImageRow = {
@@ -32,6 +33,8 @@ export type FlowJobRow = {
   errorKind: string;
   errorMessage: string;
   failureDir: string;
+  /** id โปรเจกต์ใน Flow ("" = ยังไม่มี) — ใช้ทำลิงก์เปิดโปรเจกต์เมื่อโหลดคลิปเองไม่ได้ */
+  flowProjectId: string;
   /** ข้อความเพิ่มเติมที่จะใช้กับการวาดครั้งถัดไป */
   extraPrompt: string;
   /** ภาพจุดเช็กของรอบ/attempt ล่าสุดที่บอทลงมือแล้ว (ว่าง = ยังไม่มี/ลบไปแล้วหลัง 14 วัน) */
@@ -65,6 +68,8 @@ export type FlowWorkerView = {
   currentJobId: string | null;
   /** บอท Render คลิปเองไหม (flow-worker.config.json) — ปิด = โชว์แผงทำคลิปเองแทน */
   renderEnabled: boolean;
+  /** สรุปสมุดบันทึกการกระทำ (FlowActivity) — วันนี้ยิงกี่ครั้ง · ถี่สุดต่อ 10 นาที (24 ชม.ล่าสุด) · สัญญาณเตือนล่าสุด */
+  activity: { today: number; peakPer10Min: number; lastWarnAt: Date | null };
 };
 
 const DONE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -115,7 +120,7 @@ export async function getFlowQueueData(): Promise<{
   summary: ReturnType<typeof summarizeQueue>;
 }> {
   const since = new Date(Date.now() - DONE_WINDOW_MS);
-  const [raw, state] = await Promise.all([
+  const [raw, state, activityRows] = await Promise.all([
     prisma.flowJob.findMany({
       where: {
         OR: [
@@ -129,6 +134,10 @@ export async function getFlowQueueData(): Promise<{
       },
     }),
     prisma.flowWorkerState.findUnique({ where: { id: WORKER_STATE_ID } }),
+    prisma.flowActivity.findMany({
+      where: { at: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      select: { at: true, kind: true },
+    }),
   ]);
 
   const jobs: FlowJobRow[] = raw
@@ -149,6 +158,7 @@ export async function getFlowQueueData(): Promise<{
         errorKind: j.errorKind,
         errorMessage: j.errorMessage,
         failureDir: j.failureDir,
+        flowProjectId: j.flowProjectId,
         extraPrompt: j.extraPrompt,
         checkpoints: [],
         createdAt: j.createdAt,
@@ -183,6 +193,7 @@ export async function getFlowQueueData(): Promise<{
     nextWakeAt: state?.nextWakeAt ?? null,
     currentJobId: state?.currentJobId ?? null,
     renderEnabled: cfg.renderEnabled,
+    activity: summarizeActivity(activityRows, now),
   };
 
   return { jobs: withCheckpoints, worker, summary: summarizeQueue(withCheckpoints) };

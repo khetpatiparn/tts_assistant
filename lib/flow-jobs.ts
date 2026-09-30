@@ -167,6 +167,11 @@ export function afterRedo(status: string): { status: FlowStatus } {
   throw new Error("ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
 }
 
+/** review_r3 ที่ไม่มีไฟล์ (โหลดไม่ได้ทั้งสองทาง): กด "ผ่าน" ไม่ได้ (ไม่มีไฟล์ให้ผ่าน) แต่ "เรนเดอร์ใหม่" ได้ */
+export function canApproveRender(status: string, hasVideoFile: boolean): boolean {
+  return status === FLOW_STATUS.REVIEW_R3 && hasVideoFile;
+}
+
 /** "ผ่าน" คลิปตัวอย่าง → ให้บอทโหลดคลิปเดิมแบบ 1080p (round 4) · งานจบเมื่อโหลดสำเร็จ */
 export function afterApproveRender(status: string): { status: FlowStatus; round: JobRound } {
   if (status === FLOW_STATUS.REVIEW_R3) return { status: FLOW_STATUS.QUEUED_UPSCALE, round: 4 };

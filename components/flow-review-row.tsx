@@ -23,6 +23,7 @@ import {
   STATUS_LABELS,
   STEP_LABELS,
   buildFlowPrompt,
+  canApproveRender,
   normalizeExtraPrompt,
   videoDownloadName,
   type FlowStatus,
@@ -261,7 +262,23 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 className="aspect-[9/16] w-48 rounded-md border border-border bg-surface-2 lg:w-56"
               />
             ) : (
-              <p className="text-sm leading-relaxed text-destructive">ไม่พบไฟล์คลิป — กดเรนเดอร์ใหม่</p>
+              <div className="flex flex-col gap-2 rounded-md border-l-4 border-status-warning bg-surface-2 p-3 leading-relaxed">
+                <p className="text-sm font-medium text-foreground">คลิปเสร็จแล้วใน Flow แต่โหลดมาไม่ได้</p>
+                {job.errorMessage && <p className="text-xs text-muted-foreground">{job.errorMessage}</p>}
+                <p className="text-xs text-muted-foreground">
+                  เปิดโปรเจกต์ในบัญชีสำรองแล้วโหลดเอง (⋯ → Download → 1080p) หรือกด &quot;เรนเดอร์ใหม่&quot; ให้บอทลองอีกครั้ง
+                </p>
+                {job.flowProjectId && (
+                  <a
+                    className="text-sm text-primary underline-offset-4 hover:underline"
+                    href={`https://flow.google.com/project/${job.flowProjectId}?hl=en`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    เปิดโปรเจกต์ใน Flow →
+                  </a>
+                )}
+              </div>
             )}
             <div className="flex min-w-0 flex-1 basis-72 flex-col gap-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
@@ -279,8 +296,12 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                   normalizeExtraPrompt(extra) === "" ? "" : ` + “${normalizeExtraPrompt(extra)}”`
                 }`}
               />
+              {/* มีไฟล์แต่มีข้อความ (เช่น ได้แค่ 720p เพราะโหลด 1080p ไม่ได้) ต้องโชว์ด้วย */}
+              {job.video && job.errorMessage && (
+                <p className="text-xs leading-relaxed text-muted-foreground">{job.errorMessage}</p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" disabled={isPending || job.video === null} onClick={() => run(() => approveFlowRender(job.id))}>
+                <Button type="button" disabled={isPending || !canApproveRender(job.status, job.video !== null)} onClick={() => run(() => approveFlowRender(job.id))}>
                   <Check data-icon="inline-start" /> ผ่าน
                 </Button>
                 <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
@@ -374,6 +395,9 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                   className="aspect-[3/4] w-20 rounded-md border-2 border-status-success object-cover lg:w-28"
                 />
               ) : null
+            )}
+            {job.errorMessage && job.video && (
+              <p className="basis-full text-xs leading-relaxed text-muted-foreground">{job.errorMessage}</p>
             )}
             {job.video?.chosen && (
               <div className="flex flex-col gap-2">

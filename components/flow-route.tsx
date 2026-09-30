@@ -84,6 +84,8 @@ export function FlowRoute({
             <span className="text-foreground">
               บอททำงานอยู่ · เห็นล่าสุด {minutesAgo(worker.lastSeenAt, now)} · วันนี้วาดไป {worker.todayBatches}/{worker.dailyBatchCap} ชุด
               · ทำคลิป {worker.todayRenders}/{worker.videoDailyCap}
+              {" · ยิง Flow วันนี้ "}{worker.activity.today}{" ครั้ง · ถี่สุด "}{worker.activity.peakPer10Min}{"/10 นาที · สัญญาณเตือน: "}
+              {worker.activity.lastWarnAt === null ? "ไม่มี" : `ล่าสุด ${minutesAgo(worker.activity.lastWarnAt, now)}`}
               {wake ? ` · ${wake}` : ""}
             </span>
           ) : (
