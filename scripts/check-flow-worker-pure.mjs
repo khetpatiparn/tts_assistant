@@ -38,7 +38,7 @@ try {
   const cfg = await import(pathToFileURL(join(out, "config.js")).href);
   const good = cfg.loadWorkerConfig("flow-worker.config.json");
   check("default dailyBatchCap = 24", good.dailyBatchCap, 24);
-  check("Render อัตโนมัติปิดเป็นค่าเริ่มต้น (ผู้ใช้ทำคลิปเองใน Flow)", good.renderEnabled, false);
+  check("ไฟล์จริงเปิด Render อัตโนมัติ (ผู้ใช้เลือกกลับมาใช้ 2026-09-30)", good.renderEnabled, true);
   {
     const noKey = JSON.parse(readFileSync("flow-worker.config.json", "utf8"));
     delete noKey.renderEnabled;

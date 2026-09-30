@@ -133,7 +133,10 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
     const entryId = autoGenerateEntryId;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAutoGenerateEntryId(null);
+    // ลองซ้ำเอง 1 ครั้งหลัง 10 วิ — เจอจริง 2026-09-30: Gemini ล้มกลางทาง ("Unexpected HTTP client error") ครั้งเดียว
+    // แล้วงานค้าง "รอ 10-part prompt" เป็นชั่วโมงเพราะไม่มีใครกดใหม่ · Render เริ่มเองทันทีที่พรอมต์บันทึกสำเร็จ
     generateWithAI(entryId, GEMINI_MODELS[0].id)
+      .catch(() => new Promise((r) => setTimeout(r, 10_000)).then(() => generateWithAI(entryId, GEMINI_MODELS[0].id)))
       .then(() => playCompletionSound("success"))
       .catch(() => playCompletionSound("error"));
   }, [autoGenerateEntryId]);
@@ -300,12 +303,25 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
         )}
 
         {renderEnabled && job.status === FLOW_STATUS.AWAITING_PROMPT && (
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            รอ Angle สร้าง 10-part prompt — ถ้าค้างนาน ไปกด &quot;สร้างด้วย AI&quot; ใน{" "}
-            <Link href={`/entry/${job.entryId}`} className="text-primary underline-offset-4 hover:underline">
-              หน้างาน
-            </Link>
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              รอ Angle สร้าง 10-part prompt แล้วบอทจะทำคลิปต่อเอง — ถ้าค้างนาน กดสร้างใหม่ได้เลย
+            </p>
+            {/* ไม่ต้องไปหน้างาน — สร้างพรอมต์จากตรงนี้ได้ทันที (generateWithAI ส่งงานเข้าคิว Render เองเมื่อสำเร็จ) */}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isPending}
+              onClick={() =>
+                run(async () => {
+                  await generateWithAI(job.entryId, GEMINI_MODELS[0].id);
+                })
+              }
+            >
+              <RotateCcw data-icon="inline-start" /> {isPending ? "กำลังสร้างพรอมต์..." : "สร้างพรอมต์ตอนนี้"}
+            </Button>
+          </div>
         )}
 
         {isUpscale && (
