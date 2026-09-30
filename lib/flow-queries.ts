@@ -70,6 +70,7 @@ const CHECKPOINT_LABELS: Record<string, string> = {
   reference: "แนบรูป",
   prompt: "พรอมต์ก่อนกด",
   results: "ผลลัพธ์",
+  menu: "เมนูโหลดคลิป",
 };
 
 /**

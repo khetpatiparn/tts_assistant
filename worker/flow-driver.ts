@@ -601,12 +601,30 @@ export async function runRound(
         const labels = await page.locator(v.menuItem).allInnerTexts().catch(() => [] as string[]);
         throw new FlowStepError(name, "selector_drift", `ไม่เจอเมนูโหลด ${quality.map(String).join(" + ")} — เมนูมี: ${labels.join(" / ")}`);
       }
-      // จังหวะคนให้จบก่อนเริ่มจับเวลา download (บทเรียนเดียวกับ filechooser ใน attach-reference)
-      const clickOption = await prepareHumanClick(page, target, cfg);
+      // ภาพเมนูที่เปิดอยู่ก่อนกด — ย้อนดูได้ว่าเปิดเมนูของช่องไหน และเมนูย่อยโผล่จริงไหม
+      await checkpoint(5, "menu");
+      // ห้ามใช้ humanClick กับเมนูย่อย: เส้นโค้งสุ่มของเมาส์ผ่านรายการอื่นในเมนูหลัก (Copy/Rename…) เมนูย่อยของ
+      // Download ปิดตัวทันที แล้วคลิกไปโดนที่ว่าง → ไม่มีไฟล์ บอทนั่งรอจนครบ renderDownloadTimeoutMs (เจอจริง
+      // 2026-09-30 งานแรกบน Flow จริง: รอ 600 วิเปล่า) · เดินเมาส์เป็นมุมฉาก: แนวนอนจากแถว Download เข้าเมนูย่อยก่อน
+      // แล้วค่อยขึ้น/ลงไปที่ตัวเลือก — ตัวเลือกอยู่ในเมนูย่อยทั้งเส้น ไม่ผ่านรายการอื่นของเมนูหลักเลย
+      const dlBox = await dl.boundingBox();
+      const tBox = await target.boundingBox();
+      if (dlBox === null || tBox === null) throw new FlowStepError(name, "selector_drift", "วัดตำแหน่งเมนูโหลดไม่ได้");
+      await page.mouse.move(tBox.x + Math.min(24, tBox.width / 3), dlBox.y + dlBox.height / 2, { steps: randInt([6, 10]) });
+      await sleepMs(randInt([150, 300]));
+      await page.mouse.move(tBox.x + tBox.width / 2, tBox.y + tBox.height / 2, { steps: randInt([5, 8]) });
+      await sleepMs(randInt([150, 350]));
       const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
-      // กัน unhandled rejection ถ้าคลิกพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
+      // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
       downloadEvent.catch(() => {});
-      const [download] = await Promise.all([downloadEvent, clickOption()]).catch((e: unknown) => {
+      await page.mouse.down();
+      await page.mouse.up();
+      // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
+      await sleepMs(3000);
+      if (await target.isVisible().catch(() => false)) {
+        throw new FlowStepError(name, "selector_drift", "กดตัวเลือกโหลดแล้วเมนูไม่ปิด (คลิกไม่ติด) — ยังไม่ได้เริ่มโหลด");
+      }
+      const download = await downloadEvent.catch((e: unknown) => {
         if (isTimeout(e)) {
           throw new FlowStepError(name, "download_failed", `กดโหลดแล้วไม่ได้ไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`);
         }
