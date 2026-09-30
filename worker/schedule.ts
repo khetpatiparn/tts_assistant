@@ -45,3 +45,13 @@ export function localDateKey(d: Date): string {
 export function pickLongBreakTarget(range: Range): number {
   return randInt(range);
 }
+
+/**
+ * บอทว่าง (ไม่มีงานในคิว) นานเท่ากับพักยาวขั้นต่ำแล้ว = ถือว่าพักยาวไปแล้ว ไม่ต้องพักซ้ำ —
+ * เดิม sessionStreak นับสะสมข้ามช่วงว่าง ผู้ใช้เพิ่มสินค้าตอนบ่ายแล้วเจอพักยาวทันทีทั้งที่บอทว่างมาทั้งเช้า (2026-09-30)
+ * lastJobFinishedAt = 0 คือยังไม่เคยทำงานใน session นี้ — ไม่มีอะไรให้นับว่าพัก
+ */
+export function idleCountsAsLongBreak(lastJobFinishedAt: number, now: number, longBreakMs: Range): boolean {
+  if (lastJobFinishedAt <= 0) return false;
+  return now - lastJobFinishedAt >= longBreakMs[0];
+}

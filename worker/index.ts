@@ -20,7 +20,7 @@ import { runRound } from "./flow-driver";
 import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
 import { randInt, sleepMs } from "./humanize";
-import { isWithinActiveHours, localDateKey, msUntilActiveWindow, pickLongBreakTarget } from "./schedule";
+import { idleCountsAsLongBreak, isWithinActiveHours, localDateKey, msUntilActiveWindow, pickLongBreakTarget } from "./schedule";
 import type { Page } from "playwright";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
@@ -454,6 +454,13 @@ async function main() {
     const imagesAllowed = (state?.todayBatches ?? 0) < cfg.dailyBatchCap;
     const rendersAllowed = cfg.renderEnabled && (state?.todayRenders ?? 0) < cfg.videoDailyCap;
     if ((state?.sessionStreak ?? 0) >= longBreakTarget) {
+      // ว่างมานานเท่าพักยาวแล้ว = ข้ามการพัก แค่รีเซ็ตตัวนับ (spec 2026-09-30 §1)
+      if (idleCountsAsLongBreak(lastBatchAt, Date.now(), cfg.longBreakMs)) {
+        log("ว่างมานานพอแล้ว — ไม่พักยาวซ้ำ รีเซ็ตตัวนับ");
+        await upsertState({ sessionStreak: 0 });
+        longBreakTarget = pickLongBreakTarget(cfg.longBreakEvery);
+        continue;
+      }
       const ms = randInt(cfg.longBreakMs);
       log(`พักยาว ${Math.round(ms / 60000)} นาที`);
       await upsertState({ nextWakeAt: new Date(Date.now() + ms), sessionStreak: 0 });

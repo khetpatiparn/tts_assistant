@@ -100,6 +100,13 @@ try {
     check("pickLongBreakTarget within range", ok, true);
   }
 
+  // ว่างนานเท่ากับพักยาว = ไม่ต้องพักยาวซ้ำ (spec 2026-09-30 §1 "พักตามความจริง")
+  const MIN5 = 5 * 60000;
+  check("ว่าง 4 นาที (< longBreakMs ต่ำสุด 5) → ยังไม่นับเป็นพักยาว", sc.idleCountsAsLongBreak(1_000_000, 1_000_000 + 4 * 60000, [MIN5, 2 * MIN5]), false);
+  check("ว่าง 5 นาทีพอดี → นับเป็นพักยาว", sc.idleCountsAsLongBreak(1_000_000, 1_000_000 + MIN5, [MIN5, 2 * MIN5]), true);
+  check("ว่าง 30 นาที → นับเป็นพักยาว", sc.idleCountsAsLongBreak(1_000_000, 1_000_000 + 30 * 60000, [MIN5, 2 * MIN5]), true);
+  check("ยังไม่เคยทำงานเลย (lastJobFinishedAt = 0) → ไม่นับ (ไม่มีอะไรให้พัก)", sc.idleCountsAsLongBreak(0, 1_000_000, [MIN5, 2 * MIN5]), false);
+
   // ---------- flow-signals (แยกสัญญาณบอท/วาดพัง/คลิกไม่ติด) ----------
   const fs2 = await import(pathToFileURL(join(out, "flow-signals.js")).href);
   const failedText = "warning Failed Sorry, this image failed to generate. You have not been charged for this generation. refresh undo delete_forever";
