@@ -277,3 +277,19 @@ model ScannerLink {
   token     String
   createdAt DateTime @default(now())
 }
+
+/// สมุดบันทึกการกระทำของบอท Flow — 1 แถวต่อ 1 สิ่งที่ Google เห็น (กด Generate/อัปโหลด/สร้างโปรเจกต์/โหลด)
+/// + สัญญาณเตือน (HTTP ไม่ใช่ 2xx, captcha) + พักจริง · ไว้วิเคราะห์ว่าถ้าโดนแบน "ยิงถี่แค่ไหนก่อนโดน"
+/// (spec 2026-09-30-flow-bot-speed-and-resilience-design.md §3) · kind ดู lib/flow-activity.ts · เก็บตลอด (ไม่กี่ร้อยแถว/วัน)
+model FlowActivity {
+  id     String   @id @default(cuid())
+  at     DateTime @default(now())
+  kind   String
+  jobId  String   @default("")
+  round  Int      @default(0)
+  /// JSON สั้นๆ: { status } / { message } / { ms } / { config: {...} }
+  detail String   @default("")
+
+  @@index([at])
+  @@index([kind, at])
+}
