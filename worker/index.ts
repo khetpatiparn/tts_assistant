@@ -236,8 +236,9 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         // ถ้า spike (Task 5) พบว่ารอบ 2 เปิด project เดิมไม่ได้ ให้เปลี่ยนบรรทัดนี้เป็น null เสมอ
         projectId: job.flowProjectId || null,
         extraPrompt: job.extraPrompt,
-        // รอบ 4 สั้นและไม่กดสร้างอะไร ไม่ต้องมีภาพจุดเช็ก (ชื่อไฟล์ r3-final ก็ไม่เข้ารูปแบบที่หน้า /flow อ่าน)
-        checkpointDir: round === 4 ? null : checkpointDir,
+        // รอบ 4 ก็ถ่ายภาพเมนูโหลด (r3-final-5-menu.jpg / -6-submenu.jpg) ไว้ดูตอนโหลด 1080p พัง — ชื่อไม่เข้ารูปแบบ
+        // r<round>-a<n>-… ที่หน้า /flow อ่าน จึงไม่โผล่ใน "ดูขั้นตอนที่บอททำ" (ดูในโฟลเดอร์ checkpoints เอง)
+        checkpointDir,
         renderPrompt,
         mediaId: approvedVideo?.flowMediaId,
       },

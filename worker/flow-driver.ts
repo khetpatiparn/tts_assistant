@@ -11,7 +11,7 @@ import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import {
   blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason, videoUuidFromUrl,
-  renderSettingsLabelOk, submenuArrowDowns,
+  renderSettingsLabelOk,
 } from "./flow-signals";
 
 export type RoundInput = {
@@ -708,42 +708,53 @@ export async function runRound(
       await sleepMs(randInt([500, 900]));
       const dl = page.locator(v.downloadMenuItem).first();
       await dl.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-      await humanHover(page, dl, cfg);
-      await sleepMs(randInt([600, 1000]));
-      // ภาพเมนูที่เปิดอยู่ก่อนกด — ย้อนดูได้ว่าเปิดเมนูของช่องไหน และเมนูย่อยโผล่จริงไหม
+      await sleepMs(randInt([400, 800]));
+      // ภาพเมนูที่เปิดอยู่ — ย้อนดูได้ว่าเปิดเมนูของช่องไหน
       await checkpoint(5, "menu");
-      // เมนูย่อยด้วยคีย์บอร์ด (Angular Material รองรับ ArrowDown/ArrowRight/Enter มาตรฐาน) — เมาส์เดินเส้นโค้งผ่านรายการอื่น
-      // ทำให้เมนูย่อยปิด (เจอจริง 2026-09-30) · โฟกัสอยู่ที่ "Download" แล้วหลัง hover → ArrowRight เปิดเมนูย่อย →
-      // ArrowDown ไปทีละรายการจนถึงตัวเลือกที่ต้องการ → Enter
-      // ห้าม dl.focus(): hover ที่ Download เปิดเมนูย่อยและ Angular Material โฟกัสรายการแรกของเมนูย่อยให้แล้ว
-      // การดึงโฟกัสกลับมาที่ปุ่ม Download ทำให้ ArrowDown ไปวิ่งในเมนูหลัก (Enter โดน "Add to scene")
-      await page.keyboard.press("ArrowRight");
-      await sleepMs(randInt([300, 600]));
+      // เมนูย่อยด้วยคีย์บอร์ดล้วน และอ่านโฟกัสจริงทุกขั้นก่อนกดต่อ (ไม่เดาจำนวนครั้งที่กด):
+      // โฟกัส "Download" → ArrowRight (หรือ Enter) เปิดเมนูย่อย → ArrowDown จนโฟกัสอยู่ที่ตัวเลือกที่ต้องการ → Enter
+      // · ห้ามเลื่อนเมาส์เข้าเมนู — เส้นเมาส์ผ่านรายการอื่น (เช่น Add to scene) ทำให้เมนูย่อยสลับ/ปิด (เจอจริง 2026-09-30)
+      // · แบบเดิม (hover Download แล้วกด ArrowRight) โฟกัสหลุดไปที่ตัวหน้าเว็บจนหาเมนูย่อยไม่เจอ (เจอจริง 2026-10-01)
+      // · Angular Material ซิงก์ตัวนำทางคีย์บอร์ดของเมนูกับรายการที่ได้โฟกัส จึง focus() รายการตรงๆ ได้
       const submenuRe = /Animated GIF|Original size|Upscaled/;
       const activeText = () =>
-        page.evaluate(() => (document.activeElement?.textContent ?? "").replace(/\s+/g, " ").trim());
-      const focusBefore = await activeText();
-      log.log(name, `โฟกัสก่อน guard: "${focusBefore}"`);
-      if (!submenuRe.test(focusBefore)) {
-        await page.locator(v.menuItem).filter({ hasText: submenuRe }).first().focus({ timeout: cfg.selectorTimeoutMs });
-        log.log(name, `โฟกัสหลัง guard: "${await activeText()}"`);
+        page.evaluate(() => (document.activeElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80));
+      const isTarget = (t: string) => quality.every((re) => re.test(t));
+      await dl.focus({ timeout: cfg.selectorTimeoutMs });
+      await sleepMs(randInt([200, 400]));
+      let focused = await activeText();
+      if (!/Download/i.test(focused)) {
+        throw new FlowStepError(name, "selector_drift", `โฟกัสปุ่ม Download ในเมนูไม่ได้ (โฟกัสอยู่ที่ "${focused}")`);
       }
-      const items = page.locator(v.menuItem);
-      // ข้อความรวม [disabled] ด้วย เพื่อให้ submenuArrowDowns ปฏิเสธรายการที่กดไม่ได้ (เช่น 4K)
-      const texts = await items.evaluateAll((els) =>
-        els.map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim() + (e.getAttribute("aria-disabled") === "true" || (e as HTMLButtonElement).disabled ? " [disabled]" : ""))
-      );
-      const downs = submenuArrowDowns(texts, quality);
-      if (downs === null) {
-        throw new FlowStepError(name, "selector_drift", `ไม่เจอเมนูโหลด ${quality.map(String).join(" + ")} — เมนูมี: ${texts.join(" / ")}`);
+      const waitSubmenuFocus = async () => {
+        for (let i = 0; i < 8; i++) {
+          await sleepMs(250);
+          focused = await activeText();
+          if (submenuRe.test(focused)) return true;
+        }
+        return false;
+      };
+      await page.keyboard.press("ArrowRight");
+      if (!(await waitSubmenuFocus())) {
+        await page.keyboard.press("Enter");
+        if (!(await waitSubmenuFocus())) {
+          await checkpoint(6, "submenu");
+          throw new FlowStepError(name, "selector_drift", `เมนูย่อยของ Download ไม่เปิด (โฟกัสอยู่ที่ "${focused}")`);
+        }
       }
+      for (let i = 0; i < 6 && !isTarget(focused); i++) {
+        await page.keyboard.press("ArrowDown");
+        await sleepMs(randInt([150, 300]));
+        focused = await activeText();
+      }
+      await checkpoint(6, "submenu");
+      if (!isTarget(focused)) {
+        throw new FlowStepError(name, "selector_drift", `ไม่เจอตัวเลือก ${quality.map(String).join(" + ")} ในเมนูย่อย (โฟกัสสุดท้าย "${focused}")`);
+      }
+      log.log(name, `เลือก "${focused}" ด้วยคีย์บอร์ด`);
       const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
       // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
       downloadEvent.catch(() => {});
-      for (let i = 0; i < downs; i++) {
-        await page.keyboard.press("ArrowDown");
-        await sleepMs(randInt([120, 250]));
-      }
       await page.keyboard.press("Enter");
       // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
       await sleepMs(3000);
