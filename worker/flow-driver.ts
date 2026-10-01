@@ -640,7 +640,8 @@ export async function runRound(
         const container = page.locator(v.tileContainer).nth(i);
         await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
         await humanHover(page, container.locator(v.tile).first(), cfg);
-        const deadline = Date.now() + 4000;
+        // <video src> โผล่หลัง hover ช้าได้ (เจอจริง 2026-10-01: รอ 4 วิไม่ได้สักช่อง) — รอเท่ากับลิงก์ตรงรอบ 3
+        const deadline = Date.now() + 10_000;
         while (Date.now() < deadline) {
           const srcs = await container.locator(v.tileVideo).evaluateAll((els) =>
             els.map((e) => (e as HTMLVideoElement).currentSrc || e.getAttribute("src"))
@@ -745,55 +746,49 @@ export async function runRound(
       await sleepMs(randInt([400, 800]));
       // ภาพเมนูที่เปิดอยู่ — ย้อนดูได้ว่าเปิดเมนูของช่องไหน
       await checkpoint(5, "menu");
-      // เมนูย่อยด้วยคีย์บอร์ดล้วน และอ่านโฟกัสจริงทุกขั้นก่อนกดต่อ (ไม่เดาจำนวนครั้งที่กด):
-      // โฟกัส "Download" → ArrowRight (หรือ Enter) เปิดเมนูย่อย → ArrowDown จนโฟกัสอยู่ที่ตัวเลือกที่ต้องการ → Enter
-      // · ห้ามเลื่อนเมาส์เข้าเมนู — เส้นเมาส์ผ่านรายการอื่น (เช่น Add to scene) ทำให้เมนูย่อยสลับ/ปิด (เจอจริง 2026-09-30)
-      // · แบบเดิม (hover Download แล้วกด ArrowRight) โฟกัสหลุดไปที่ตัวหน้าเว็บจนหาเมนูย่อยไม่เจอ (เจอจริง 2026-10-01)
-      // · Angular Material ซิงก์ตัวนำทางคีย์บอร์ดของเมนูกับรายการที่ได้โฟกัส จึง focus() รายการตรงๆ ได้
-      const submenuRe = /Animated GIF|Original size|Upscaled/;
-      const activeText = () =>
-        page.evaluate(() => (document.activeElement?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80));
-      const isTarget = (t: string) => quality.every((re) => re.test(t));
-      await dl.focus({ timeout: cfg.selectorTimeoutMs });
+      // เมนูย่อยด้วยเมาส์ เดินเป็นเส้นตรงเท่านั้น (แบบที่คนทำจริง — ผู้ใช้ยืนยันวิธีนี้ 2026-10-01):
+      // ชี้ที่ "Download" → รอเมนูย่อยโผล่ → เลื่อนแนวนอนตรงๆ ที่ระดับแถว Download เข้าเมนูย่อย → ลงแนวดิ่งในเมนูย่อย
+      // ถึงตัวเลือก → คลิก · เส้นเมาส์โค้งที่ผ่านรายการอื่นทำให้เมนูย่อยสลับ/ปิด (เจอจริง 2026-09-30)
+      // · คีย์บอร์ดใช้ไม่ได้: เมนูของ Flow ไม่เปิดเมนูย่อยด้วย ArrowRight และ Enter ไปเปิดหน้าแก้ไขคลิปแทน
+      //   (ภาพ r3-final-6-submenu.jpg 2026-10-01) — ห้ามกลับไปใช้คีย์บอร์ด
+      const dlBox = await dl.boundingBox();
+      if (dlBox === null) throw new FlowStepError(name, "selector_drift", "หาตำแหน่งปุ่ม Download ในเมนูไม่ได้");
+      const rowY = dlBox.y + dlBox.height / 2;
+      await page.mouse.move(dlBox.x + dlBox.width * 0.5, rowY, { steps: randInt([12, 20]) });
+      let target = page.locator(v.menuItem);
+      for (const re of quality) target = target.filter({ hasText: re });
+      target = target.first();
+      const submenuOpen = await target.waitFor({ state: "visible", timeout: 4000 }).then(() => true, () => false);
+      if (!submenuOpen) {
+        await checkpoint(6, "submenu");
+        throw new FlowStepError(name, "selector_drift", `ชี้ที่ Download แล้วเมนูย่อยไม่โผล่ (ไม่เจอ ${quality.map(String).join(" + ")})`);
+      }
+      await sleepMs(randInt([250, 500]));
+      const tBox = await target.boundingBox();
+      if (tBox === null) throw new FlowStepError(name, "selector_drift", "หาตำแหน่งตัวเลือกในเมนูย่อยไม่ได้");
+      const disabled = await target.evaluate((e) => e.getAttribute("aria-disabled") === "true" || (e as HTMLButtonElement).disabled);
+      if (disabled) throw new FlowStepError(name, "selector_drift", "ตัวเลือกที่ต้องการกดไม่ได้ (disabled) — บัญชีอาจไม่มีสิทธิ์ขนาดนี้");
+      const subX = tBox.x + Math.min(40, tBox.width / 3);
+      await page.mouse.move(subX, rowY, { steps: randInt([10, 16]) });
+      await sleepMs(randInt([150, 300]));
+      await page.mouse.move(subX, tBox.y + tBox.height / 2, { steps: randInt([8, 14]) });
       await sleepMs(randInt([200, 400]));
-      let focused = await activeText();
-      if (!/Download/i.test(focused)) {
-        throw new FlowStepError(name, "selector_drift", `โฟกัสปุ่ม Download ในเมนูไม่ได้ (โฟกัสอยู่ที่ "${focused}")`);
-      }
-      const waitSubmenuFocus = async () => {
-        for (let i = 0; i < 8; i++) {
-          await sleepMs(250);
-          focused = await activeText();
-          if (submenuRe.test(focused)) return true;
-        }
-        return false;
-      };
-      await page.keyboard.press("ArrowRight");
-      if (!(await waitSubmenuFocus())) {
-        await page.keyboard.press("Enter");
-        if (!(await waitSubmenuFocus())) {
-          await checkpoint(6, "submenu");
-          throw new FlowStepError(name, "selector_drift", `เมนูย่อยของ Download ไม่เปิด (โฟกัสอยู่ที่ "${focused}")`);
-        }
-      }
-      for (let i = 0; i < 6 && !isTarget(focused); i++) {
-        await page.keyboard.press("ArrowDown");
-        await sleepMs(randInt([150, 300]));
-        focused = await activeText();
-      }
       await checkpoint(6, "submenu");
-      if (!isTarget(focused)) {
-        throw new FlowStepError(name, "selector_drift", `ไม่เจอตัวเลือก ${quality.map(String).join(" + ")} ในเมนูย่อย (โฟกัสสุดท้าย "${focused}")`);
+      if (!(await target.isVisible())) {
+        throw new FlowStepError(name, "selector_drift", "เมนูย่อยปิดไประหว่างเลื่อนเมาส์ — ยังไม่ได้กดโหลด");
       }
-      log.log(name, `เลือก "${focused}" ด้วยคีย์บอร์ด`);
+      const picked = ((await target.textContent()) ?? "").replace(/\s+/g, " ").trim();
+      log.log(name, `คลิก "${picked}" ในเมนูย่อย`);
       const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
       // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
       downloadEvent.catch(() => {});
-      await page.keyboard.press("Enter");
+      await page.mouse.down();
+      await sleepMs(randInt([60, 140]));
+      await page.mouse.up();
       // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
       await sleepMs(3000);
       if ((await page.locator(v.menuItem).filter({ visible: true }).count()) > 0) {
-        throw new FlowStepError(name, "selector_drift", "กด Enter แล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
+        throw new FlowStepError(name, "selector_drift", "คลิกแล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
       }
       const download = await downloadEvent.catch((e: unknown) => {
         if (isTimeout(e)) {
