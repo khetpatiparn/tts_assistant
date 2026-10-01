@@ -45,3 +45,68 @@ function breakMs(detail) {
 const breaks = rows.filter((r) => r.kind === "break");
 const totalBreak = breaks.reduce((sum, b) => sum + breakMs(b.detail), 0);
 console.log(`\nพักจริงรวม ${Math.round(totalBreak / 60000)} นาที (${breaks.length} ครั้ง)`);
+
+// ───────── พฤติกรรมของคุณ (การกระทำของผู้ใช้ kind "user_*" + ประวัติงาน — ทั้งหมดที่เคยบันทึก ไม่จำกัดวัน) ─────────
+const median = (xs) => {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const fmtWait = (ms) => (ms === null ? "-" : ms < 90000 ? `${Math.round(ms / 1000)} วิ` : `${Math.round(ms / 60000)} นาที`);
+const parseDetail = (d) => {
+  try {
+    return JSON.parse(d || "{}");
+  } catch {
+    return {};
+  }
+};
+const USER_FILTER = "kind LIKE 'user\\_%' ESCAPE '\\'";
+const userRows = db
+  .prepare(`SELECT at, kind, jobId, round, detail FROM FlowActivity WHERE ${USER_FILTER} ORDER BY at`)
+  .all()
+  .map((r) => ({ ...r, d: parseDetail(r.detail) }));
+console.log("\n══ พฤติกรรมของคุณ ══");
+if (userRows.length === 0) {
+  console.log("ยังไม่มีการกระทำของผู้ใช้ที่บันทึกไว้ (เริ่มบันทึกตั้งแต่ฟีเจอร์นี้เปิดใช้)");
+} else {
+  const jobs = db
+    .prepare(
+      `SELECT j.id, j.status, j.round, j.attempt, e.productName FROM FlowJob j JOIN PromptEntry e ON e.id = j.entryId
+       WHERE j.id IN (SELECT DISTINCT jobId FROM FlowActivity WHERE ${USER_FILTER})`
+    )
+    .all();
+  const cand = db
+    .prepare("SELECT jobId, round, COUNT(DISTINCT attempt) AS draws FROM FlowJobImage WHERE kind = 'candidate' GROUP BY jobId, round")
+    .all();
+  const drawsOf = (jobId, round) => cand.find((c) => c.jobId === jobId && c.round === round)?.draws ?? 0;
+  const DECISION = new Set(["user_choose", "user_redraw", "user_approve_render", "user_redo_render"]);
+  const perJob = [];
+  for (const j of jobs) {
+    const mine = userRows.filter((r) => r.jobId === j.id);
+    // เรนเดอร์ = attempt ของงานเมื่ออยู่รอบ 3-4 (redo เพิ่ม attempt ทีละ 1) · ยังไม่ถึงขั้นเรนเดอร์ = 0
+    const renders = j.round >= 3 && j.status !== "awaiting_prompt" ? j.attempt : 0;
+    const approved = mine.some((r) => r.kind === "user_approve_render");
+    const waits = mine.filter((r) => DECISION.has(r.kind) && typeof r.d.waitedMs === "number").map((r) => r.d.waitedMs);
+    perJob.push({ name: j.productName, r1: drawsOf(j.id, 1), r2: drawsOf(j.id, 2), renders, approved, wait: median(waits) });
+  }
+  console.log(`งานที่มีการกระทำของคุณ ${perJob.length} งาน · การกระทำทั้งหมด ${userRows.length} ครั้ง`);
+  const byKind = new Map();
+  for (const r of userRows) byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
+  console.log("  " + [...byKind.entries()].map(([k, n]) => `${k}=${n}`).join("  "));
+  console.log("\nต่องาน (วาดรอบ1 / วาดรอบ2 / เรนเดอร์ / ผ่านไหม / รอตัดสินใจ median):");
+  for (const p of perJob) {
+    console.log(`  ${p.name.slice(0, 40).padEnd(40)}  ${p.r1} / ${p.r2} / ${p.renders} / ${p.approved ? "ผ่าน" : "ยัง"} / ${fmtWait(p.wait)}`);
+  }
+  const approvedJobs = perJob.filter((p) => p.approved);
+  const totalRenders = approvedJobs.reduce((s, p) => s + p.renders, 0);
+  const avg = (n, d) => (d === 0 ? "-" : (n / d).toFixed(2));
+  console.log("\nภาพรวม:");
+  console.log(`  คลิปที่ผ่านแล้ว ${approvedJobs.length} คลิป`);
+  console.log(`  เรนเดอร์เฉลี่ยต่อคลิปที่ผ่าน: ${avg(totalRenders, approvedJobs.length)} ครั้ง`);
+  console.log(`  เครดิตต่อคลิปที่ผ่าน (15 ต่อครั้ง): ${approvedJobs.length === 0 ? "-" : Math.round((totalRenders * 15) / approvedJobs.length)}`);
+  const r1 = perJob.filter((p) => p.r1 > 0);
+  const r2 = perJob.filter((p) => p.r2 > 0);
+  console.log(`  วาดเฉลี่ยต่อรอบ: รอบ 1 = ${avg(r1.reduce((s, p) => s + p.r1, 0), r1.length)} · รอบ 2 = ${avg(r2.reduce((s, p) => s + p.r2, 0), r2.length)}`);
+  console.log(`  รอตัดสินใจ (median ทุกงาน): ${fmtWait(median(perJob.map((p) => p.wait).filter((w) => w !== null)))}`);
+}

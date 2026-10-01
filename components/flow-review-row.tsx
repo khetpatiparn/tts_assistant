@@ -10,6 +10,7 @@ import {
   finishRenderManually,
   chooseFlowCandidate,
   generateWithAI,
+  logFlowPromptNow,
   redoFlowRound,
   resumeFlowWorker,
   skipFlowJob,
@@ -24,6 +25,7 @@ import {
   STEP_LABELS,
   buildFlowPrompt,
   canApproveRender,
+  friendlyJobMessage,
   normalizeExtraPrompt,
   videoDownloadName,
   type FlowStatus,
@@ -255,16 +257,11 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
         {isRenderReview && (
           <div className="flex flex-wrap items-start gap-4">
             {job.video ? (
-              <video
-                src={imgUrl(job.entryId, job.video.filename)}
-                controls
-                preload="metadata"
-                className="aspect-[9/16] w-48 rounded-md border border-border bg-surface-2 lg:w-56"
-              />
+              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="lg" />
             ) : (
               <div className="flex flex-col gap-2 rounded-md border-l-4 border-status-warning bg-surface-2 p-3 leading-relaxed">
                 <p className="text-sm font-medium text-foreground">คลิปเสร็จแล้วใน Flow แต่โหลดมาไม่ได้</p>
-                {job.errorMessage && <p className="text-xs text-muted-foreground">{job.errorMessage}</p>}
+                <JobMessage status={job.status} message={job.errorMessage} />
                 <p className="text-xs text-muted-foreground">
                   เปิดโปรเจกต์ในบัญชีสำรองแล้วโหลดเอง (⋯ → Download → 1080p) แล้วกดปิดงาน · หรือกด &quot;เรนเดอร์ใหม่&quot; ซึ่งจะสร้างคลิปใหม่อีกตัวและเสีย 15 เครดิต
                 </p>
@@ -297,9 +294,7 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 }`}
               />
               {/* มีไฟล์แต่มีข้อความ (เช่น ได้แค่ 720p เพราะโหลด 1080p ไม่ได้) ต้องโชว์ด้วย */}
-              {job.video && job.errorMessage && (
-                <p className="text-xs leading-relaxed text-muted-foreground">{job.errorMessage}</p>
-              )}
+              {job.video && <JobMessage status={job.status} message={job.errorMessage} />}
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" disabled={isPending || !canApproveRender(job.status, job.video !== null)} onClick={() => run(() => approveFlowRender(job.id))}>
                   <Check data-icon="inline-start" /> ผ่าน
@@ -342,6 +337,7 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
               onClick={() =>
                 run(async () => {
                   await generateWithAI(job.entryId, GEMINI_MODELS[0].id);
+                  await logFlowPromptNow(job.entryId);
                 })
               }
             >
@@ -351,7 +347,12 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
         )}
 
         {isUpscale && (
-          <p className="text-sm leading-relaxed text-muted-foreground">ผ่านแล้ว — บอทกำลังโหลดไฟล์ 1080p</p>
+          <div className="flex flex-wrap items-start gap-3">
+            {job.video && (
+              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" />
+            )}
+            <p className="text-sm leading-relaxed text-muted-foreground">ผ่านแล้ว — บอทกำลังโหลดไฟล์ 1080p</p>
+          </div>
         )}
 
         {job.status === FLOW_STATUS.FAILED && (
@@ -359,7 +360,10 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
             <p className="text-sm font-medium text-foreground">
               พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {ERROR_KIND_LABELS[job.errorKind] ?? job.errorKind}
             </p>
-            {job.errorMessage && <p className="text-xs text-muted-foreground">{job.errorMessage}</p>}
+            <JobMessage status={job.status} message={job.errorMessage} />
+            {job.video && (
+              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" />
+            )}
             {job.failureDir && (
               <p className="text-xs text-muted-foreground">
                 หลักฐาน:{" "}
@@ -401,24 +405,12 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 />
               ) : null
             )}
-            {job.errorMessage && job.video && (
-              <p className="basis-full text-xs leading-relaxed text-muted-foreground">{job.errorMessage}</p>
+            {job.video && (
+              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" done />
             )}
-            {job.video?.chosen && (
-              <div className="flex flex-col gap-2">
-                <video
-                  src={imgUrl(job.entryId, job.video.filename)}
-                  controls
-                  preload="metadata"
-                  className="aspect-[9/16] w-28 rounded-md border-2 border-status-success bg-surface-2 lg:w-36"
-                />
-                <a
-                  href={imgUrl(job.entryId, job.video.filename)}
-                  download={videoDownloadName(job.productName)}
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                >
-                  <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
-                </a>
+            {job.video && (
+              <div className="basis-full">
+                <JobMessage status={job.status} message={job.errorMessage} />
               </div>
             )}
             <Link href={`/entry/${job.entryId}`} className="text-sm leading-relaxed text-primary underline-offset-4 hover:underline">
@@ -513,6 +505,60 @@ function ExtraPromptField({
         </Button>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">{preview}</p>
+    </div>
+  );
+}
+
+/** เครื่องเล่นคลิป + ปุ่มดาวน์โหลด — ใช้กับทุกแถวที่มีไฟล์วิดีโอ (ดูตัวอย่าง/รอโหลด 1080p/พัง/เสร็จ) */
+function ClipPlayer({
+  entryId,
+  filename,
+  productName,
+  size,
+  done = false,
+}: {
+  entryId: string;
+  filename: string;
+  productName: string;
+  size: "md" | "lg";
+  done?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <video
+        src={imgUrl(entryId, filename)}
+        controls
+        preload="metadata"
+        className={cn(
+          "aspect-[9/16] rounded-md bg-surface-2",
+          done ? "border-2 border-status-success" : "border border-border",
+          size === "lg" ? "w-48 lg:w-56" : "w-28 lg:w-36"
+        )}
+      />
+      <a
+        href={imgUrl(entryId, filename)}
+        download={videoDownloadName(productName)}
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+      >
+        <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
+      </a>
+    </div>
+  );
+}
+
+/** ข้อความของงานแบบอ่านง่าย 1 บรรทัด + ข้อความดิบเต็มพับไว้ใน "รายละเอียด" */
+function JobMessage({ status, message }: { status: string; message: string }) {
+  const { summary, detail } = friendlyJobMessage(status, message);
+  if (summary === "") return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-xs leading-relaxed text-muted-foreground">{summary}</p>
+      {detail !== null && (
+        <details className="text-xs leading-relaxed text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground">รายละเอียด</summary>
+          <pre className="mt-1 max-w-full whitespace-pre-wrap break-words rounded-md bg-surface-2 p-2 text-xs leading-relaxed">{detail}</pre>
+        </details>
+      )}
     </div>
   );
 }

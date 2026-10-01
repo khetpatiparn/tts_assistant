@@ -16,6 +16,16 @@ export const ACTIVITY_KINDS = [
   "break",
   /** เปิดบอท — detail เก็บค่าจังหวะที่ใช้ตอนนั้น */
   "session_start",
+  // การกระทำของ "ผู้ใช้" บนงาน Flow (ไม่ใช่คำขอของบอท — ไม่นับใน summarizeActivity) ใช้วิเคราะห์ว่าต้องวาด/เรนเดอร์กี่ครั้งกว่าจะผ่าน
+  "user_enqueue",
+  "user_choose",
+  "user_redraw",
+  "user_approve_render",
+  "user_redo_render",
+  "user_skip",
+  "user_resume",
+  "user_finish_manual",
+  "user_prompt_now",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 

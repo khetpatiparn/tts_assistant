@@ -127,6 +127,12 @@ try {
   check("worker dead after 3× heartbeat", f.isWorkerAlive(new Date("2026-09-06T09:58:00Z"), now, 30000), false);
   check("worker dead when never seen", f.isWorkerAlive(null, now, 30000), false);
   check("STEP_LABELS has click-generate", typeof f.STEP_LABELS["click-generate"], "string");
+  const fm = f.friendlyJobMessage;
+  check("friendly: ว่าง", JSON.stringify(fm("done", "")), JSON.stringify({ summary: "", detail: null }));
+  check("friendly: ได้ 720p", fm("done", "ได้ 720p (โหลด 1080p ไม่ได้: locator.focus: Timeout 8000ms exceeded. Call log: x)").summary, "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ");
+  check("friendly: ได้ 720p เก็บข้อความเต็มใน detail", fm("done", "ได้ 720p (abc)").detail, "ได้ 720p (abc)");
+  check("friendly: failed + ข้อความดิบ → พับ", fm("failed", "locator.click: Timeout 8000ms exceeded.\nCall log:\n - waiting").detail !== null, true);
+  check("friendly: ข้อความสั้นอ่านรู้เรื่อง ไม่พับ", JSON.stringify(fm("failed", "โหลดไม่ครบ")), JSON.stringify({ summary: "โหลดไม่ครบ", detail: null }));
   check("DEFAULT_CAPTIONS round 1", f.DEFAULT_CAPTIONS[1], "สินค้า พื้นหลังขาว");
 } finally {
   rmSync(out, { recursive: true, force: true });

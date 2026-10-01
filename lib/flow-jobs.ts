@@ -269,3 +269,19 @@ export const ERROR_KIND_LABELS: Record<string, string> = {
   worker_crash: "บอทล้มโดยไม่ทราบสาเหตุ",
   host_unsupported: "บัญชีอยู่บนโฮสต์ที่ยังไม่รองรับ",
 };
+
+/**
+ * ข้อความของงาน (errorMessage) แบบคนอ่านรู้เรื่อง — summary บรรทัดเดียวภาษาไทยธรรมดา + detail คือข้อความดิบเต็ม
+ * (ไว้พับใน <details>) · ว่าง = ไม่มีอะไรให้โชว์ · ข้อความสั้นที่เป็นภาษาไทยอยู่แล้วและไม่ใช่ error ดิบ แสดงตามเดิมไม่พับ
+ */
+export function friendlyJobMessage(status: string, errorMessage: string): { summary: string; detail: string | null } {
+  const raw = errorMessage.trim();
+  if (raw === "") return { summary: "", detail: null };
+  if (raw.startsWith("ได้ 720p")) return { summary: "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ", detail: raw };
+  const looksTechnical =
+    raw.length > 140 || /Timeout \d+ms|Call log|locator\.|page\.|net::|at \S+:\d+|\n/.test(raw);
+  if (!looksTechnical) return { summary: raw, detail: null };
+  const summary =
+    status === FLOW_STATUS.FAILED ? "บอทแจ้งข้อผิดพลาดทางเทคนิค — ดูรายละเอียดด้านล่าง" : "มีข้อความทางเทคนิคจากบอท — ดูรายละเอียดด้านล่าง";
+  return { summary, detail: raw };
+}

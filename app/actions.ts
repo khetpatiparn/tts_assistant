@@ -5,6 +5,7 @@ import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
+import { logUserActivity, waitedMsSince } from "@/lib/flow-user-activity";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
 import {
@@ -47,6 +48,7 @@ import {
   afterResume,
   isOpenStatus,
   normalizeExtraPrompt,
+  EXTRA_PROMPT_MAX,
   sourceFilename,
   toJobRound,
   type FlowRound,
@@ -1410,9 +1412,21 @@ async function enqueueFlowJobCore(
     });
   }
 
+  await logUserActivity({
+    kind: "user_enqueue",
+    jobId: job.id,
+    round: 1,
+    detail: { round: 1, attempt: 1, images: images.length, ...extraDetail(job.extraPrompt) },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${entryId}`);
   return job.id;
+}
+
+/** detail ของข้อความเพิ่มเติม (ความยาว + ข้อความ ≤200) สำหรับสมุดบันทึกพฤติกรรมผู้ใช้ */
+function extraDetail(extra: string | undefined): { extraPromptLen: number; extraPrompt?: string } {
+  const text = (extra ?? "").slice(0, EXTRA_PROMPT_MAX);
+  return text === "" ? { extraPromptLen: 0 } : { extraPromptLen: text.length, extraPrompt: text };
 }
 
 /** อัปรูปแคปสินค้า + สร้างงาน queued_r1 — 1 entry มีงานค้างได้ทีละ 1 */
@@ -1515,6 +1529,19 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
     });
   });
 
+  await logUserActivity({
+    kind: "user_choose",
+    jobId,
+    round: job.round,
+    detail: {
+      round: job.round,
+      attempt: job.attempt,
+      candidateIndex: image.index,
+      toStatus: next.status,
+      ...(next.status === FLOW_STATUS.QUEUED_R2 ? extraDetail(extraPrompt) : { extraPromptLen: 0 }),
+      waitedMs: waitedMsSince(job.updatedAt),
+    },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
   revalidatePath("/");
@@ -1546,6 +1573,12 @@ export async function finishRenderManually(jobId: string): Promise<void> {
         ]
       : []),
   ]);
+  await logUserActivity({
+    kind: "user_finish_manual",
+    jobId,
+    round: job.round,
+    detail: { round: job.round, attempt: job.attempt, fromStatus: job.status, waitedMs: waitedMsSince(job.updatedAt) },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
 }
@@ -1563,6 +1596,12 @@ export async function approveFlowRender(jobId: string): Promise<void> {
     throw new Error("ยังไม่มีไฟล์คลิป — กด เรนเดอร์ใหม่ หรือโหลดเองแล้วปิดงาน");
   }
   await prisma.flowJob.update({ where: { id: jobId }, data: { status: next.status, round: next.round } });
+  await logUserActivity({
+    kind: "user_approve_render",
+    jobId,
+    round: job.round,
+    detail: { round: job.round, attempt: job.attempt, waitedMs: waitedMsSince(job.updatedAt) },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
 }
@@ -1592,6 +1631,18 @@ export async function redoFlowRound(jobId: string, extraPrompt?: string): Promis
       ...(extraPrompt === undefined ? {} : { extraPrompt: normalizeExtraPrompt(extraPrompt) }),
     },
   });
+  await logUserActivity({
+    kind: job.status === FLOW_STATUS.REVIEW_R3 ? "user_redo_render" : "user_redraw",
+    jobId,
+    round: job.round,
+    detail: {
+      round: job.round,
+      attempt: job.attempt,
+      nextAttempt: job.attempt + 1,
+      ...extraDetail(extraPrompt === undefined ? job.extraPrompt : normalizeExtraPrompt(extraPrompt)),
+      waitedMs: waitedMsSince(job.updatedAt),
+    },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
 }
@@ -1614,6 +1665,18 @@ export async function resumeFlowWorker(jobId: string): Promise<void> {
       update: { pausedReason: "", pausedAt: null },
     }),
   ]);
+  await logUserActivity({
+    kind: "user_resume",
+    jobId,
+    round: job.round,
+    detail: {
+      round: job.round,
+      attempt: job.attempt,
+      failedStep: job.failedStep,
+      errorKind: job.errorKind,
+      waitedMs: waitedMsSince(job.updatedAt),
+    },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
 }
@@ -1631,8 +1694,37 @@ export async function skipFlowJob(jobId: string): Promise<void> {
       update: { pausedReason: "", pausedAt: null },
     }),
   ]);
+  await logUserActivity({
+    kind: "user_skip",
+    jobId,
+    round: job.round,
+    detail: { round: job.round, attempt: job.attempt, fromStatus: job.status, waitedMs: waitedMsSince(job.updatedAt) },
+  });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
+}
+
+/**
+ * บันทึกว่าผู้ใช้กด "สร้างพรอมต์ตอนนี้" ในแถว awaiting_prompt (เรียกจากหน้าเว็บหลัง generateWithAI สำเร็จ —
+ * generateWithAI เองถูกเรียกอัตโนมัติด้วย จึงแยกไม่ได้ที่ตัว action นั้น) · ไม่ throw
+ */
+export async function logFlowPromptNow(entryId: string): Promise<void> {
+  try {
+    const job = await prisma.flowJob.findFirst({
+      where: { entryId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, round: true, attempt: true },
+    });
+    if (!job) return;
+    await logUserActivity({
+      kind: "user_prompt_now",
+      jobId: job.id,
+      round: job.round,
+      detail: { round: job.round, attempt: job.attempt },
+    });
+  } catch (err) {
+    console.error("[logFlowPromptNow]", err);
+  }
 }
 
 /** token ของลิงก์ปลายทาง Showcase Scanner — สร้างครั้งแรกที่มีคนขอ */
