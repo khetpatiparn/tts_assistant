@@ -10,6 +10,7 @@ import type { FlowCheckpoint, FlowJobRow } from "@/lib/flow-queries";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { imgUrl } from "@/components/flow-job-parts";
+import { ClaimWarnings } from "@/components/claim-warnings";
 
 /** สูงสุด/ต่ำสุดของกรอบคลิปบนเดสก์ท็อป (px) — คลิปเป็น 9:16 ความกว้างตามความสูง */
 const CLIP_MIN_H = 280;
@@ -256,6 +257,7 @@ export function ReadyToPostCard({ job }: { job: FlowJobRow }) {
         </p>
       ) : (
         <>
+          <ClaimWarnings tenPart={job.prompt} caption={job.caption} hashtags={job.hashtags} />
           <ReadOnlyBox id={`caption-${job.id}`} label="แคปชัน" value={job.caption} rows={5} />
           <ReadOnlyBox id={`hashtags-${job.id}`} label="แฮชแท็ก" value={job.hashtags} rows={2} />
         </>

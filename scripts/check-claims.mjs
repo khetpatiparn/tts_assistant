@@ -47,6 +47,8 @@ try {
   check("คำเดียวกันซ้ำในที่เดียวกัน รายงานครั้งเดียว", c.checkClaims({ tenPart: "", caption: "ดีที่สุด ดีที่สุด", hashtags: "" }).length, 1);
   check("snippet มีคำที่เจอ", c.checkClaims({ tenPart: "", caption: "กล่องนี้ถูกที่สุดในตลาด", hashtags: "" })[0].snippet.includes("ถูกที่สุด"), true);
   check("ถูกที่สุด จับเป็นคำเดียว ไม่ซ้ำกับ ดีที่สุด", c.checkClaims({ tenPart: "", caption: "ถูกที่สุด", hashtags: "" }).map((h) => h.word), ["ถูกที่สุด"]);
+  check("เก็บรักษา / รักษาความสะอาด ไม่ใช่คำเสี่ยง", c.checkClaims({ tenPart: "", caption: "เก็บรักษาง่าย ช่วยรักษาความสะอาด", hashtags: "" }), []);
+  check("รักษาโรค ยังจับ", c.checkClaims({ tenPart: "", caption: "ช่วยรักษาแผล", hashtags: "" }).map((h) => h.word), ["รักษา"]);
 } finally {
   rmSync(out, { recursive: true, force: true });
 }

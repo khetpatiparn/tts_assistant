@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ClaimWarnings } from "@/components/claim-warnings";
 import { DatePickerField } from "@/components/date-picker-field";
 import type { PromptEntry } from "@/components/entry-workspace";
 import type { EntryRenderVideo } from "@/lib/flow-queries";
@@ -194,6 +195,7 @@ export function ProductionPanel({
               {copied ? "คัดลอกแล้ว" : "คัดลอกทั้งหมด"}
             </Button>
           </div>
+          <ClaimWarnings tenPart={chatgptOutput} caption={caption} hashtags={hashtags} />
           <Textarea
             name="caption"
             rows={3}

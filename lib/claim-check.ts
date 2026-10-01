@@ -14,6 +14,11 @@ export const CHECK_WORDS: readonly string[] = [
   "ปลอดภัย", "ทนทาน", "เกรดอาหาร", "ไม่เป็นสนิม", "ขายดี", "กันน้ำ", "รับน้ำหนัก", "ไร้สารพิษ", "ออร์แกนิก",
 ];
 
+/** วลีที่มีคำเสี่ยงอยู่ข้างในแต่ไม่ใช่การอ้างสรรพคุณ (เช่น "เก็บรักษา" ≠ รักษาโรค) — ข้ามเมื่อคำเสี่ยงอยู่ในวลีนี้ */
+const SAFE_PHRASES: Record<string, readonly string[]> = {
+  "รักษา": ["เก็บรักษา", "รักษาความสะอาด", "รักษารูปทรง", "รักษาความสดใหม่", "รักษาความเย็น", "รักษาอุณหภูมิ"],
+};
+
 /** ข้อความเสียงพากย์ที่คนดูได้ยิน: บล็อก "Full voice-over script" + ทุกบรรทัด "เสียงพากย์:" · ไม่รวม Negative Prompt/QA */
 export function extractVoiceover(tenPart: string): string {
   const lines = tenPart.replace(/\r\n/g, "\n").split("\n");
@@ -33,6 +38,14 @@ export function extractVoiceover(tenPart: string): string {
   return picked.join("\n");
 }
 
+function isSafeContext(text: string, index: number, word: string): boolean {
+  for (const phrase of SAFE_PHRASES[word] ?? []) {
+    const off = phrase.indexOf(word);
+    if (off >= 0 && text.startsWith(phrase, index - off)) return true;
+  }
+  return false;
+}
+
 /** หาคำเสี่ยงในข้อความ · คำยาวกว่าชนะ (ไม่รายงาน "ที่สุด" ซ้อนกัน) · คืนตำแหน่งแรกของแต่ละคำ */
 export function findClaimWords(text: string): { word: string; level: ClaimLevel; index: number }[] {
   const all = [
@@ -47,6 +60,7 @@ export function findClaimWords(text: string): { word: string; level: ClaimLevel;
     for (;;) {
       const i = text.indexOf(word, from);
       if (i < 0) break;
+      if (isSafeContext(text, i, word)) { from = i + word.length; continue; }
       const overlaps = taken.some(([s, e]) => i < e && i + word.length > s);
       if (!overlaps) { taken.push([i, i + word.length]); if (firstFree < 0) firstFree = i; }
       from = i + word.length;
