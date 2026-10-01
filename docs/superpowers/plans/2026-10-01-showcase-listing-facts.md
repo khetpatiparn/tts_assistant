@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Scope cut 2026-10-01 (user decision):** execute **Task 1 and Task 5 only** (claim checker + warnings). Tasks 2, 3, 4, 6 are parked — see the spec status line for the triggers that bring them back. Task 5 consumes only Task 1.
+
 **Goal:** Showcase jobs get a short product name and ban-safe facts read from the shop's gallery images; every clip's voice-over/caption/hashtags get a risky-claim warning before posting.
 
 **Architecture:** Two pure modules (`lib/claim-check.ts`, `lib/listing-facts.ts`) hold all rules and are tested by a node check script. `lib/gemini.ts` gets two flash-lite calls (short name; structured listing items via `response_format` JSON schema). `app/actions.ts` wires them into `startShowcaseProduct` and `generateWithAI` (best-effort, never throws). UI shows warnings from `checkClaims`. No schema migration: results live in existing `PromptEntry.productName` / `productInfo`.
