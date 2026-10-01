@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Download, Eraser, RotateCcw, SkipForward, Play } from "lucide-react";
+import { Check, ChevronDown, Download, Eraser, ImageIcon, RotateCcw, SkipForward, Play } from "lucide-react";
 
 import {
   approveFlowRender,
@@ -28,6 +28,8 @@ import {
   canApproveRender,
   canRetryUpscale,
   friendlyJobMessage,
+  queueCategory,
+  type QueueCategory,
   normalizeExtraPrompt,
   videoDownloadName,
   type FlowStatus,
@@ -37,7 +39,7 @@ import { cn } from "@/lib/utils";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
-import { FlowStepper } from "@/components/flow-stepper";
+import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
 
 function badgeVariant(status: string): BadgeVariant {
@@ -59,7 +61,21 @@ function timeLabel(d: Date | null): string {
   return d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
-export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderEnabled: boolean }) {
+/** งานที่ต้องให้คนดู (รอเลือก/ดูคลิป + พัง) เปิดไว้เลย · บอทกำลังทำ/เสร็จ พับไว้ */
+function expandedByDefault(cat: QueueCategory | null): boolean {
+  return cat === "waitingUser" || cat === "failed";
+}
+
+export function FlowReviewRow({ job, renderEnabled, hidden = false }: { job: FlowJobRow; renderEnabled: boolean; hidden?: boolean }) {
+  const category = queueCategory(job.status);
+  const [expanded, setExpanded] = useState(expandedByDefault(category));
+  // หมวดเปลี่ยน (เช่น บอทวาดเสร็จ → รอคุณเลือก) = กลับไปใช้ค่าเริ่มต้นของหมวดใหม่ · row ไม่ถูก remount
+  // (ทุกหมวดอยู่ใน <ul> เดียวกัน key = job.id) เพราะ autoGenerateEntryId ด้านล่างต้องรอดผ่านการเปลี่ยนหมวดตอนเลือกรูปรอบ 2
+  const [prevCategory, setPrevCategory] = useState(category);
+  if (prevCategory !== category) {
+    setPrevCategory(category);
+    setExpanded(expandedByDefault(category));
+  }
   const [selected, setSelected] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +112,8 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
         }]
       : []
   );
+
+  const thumb = job.chosenRound2 ?? job.chosenRound1 ?? job.candidates[job.candidates.length - 1] ?? null;
 
   function run(action: () => Promise<void>) {
     setError(null);
@@ -151,34 +169,60 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
   return (
-    <li className="flex flex-col gap-3 border-b border-border py-4">
-      {/* จัดใหม่ทั้งการ์ด (แบบ A จาก visual companion 2026-09-12) — เดิมคอลัมน์ซ้าย
-          220px ยัดชื่อ+เวลา+badge+stepper 6 ขั้นแน่นเกินไป ขณะที่รูป/ปุ่มฝั่งขวาใช้พื้นที่
-          ไม่ถึงครึ่งจอ ตอนนี้หัวการ์ดกับ stepper เต็มความกว้างการ์ด ให้ stepper มีที่หายใจ
-          และรูป/ปุ่มด้านล่างขยายใช้พื้นที่ทั้งแถวได้ */}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
-          <Link href={`/entry/${job.entryId}`} className="font-semibold leading-relaxed text-foreground hover:underline">
-            {job.productName}
-          </Link>
+    <li className={cn("flex flex-col gap-3 border-b border-border py-2", hidden && "hidden")}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "พับ" : "ขยาย"}งาน ${job.productName}`}
+          onClick={() => setExpanded((v) => !v)}
+          className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-md px-1 text-left hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          {thumb ? (
+            <Image src={imgUrl(job.entryId, thumb.filename)} alt="" width={96} height={128} className="size-12 shrink-0 rounded-md border border-border object-cover" />
+          ) : (
+            <span aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-md border border-border bg-surface-2 text-muted-foreground">
+              <ImageIcon className="size-5" />
+            </span>
+          )}
+          <span className="flex min-w-0 flex-1 flex-col gap-1 lg:flex-row lg:items-center lg:gap-4">
+            <span className="truncate font-semibold leading-relaxed text-foreground lg:flex-1">{job.productName}</span>
+            <span className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <FlowStepperCompact
+                status={job.status}
+                round={job.round}
+                imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
+              />
+              <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
+            </span>
+          </span>
+          <ChevronDown aria-hidden="true" className={cn("size-5 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+        </button>
+        {!expanded && job.status === FLOW_STATUS.DONE && job.video && (
+          <a
+            href={imgUrl(job.entryId, job.video.filename)}
+            download={videoDownloadName(job.productName)}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
+          </a>
+        )}
+      </div>
+
+      {expanded && (
+        <>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            เข้าคิว {timeLabel(job.createdAt)}
+            <Link href={`/entry/${job.entryId}`} className="text-primary underline-offset-4 hover:underline">
+              เปิดหน้า entry →
+            </Link>
+            {" · "}เข้าคิว {timeLabel(job.createdAt)}
             {job.startedAt ? ` · เริ่ม${ROUND_LABELS[job.round] ?? `รอบ ${job.round}`} ${timeLabel(job.startedAt)}` : ""}
             {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
           </p>
-        </div>
-        <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
-      </div>
-
-      <FlowStepper
-        status={job.status}
-        round={job.round}
-        imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
-      />
 
       <div className="flex flex-col gap-3">
         {isImageReview && (
-          <>
+          <div className="flex flex-wrap items-start gap-4">
             <div className="flex flex-wrap items-start gap-3">
               {source && (
                 <figure className="flex w-24 flex-col gap-1 lg:w-32">
@@ -192,7 +236,7 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                   <figcaption className="text-xs leading-relaxed text-muted-foreground">รูปแคป</figcaption>
                 </figure>
               )}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="flex flex-wrap gap-2">
                 {job.candidates.map((c: FlowImageRow, i: number) => (
                   <button
                     key={c.id}
@@ -222,6 +266,7 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 ))}
               </div>
             </div>
+            <div className="flex min-w-0 flex-1 basis-72 flex-col gap-3">
             <p className="text-xs leading-relaxed text-muted-foreground">
               {usedExtra === "" ? "ชุดนี้วาดด้วยพรอมต์ตั้งต้น" : `ชุดนี้วาดด้วยข้อความเพิ่มเติม: “${usedExtra}”`}
             </p>
@@ -253,7 +298,8 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
                 ขยายเทียบกับรูปแคป
               </Button>
             </div>
-          </>
+            </div>
+          </div>
         )}
 
         {isRenderReview && (
@@ -460,6 +506,8 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
 
         {error && <p className="text-xs leading-relaxed text-destructive">{error}</p>}
       </div>
+        </>
+      )}
 
       {lightbox !== null && source && isImageReview && (
         <FlowLightbox

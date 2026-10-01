@@ -145,3 +145,32 @@ export function FlowStepper({ status, round, imagesOnly = false }: { status: str
     </div>
   );
 }
+
+const DOT_CLASSES: Record<StepState, string> = {
+  done: "bg-status-success border-status-success",
+  queued: "border-status-neutral bg-status-neutral/40",
+  system: "border-status-neutral bg-status-neutral",
+  user: "border-status-warning bg-status-warning",
+  fail: "border-status-danger bg-status-danger",
+  skip: "border-border-interactive bg-surface-2",
+  pending: "border-border-interactive",
+};
+
+/** แบบย่อสำหรับแถวที่พับ: จุด 8 ดวง (เติมถึงขั้นปัจจุบัน) + ชื่อขั้นปัจจุบัน */
+export function FlowStepperCompact({ status, round, imagesOnly = false }: { status: string; round: number; imagesOnly?: boolean }) {
+  const derived = deriveSteps(status, round);
+  const keep = imagesOnly ? [0, 1, 2, 3, 4, 7] : derived.states.map((_, i) => i);
+  const states = keep.map((i) => derived.states[i]);
+  const current = Math.max(0, keep.indexOf(derived.current));
+  const label = STEP_SHORT_LABELS[derived.current];
+  return (
+    <span className="flex items-center gap-2" aria-label={`ความคืบหน้า: ${label}`}>
+      <span aria-hidden="true" className="flex items-center gap-1">
+        {states.map((state, i) => (
+          <span key={i} className={cn("size-2.5 rounded-full border", DOT_CLASSES[state], i === current && "ring-2 ring-offset-1 ring-offset-background ring-border-interactive")} />
+        ))}
+      </span>
+      <span className="text-xs leading-relaxed whitespace-nowrap text-muted-foreground">{label}</span>
+    </span>
+  );
+}

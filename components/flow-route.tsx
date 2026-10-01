@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
 import { ERROR_KIND_LABELS, queueCategory, summarizeQueue, type QueueCategory } from "@/lib/flow-jobs";
@@ -33,6 +34,20 @@ function minutesUntil(d: Date | null, now: Date): string | null {
   return m <= 0 ? "กำลังจะหยิบงานถัดไป" : `อีก ~${m} นาทีจะหยิบงานถัดไป`;
 }
 
+type Group = { key: string; title: string; jobs: FlowJobRow[]; collapsible: boolean };
+
+/** 3 กลุ่มตามที่ตกลงกับผู้ใช้ (+ "ข้ามแล้ว" ที่ไม่เข้าหมวดไหน เห็นเฉพาะตอนไม่กรอง) · กลุ่มว่างไม่แสดง */
+function buildGroups(jobs: FlowJobRow[]): Group[] {
+  const cat = (j: FlowJobRow) => queueCategory(j.status);
+  const all: Group[] = [
+    { key: "user", title: "ต้องให้คุณดู", jobs: jobs.filter((j) => cat(j) === "waitingUser" || cat(j) === "failed"), collapsible: false },
+    { key: "bot", title: "บอทกำลังทำ / รอคิว", jobs: jobs.filter((j) => cat(j) === "waitingBot"), collapsible: false },
+    { key: "done", title: "เสร็จแล้ว", jobs: jobs.filter((j) => cat(j) === "done"), collapsible: true },
+    { key: "skipped", title: "ข้ามแล้ว", jobs: jobs.filter((j) => cat(j) === null), collapsible: false },
+  ];
+  return all.filter((g) => g.jobs.length > 0);
+}
+
 export function FlowRoute({
   jobs,
   worker,
@@ -46,6 +61,7 @@ export function FlowRoute({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState<FilterCategory | null>(null);
+  const [doneOpen, setDoneOpen] = useState(false);
 
   // หน้านี้อ่านสถานะที่ worker (คนละโปรเซส) เขียน — ไม่มี revalidatePath จากฝั่งนั้น จึง refresh เอง
   useEffect(() => {
@@ -56,6 +72,7 @@ export function FlowRoute({
   const paused = worker.pausedReason !== "";
   const wake = minutesUntil(worker.nextWakeAt, now);
   const visibleJobs = filter === null ? jobs : jobs.filter((j) => queueCategory(j.status) === filter);
+  const groups = buildGroups(visibleJobs);
 
   return (
     <section className="flex flex-col gap-4">
@@ -158,10 +175,32 @@ export function FlowRoute({
             </div>
           </div>
 
+          {/* ทุกกลุ่มอยู่ใน <ul> เดียว (หัวกลุ่มเป็น <li> คั่น) และ key = job.id เสมอ — งานย้ายกลุ่มได้โดย
+              FlowReviewRow ไม่ถูก remount (state ที่ต้องรอดอยู่ในแถว) · กลุ่ม "เสร็จแล้ว" ที่พับใช้ hidden ไม่ใช่ unmount */}
           <ul className="flex flex-col">
-            {visibleJobs.map((job) => (
-              <FlowReviewRow key={job.id} job={job} renderEnabled={worker.renderEnabled} />
-            ))}
+            {groups.map((g) => {
+              const open = !g.collapsible || doneOpen || filter === "done";
+              return [
+                <li key={`h-${g.key}`} className="border-b border-border pt-3 pb-1">
+                  {g.collapsible ? (
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setDoneOpen((v) => !v)}
+                      className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-left text-sm font-semibold text-foreground hover:bg-surface-2 lg:min-h-9"
+                    >
+                      <ChevronRight aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} />
+                      {g.title} ({g.jobs.length})
+                    </button>
+                  ) : (
+                    <h2 className="px-1 text-sm font-semibold text-foreground">
+                      {g.title} ({g.jobs.length})
+                    </h2>
+                  )}
+                </li>,
+                ...g.jobs.map((job) => <FlowReviewRow key={job.id} job={job} renderEnabled={worker.renderEnabled} hidden={!open} />),
+              ];
+            })}
           </ul>
         </>
       )}
