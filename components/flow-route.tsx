@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
 import { ERROR_KIND_LABELS, queueCategory, summarizeQueue, type QueueCategory } from "@/lib/flow-jobs";
+import { GEMINI_MODELS } from "@/lib/gemini";
+import { generateWithAI } from "@/app/actions";
+import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
-import { FlowReviewRow } from "@/components/flow-review-row";
+import { FlowJobList, type FlowListGroup } from "@/components/flow-job-list";
+import { FlowJobDetail } from "@/components/flow-job-detail";
 
 const REFRESH_MS = 30_000;
 
@@ -34,18 +37,24 @@ function minutesUntil(d: Date | null, now: Date): string | null {
   return m <= 0 ? "กำลังจะหยิบงานถัดไป" : `อีก ~${m} นาทีจะหยิบงานถัดไป`;
 }
 
-type Group = { key: string; title: string; jobs: FlowJobRow[]; collapsible: boolean };
+type Group = Omit<FlowListGroup, "open">;
 
-/** 3 กลุ่มตามที่ตกลงกับผู้ใช้ (+ "ข้ามแล้ว" ที่ไม่เข้าหมวดไหน เห็นเฉพาะตอนไม่กรอง) · กลุ่มว่างไม่แสดง */
+/** 3 กลุ่มตามที่ตกลงกับผู้ใช้ (+ "ข้ามแล้ว" ที่ไม่เข้าหมวดไหน เห็นเฉพาะตอนไม่กรอง) · กลุ่มว่างไม่แสดง
+ * "เสร็จแล้ว" กับ "ข้ามแล้ว" พับไว้ก่อน (collapsible) */
 function buildGroups(jobs: FlowJobRow[]): Group[] {
   const cat = (j: FlowJobRow) => queueCategory(j.status);
   const all: Group[] = [
     { key: "user", title: "ต้องให้คุณดู", jobs: jobs.filter((j) => cat(j) === "waitingUser" || cat(j) === "failed"), collapsible: false },
     { key: "bot", title: "บอทกำลังทำ / รอคิว", jobs: jobs.filter((j) => cat(j) === "waitingBot"), collapsible: false },
     { key: "done", title: "เสร็จแล้ว", jobs: jobs.filter((j) => cat(j) === "done"), collapsible: true },
-    { key: "skipped", title: "ข้ามแล้ว", jobs: jobs.filter((j) => cat(j) === null), collapsible: false },
+    { key: "skipped", title: "ข้ามแล้ว", jobs: jobs.filter((j) => cat(j) === null), collapsible: true },
   ];
   return all.filter((g) => g.jobs.length > 0);
+}
+
+function groupKeyOf(job: FlowJobRow): string {
+  const c = queueCategory(job.status);
+  return c === "waitingUser" || c === "failed" ? "user" : c === "waitingBot" ? "bot" : c === "done" ? "done" : "skipped";
 }
 
 export function FlowRoute({
@@ -60,8 +69,54 @@ export function FlowRoute({
   now: Date;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [filter, setFilter] = useState<FilterCategory | null>(null);
-  const [doneOpen, setDoneOpen] = useState(false);
+  const detailPaneRef = useRef<HTMLDivElement>(null);
+
+  // งานที่เลือกเก็บใน URL (?job=<id>) · ใช้ history.replaceState ตรงๆ (Next ซิงก์กับ useSearchParams ให้) เพื่อไม่ต้องรอ
+  // server ดึงข้อมูลใหม่ทุกครั้งที่กดเลือก และไม่เพิ่มประวัติย้อนกลับ · router.refresh() ทุก 30 วิไม่แตะ query นี้
+  const jobParam = searchParams.get("job");
+  const explicitJob = jobParam !== null ? (jobs.find((j) => j.id === jobParam) ?? null) : null;
+
+  // กลุ่มพับได้ที่เปิดอยู่ · เริ่มต้นเปิดเฉพาะกลุ่มที่มีงานซึ่ง URL ชี้อยู่
+  const [openKeys, setOpenKeys] = useState<Set<string>>(() => {
+    const pick = jobs.find((j) => j.id === jobParam);
+    return new Set(pick ? [groupKeyOf(pick)] : []);
+  });
+  const toggleGroup = useCallback((key: string) => {
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const setJobParam = useCallback((id: string | null) => {
+    const url = new URL(window.location.href);
+    if (id === null) url.searchParams.delete("job");
+    else url.searchParams.set("job", id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  // เลือกรูปรอบ 2 เสร็จ → ยิง generateWithAI ต่อให้ · อยู่ที่ route (ไม่ใช่ในแผงรายละเอียด) เพราะแผงนั้น mount เฉพาะงานที่เลือก
+  // ผู้ใช้กดไปงานอื่นระหว่างที่ chooseFlowCandidate ยังทำงานได้ ขั้นนี้ต้องไม่หาย · ยิงครั้งเดียวต่อหนึ่งคำขอ
+  const [autoGenerateEntryIds, setAutoGenerateEntryIds] = useState<string[]>([]);
+  const requestAutoGenerate = useCallback((entryId: string) => setAutoGenerateEntryIds((q) => [...q, entryId]), []);
+  useEffect(() => {
+    if (autoGenerateEntryIds.length === 0) return;
+    const entryIds = autoGenerateEntryIds;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAutoGenerateEntryIds([]);
+    for (const entryId of entryIds) {
+      // ลองซ้ำเอง 1 ครั้งหลัง 10 วิ — เจอจริง 2026-09-30: Gemini ล้มกลางทาง ("Unexpected HTTP client error") ครั้งเดียว
+      // แล้วงานค้าง "รอ 10-part prompt" เป็นชั่วโมงเพราะไม่มีใครกดใหม่ · Render เริ่มเองทันทีที่พรอมต์บันทึกสำเร็จ
+      generateWithAI(entryId, GEMINI_MODELS[0].id)
+        .catch(() => new Promise((r) => setTimeout(r, 10_000)).then(() => generateWithAI(entryId, GEMINI_MODELS[0].id)))
+        .then(() => playCompletionSound("success"))
+        .catch(() => playCompletionSound("error"));
+    }
+  }, [autoGenerateEntryIds]);
 
   // หน้านี้อ่านสถานะที่ worker (คนละโปรเซส) เขียน — ไม่มี revalidatePath จากฝั่งนั้น จึง refresh เอง
   useEffect(() => {
@@ -72,13 +127,37 @@ export function FlowRoute({
   const paused = worker.pausedReason !== "";
   const wake = minutesUntil(worker.nextWakeAt, now);
   const visibleJobs = filter === null ? jobs : jobs.filter((j) => queueCategory(j.status) === filter);
-  const groups = buildGroups(visibleJobs);
+  const baseGroups = buildGroups(visibleJobs);
+  // ไม่มี ?job (หรือ id ใช้ไม่ได้แล้ว) → เดสก์ท็อปเลือกงานแรกของรายการให้เอง · มือถือยังเปิดที่รายการ (ดู className ด้านล่าง)
+  const detailJob = explicitJob ?? baseGroups[0]?.jobs[0] ?? jobs[0] ?? null;
+  const groups: FlowListGroup[] = baseGroups.map((g) => ({
+    ...g,
+    open:
+      !g.collapsible ||
+      openKeys.has(g.key) ||
+      (g.key === "done" && filter === "done") ||
+      (explicitJob === null && g.jobs.some((j) => j.id === detailJob?.id)),
+  }));
+
+  // "งานถัดไปที่รอคุณ" = งานถัดไปในกลุ่ม "ต้องให้คุณดู" ตามลำดับรายการ วนกลับต้น (ไม่ผูกกับตัวกรองที่เปิดอยู่)
+  const needsYou = buildGroups(jobs).find((g) => g.key === "user")?.jobs ?? [];
+  const nextWaiting = (() => {
+    if (!detailJob || !needsYou.some((j) => j.id !== detailJob.id)) return null;
+    const at = needsYou.findIndex((j) => j.id === detailJob.id);
+    return needsYou[(at + 1) % needsYou.length];
+  })();
+
+  function selectJob(id: string) {
+    setJobParam(id);
+    detailPaneRef.current?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  }
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4 lg:min-h-0 lg:flex-1">
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3 leading-relaxed",
+          "flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3 leading-relaxed",
           paused ? "bg-surface-2" : "bg-surface"
         )}
         aria-live="polite"
@@ -123,7 +202,7 @@ export function FlowRoute({
           {/* แถบสัดส่วนกดกรองได้ — ออกแบบร่วมกับผู้ใช้ผ่าน visual companion (2026-09-08)
               กดซ้ำหมวดเดิมเพื่อยกเลิกกรอง งาน "skipped" ไม่เข้าหมวดไหนเลย (เหมือน
               summarizeQueue) จึงเห็นเฉพาะตอนไม่กรอง (filter === null) */}
-          <div className="flex flex-col gap-2">
+          <div className="flex shrink-0 flex-col gap-2">
             {/* แถบเป็นแค่บล็อกสี ไม่มีตัวหนังสือทับ — เลี่ยงคู่สีใหม่ที่ยังไม่เคยผ่าน
                 check-contrast.mjs (ตัวเลข/label อยู่แยกแถวล่าง ใช้ text-foreground/
                 text-muted-foreground ตามที่มีอยู่แล้วในแอป ปลอดภัยแน่นอน) */}
@@ -175,33 +254,41 @@ export function FlowRoute({
             </div>
           </div>
 
-          {/* ทุกกลุ่มอยู่ใน <ul> เดียว (หัวกลุ่มเป็น <li> คั่น) และ key = job.id เสมอ — งานย้ายกลุ่มได้โดย
-              FlowReviewRow ไม่ถูก remount (state ที่ต้องรอดอยู่ในแถว) · กลุ่ม "เสร็จแล้ว" ที่พับใช้ hidden ไม่ใช่ unmount */}
-          <ul className="flex flex-col">
-            {groups.map((g) => {
-              const open = !g.collapsible || doneOpen || filter === "done";
-              return [
-                <li key={`h-${g.key}`} className="border-b border-border pt-3 pb-1">
-                  {g.collapsible ? (
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      onClick={() => setDoneOpen((v) => !v)}
-                      className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-left text-sm font-semibold text-foreground hover:bg-surface-2 lg:min-h-9"
-                    >
-                      <ChevronRight aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", open && "rotate-90")} />
-                      {g.title} ({g.jobs.length})
-                    </button>
-                  ) : (
-                    <h2 className="px-1 text-sm font-semibold text-foreground">
-                      {g.title} ({g.jobs.length})
-                    </h2>
-                  )}
-                </li>,
-                ...g.jobs.map((job) => <FlowReviewRow key={job.id} job={job} renderEnabled={worker.renderEnabled} hidden={!open} />),
-              ];
-            })}
-          </ul>
+          {/* master–detail: ซ้าย = รายการ · ขวา = รายละเอียดงานที่เลือก (เลื่อนแยกกันที่ lg:) ·
+              ต่ำกว่า lg: แสดงทีละฝั่ง — ไม่มี ?job = รายการ · มี ?job = รายละเอียดพร้อมปุ่มกลับ */}
+          <div className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:flex-row">
+            <div className={cn("min-w-0 lg:w-96 lg:shrink-0 lg:overflow-y-auto lg:pr-1", explicitJob !== null && "hidden lg:block")}>
+              {groups.length === 0 ? (
+                <p className="text-sm leading-relaxed text-muted-foreground">ไม่มีงานในหมวดที่กรองไว้</p>
+              ) : (
+                <FlowJobList
+                  groups={groups}
+                  selectedId={detailJob?.id ?? null}
+                  renderEnabled={worker.renderEnabled}
+                  onSelect={selectJob}
+                  onToggleGroup={toggleGroup}
+                />
+              )}
+            </div>
+            <div
+              ref={detailPaneRef}
+              className={cn(
+                "min-w-0 lg:flex-1 lg:overflow-y-auto lg:border-l lg:border-border lg:pl-6",
+                explicitJob === null && "hidden lg:block"
+              )}
+            >
+              {detailJob && (
+                <FlowJobDetail
+                  key={detailJob.id}
+                  job={detailJob}
+                  renderEnabled={worker.renderEnabled}
+                  onRound2Chosen={requestAutoGenerate}
+                  onBack={() => setJobParam(null)}
+                  onNext={nextWaiting ? () => selectJob(nextWaiting.id) : null}
+                />
+              )}
+            </div>
+          </div>
         </>
       )}
     </section>
