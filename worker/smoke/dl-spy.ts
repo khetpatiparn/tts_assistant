@@ -117,6 +117,27 @@ async function main() {
     await sleepMs(400);
     await shot("3-hover-target", page);
     note(`target visible=${String(await target.isVisible())} text="${((await target.textContent()) ?? "").trim()}"`);
+    // DL_SPY_ABORT=1 = ทดสอบวิธีของบอท: ยกเลิก fetch ไฟล์ฝั่งหน้าเว็บ (กัน Chrome crash ตอนเริ่มดาวน์โหลด) แล้วดึงเอง
+    if (process.env.DL_SPY_ABORT === "1") {
+      const wantUp = quality.some((re) => re.test("Upscaled"));
+      await page.route((u) => pickDirectVideoUrl([u.toString()]) !== null, (route) => {
+        const u = route.request().url();
+        const type = route.request().resourceType();
+        if (/_upsampled(\?|$)/.test(u) === wantUp && (wantUp || type === "fetch" || type === "xhr")) {
+          note(`ROUTE abort ${type} ${u.slice(0, 160)}`);
+          route.abort("aborted").catch(() => {});
+          page.request.get(u, { maxRedirects: 3, timeout: 120_000 }).then(async (r) => {
+            const b = await r.body();
+            const f = path.join(out, `self-${wantUp ? "1080p" : "720p"}.mp4`);
+            writeFileSync(f, b);
+            note(`SELF-FETCH ok HTTP ${String(r.status())} ${String(b.length)} bytes → ${f}`);
+          }).catch((e: unknown) => note(`SELF-FETCH failed ${String(e)}`));
+          return;
+        }
+        note(`ROUTE continue ${type} ${u.slice(0, 120)}`);
+        route.continue().catch(() => {});
+      });
+    }
     clickedAt = Date.now();
     await page.mouse.down();
     await sleepMs(randInt([60, 140]));

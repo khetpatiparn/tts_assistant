@@ -34,7 +34,7 @@ must(
 must("attach-reference → upload หลัง setFiles", within(driver, "async function attachReferences", "\n    }\n", 'kind: "upload"') && /setFiles\(paths\);\s*\n\s*logActivity/.test(driver));
 must("ensure-project → new_project หลังคลิป New project", /humanClick\(page, btn, cfg\);\s*\n\s*logActivity\(\{ kind: "new_project"/.test(driver));
 must("downloadVideoDirect → download via direct หลังเขียนไฟล์", /writeFileSync\(file, buf\);[^]*?via: "direct"/.test(driver) && within(driver, "async function downloadVideoDirect", "async function downloadVideo(", 'via: "direct"'));
-must("downloadVideo (menu) → download via menu หลังเขียนไฟล์จาก response", /Flow ส่งไฟล์มาแล้ว[^]*?writeFileSync\(file, buf\);[^]*?via: "menu"/.test(driver));
+must("downloadVideo (menu) → download via menu หลังเขียนไฟล์ที่ดึงเอง", /Flow ขอไฟล์แล้ว[^]*?writeFileSync\(file, buf\);[^]*?via: "menu"/.test(driver));
 must("wait loops: HTTP-status stop ทั้ง 3 จุด → bot_signal http", (driver.match(/kind: "bot_signal"[^\n]*signal: `http \$\{r\.status\}`/g) ?? []).length >= 3);
 must("assertPageUsable bot_signal มี jobId/round", (driver.match(/kind: "bot_signal", jobId, round,/g) ?? []).length >= 2);
 must("download-4 → download files:4", within(driver, 'step("download-4"', "return written;", "files: 4"));

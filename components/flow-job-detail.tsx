@@ -47,12 +47,15 @@ import { ClipPlayer, ExtraPromptField, JobMessage, ROUND_LABELS, badgeVariant, i
 export function FlowJobDetail({
   job,
   renderEnabled,
+  workerAlive,
   onRound2Chosen,
   onBack,
   onNext,
 }: {
   job: FlowJobRow;
   renderEnabled: boolean;
+  /** บอทส่ง heartbeat อยู่ไหม — งาน running_* ตอนบอทไม่อยู่ = ค้าง ต้องบอกผู้ใช้ ไม่ใช่ "กำลังทำ" */
+  workerAlive: boolean;
   onRound2Chosen: (entryId: string) => void;
   onBack: () => void;
   /** null = ไม่มีงานอื่นที่รอคุณ */
@@ -70,6 +73,7 @@ export function FlowJobDetail({
   const isImageReview = job.status === FLOW_STATUS.REVIEW_R1 || job.status === FLOW_STATUS.REVIEW_R2;
   const isRenderReview = job.status === FLOW_STATUS.REVIEW_R3;
   const isUpscale = job.status === FLOW_STATUS.QUEUED_UPSCALE || job.status === FLOW_STATUS.RUNNING_UPSCALE;
+  const stalled = !workerAlive && job.status.startsWith("running_");
   const source = job.sources[0] ?? null;
   const selectedId = job.candidates.some((c) => c.id === selected) ? selected : null;
   // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
@@ -380,6 +384,13 @@ export function FlowJobDetail({
           </div>
         )}
 
+        {stalled && (
+          <p className="max-w-3xl rounded-md border-l-4 border-status-warning bg-surface-2 p-3 text-sm leading-relaxed text-foreground">
+            บอทไม่ได้เปิดอยู่ — งานนี้ค้างอยู่ ไม่ได้กำลังทำ · เปิด start.bat แล้วบอทจะเก็บงานให้เอง
+            {job.status === FLOW_STATUS.RUNNING_UPSCALE ? " (โหลด 1080p ที่ค้าง = จบด้วย 720p แล้วกด ลองโหลด 1080p อีกครั้ง ได้)" : ""}
+          </p>
+        )}
+
         {isUpscale && clipLayout && clipFile !== null && (
           <ClipLayout
             job={job}
@@ -515,7 +526,7 @@ export function FlowJobDetail({
 
         {!isUpscale && (job.status.startsWith("queued_") || job.status.startsWith("running_")) && (
           <p className="text-sm leading-relaxed text-muted-foreground">
-            {job.status.startsWith("running_") ? "บอทกำลังทำอยู่ตอนนี้" : "รอบอทหยิบงาน"}
+            {job.status.startsWith("running_") ? (stalled ? "ค้างอยู่ (บอทไม่ได้เปิด)" : "บอทกำลังทำอยู่ตอนนี้") : "รอบอทหยิบงาน"}
           </p>
         )}
 

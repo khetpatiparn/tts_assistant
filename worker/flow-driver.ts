@@ -784,39 +784,51 @@ export async function runRound(
       // แล้วค่อยยิงเป็น blob download · เราดัก response ตัวนั้นแล้วอ่าน body ตรงๆ — ไม่พึ่ง event download/saveAs
       // ที่พังได้ ("Target page… closed" ตอนสอดแนม) · 720p "Original size" ก็ fetch `/video/<id>` แบบเดียวกัน
       const wantUpsampled = quality.some((re) => re.test("Upscaled"));
-      const fileResponse = page.waitForResponse(
-        (res) => {
-          const u = res.url();
-          if (pickDirectVideoUrl([u]) === null) return false;
-          return /_upsampled(\?|$)/.test(u) === wantUpsampled;
-        },
-        { timeout: cfg.renderDownloadTimeoutMs },
-      );
-      // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
-      fileResponse.catch(() => {});
-      await page.mouse.down();
-      await sleepMs(randInt([60, 140]));
-      await page.mouse.up();
-      // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
-      await sleepMs(3000);
-      if ((await page.locator(v.menuItem).filter({ visible: true }).count()) > 0) {
-        throw new FlowStepError(name, "selector_drift", "คลิกแล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
-      }
-      const res = await fileResponse.catch((e: unknown) => {
-        if (isTimeout(e)) {
-          throw new FlowStepError(name, "download_failed", `กดโหลดแล้ว Flow ไม่ส่งไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`);
+      // **Chrome ของบอท crash ตอนเบราว์เซอร์เริ่ม "ดาวน์โหลด" blob** (crash dump ใน .flow-profile/Crashpad ตรงเวลาเป๊ะ
+      // 2 ครั้ง 2026-10-01: ตอนสอดแนมและตอนบอทคลิก) — จึงดัก request ของไฟล์ที่หน้าเว็บ fetch เอง: จด URL แล้ว **ยกเลิก**
+      // fetch นั้น (ไม่มี blob → ไม่มีดาวน์โหลด → ไม่ crash) แล้วดึงไฟล์เองจาก URL เดียวกันด้วย page.request
+      // · โหลด 720p ผ่านเมนู: ยกเลิกเฉพาะ fetch/xhr (ไม่แตะ <video> ที่โหลดเป็น media ตอน hover)
+      const isFileUrl = (u: string) => pickDirectVideoUrl([u]) !== null && /_upsampled(\?|$)/.test(u) === wantUpsampled;
+      let resolveFileUrl: (u: string) => void = () => {};
+      const fileUrl = new Promise<string>((resolve) => { resolveFileUrl = resolve; });
+      const routeMatcher = (u: URL) => pickDirectVideoUrl([u.toString()]) !== null;
+      await page.route(routeMatcher, (route) => {
+        const req = route.request();
+        const u = req.url();
+        const type = req.resourceType();
+        if (isFileUrl(u) && (wantUpsampled || type === "fetch" || type === "xhr")) {
+          resolveFileUrl(u);
+          route.abort("aborted").catch(() => {});
+          return;
         }
-        throw e;
+        route.continue().catch(() => {});
       });
-      if (!res.ok()) throw new FlowStepError(name, "download_failed", `ไฟล์คลิปตอบ HTTP ${String(res.status())}`);
-      log.log(name, `Flow ส่งไฟล์มาแล้ว: ${res.url().slice(0, 120)}…`);
-      // body() อ่านจาก buffer ของเบราว์เซอร์ · ถ้าอ่านไม่ได้ (ไฟล์ใหญ่/ถูกทิ้งแล้ว) ดึงซ้ำจากลิงก์ลายเซ็นเดิม (ใช้ได้หลายชั่วโมง ไม่ต้อง cookie)
-      let buf = await res.body().catch(() => null);
-      if (buf === null) {
-        log.log(name, "อ่าน body จาก response ไม่ได้ — ดึงซ้ำจากลิงก์เดิม");
-        const again = await page.request.get(res.url(), { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
-        if (!again.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์ซ้ำจากลิงก์ตอบ HTTP ${String(again.status())}`);
-        buf = await again.body();
+      let buf: Buffer;
+      try {
+        await page.mouse.down();
+        await sleepMs(randInt([60, 140]));
+        await page.mouse.up();
+        // คลิกติด = เมนูปิดเอง · ถ้าตัวเลือกยังค้างอยู่แปลว่าคลิกไม่ติด → บอกทันที ไม่นั่งรอ 10 นาทีเปล่าๆ
+        await sleepMs(3000);
+        if ((await page.locator(v.menuItem).filter({ visible: true }).count()) > 0) {
+          throw new FlowStepError(name, "selector_drift", "คลิกแล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
+        }
+        let timer: NodeJS.Timeout | undefined;
+        const url = await Promise.race([
+          fileUrl,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new FlowStepError(name, "download_failed", `กดโหลดแล้ว Flow ไม่ขอไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`)),
+              cfg.renderDownloadTimeoutMs,
+            );
+          }),
+        ]).finally(() => clearTimeout(timer));
+        log.log(name, `Flow ขอไฟล์แล้ว (ยกเลิกฝั่งหน้าเว็บ ดึงเอง): ${url.slice(0, 120)}…`);
+        const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
+        if (!res.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์จากลิงก์ตอบ HTTP ${String(res.status())}`);
+        buf = await res.body();
+      } finally {
+        await page.unroute(routeMatcher).catch(() => {});
       }
       if (!isMp4Header(buf)) {
         throw new FlowStepError(name, "download_failed", `ไฟล์ที่ได้ไม่ใช่ MP4 (${String(buf.length)} bytes)`);

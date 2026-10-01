@@ -419,6 +419,18 @@ async function main() {
   // หลังเปิด Chrome สำเร็จเท่านั้น (ตัวที่สองที่เปิดซ้อนออกไปก่อนถึงตรงนี้) — แค่ลบไฟล์ ไม่แตะ DB
   sweepOldCheckpoints();
 
+  // งานค้าง running_upscale ที่มีตัวอย่าง 720p แล้ว = คลิปเรนเดอร์เสร็จแล้ว (เครดิตจ่ายแล้ว) → จบด้วย 720p ไม่พัง ไม่หยุดคิว
+  // (เจอจริง 2026-10-01: Chrome crash ตอนโหลด 1080p → งานค้าง "กำลังโหลด" ผู้ใช้รอเป็นชั่วโมง)
+  const staleUpscale = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_UPSCALE }, include: { images: true } });
+  for (const j of staleUpscale) {
+    if (!j.images.some((i) => i.kind === "video")) continue;
+    await prisma.flowJob.update({
+      where: { id: j.id },
+      data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ 720p (บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้)" },
+    });
+    log(`งานค้างโหลด 1080p ${j.id} → จบด้วย 720p`);
+  }
+
   const stale = await prisma.flowJob.updateMany({
     where: {
       status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2, FLOW_STATUS.RUNNING_R3, FLOW_STATUS.RUNNING_UPSCALE] },
