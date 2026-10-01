@@ -27,6 +27,7 @@ import {
   canApproveRender,
   canRetryUpscale,
   FINAL_VIDEO_FILENAME,
+  flowProjectUrl,
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
@@ -37,7 +38,7 @@ import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
 import { BotSteps, ClipLayout, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
-import { ClipPlayer, ExtraPromptField, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
+import { ClipPlayer, ExtraPromptField, FlowProjectLink, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
 
 /**
  * รายละเอียดของงานที่เลือก (ฝั่งขวาของหน้า /flow) · mount ทีละงาน (key = job.id จากคนเรียก)
@@ -164,6 +165,7 @@ export function FlowJobDetail({
               {job.startedAt ? ` · เริ่ม${ROUND_LABELS[job.round] ?? `รอบ ${job.round}`} ${timeLabel(job.startedAt)}` : ""}
               {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
             </p>
+            <FlowProjectLink flowProjectId={job.flowProjectId} status={job.status} />
           </div>
           {onNext && (
             <Button type="button" variant="outline" onClick={onNext}>
@@ -306,7 +308,7 @@ export function FlowJobDetail({
                 {job.flowProjectId && (
                   <a
                     className="text-sm text-primary underline-offset-4 hover:underline"
-                    href={`https://flow.google.com/project/${job.flowProjectId}?hl=en`}
+                    href={flowProjectUrl(job.flowProjectId)}
                     target="_blank"
                     rel="noreferrer"
                   >

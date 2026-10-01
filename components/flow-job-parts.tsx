@@ -1,7 +1,8 @@
 import Image from "next/image";
-import { Download, Eraser } from "lucide-react";
+import { Copy, Download, Eraser, ExternalLink } from "lucide-react";
+import { useState } from "react";
 
-import { EXTRA_PROMPT_MAX, FLOW_STATUS, friendlyJobMessage, videoDownloadName } from "@/lib/flow-jobs";
+import { EXTRA_PROMPT_MAX, FLOW_STATUS, flowProjectUrl, friendlyJobMessage, videoDownloadName } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import type { BadgeVariant } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -131,4 +132,36 @@ export function JobThumb({ entryId, filename }: { entryId: string; filename: str
     return <span aria-hidden="true" className="size-12 shrink-0 rounded-md border border-border bg-surface-2" />;
   }
   return <Image src={imgUrl(entryId, filename)} alt="" width={96} height={128} className="size-12 shrink-0 rounded-md border border-border object-cover" />;
+}
+
+/**
+ * ลิงก์เปิดโปรเจกต์ Flow ของงานนี้ (บัญชีสำรอง) + ปุ่มคัดลอก — ให้ผู้ใช้เข้าไปจัดการเองได้
+ * งานที่บอทกำลังทำอยู่ (running_*) เตือนว่าดูได้แต่อย่ากดสร้างเพิ่ม: บอทหาผลลัพธ์จาก "ช่องที่เพิ่งโผล่ใหม่" นับผิดได้
+ */
+export function FlowProjectLink({ flowProjectId, status }: { flowProjectId: string; status: string }) {
+  const url = flowProjectUrl(flowProjectId);
+  const [copied, setCopied] = useState(false);
+  if (url === "") return null;
+  const busy = status.startsWith("running_");
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-relaxed">
+      <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
+        เปิดโปรเจกต์ใน Flow (บัญชีสำรอง) <ExternalLink aria-hidden="true" className="size-3.5" />
+      </a>
+      <Button
+        type="button"
+        size="xs"
+        variant="ghost"
+        onClick={() => {
+          navigator.clipboard.writeText(url).then(
+            () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
+            () => setCopied(false),
+          );
+        }}
+      >
+        <Copy data-icon="inline-start" /> {copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+      </Button>
+      {busy && <span className="text-status-warning">บอทกำลังใช้โปรเจกต์นี้ — ดูได้ อย่ากดสร้างเพิ่ม</span>}
+    </div>
+  );
 }
