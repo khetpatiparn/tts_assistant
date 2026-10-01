@@ -27,6 +27,7 @@ import {
   buildFlowPrompt,
   canApproveRender,
   canRetryUpscale,
+  FINAL_VIDEO_FILENAME,
   friendlyJobMessage,
   queueCategory,
   type QueueCategory,
@@ -440,38 +441,48 @@ export function FlowReviewRow({ job, renderEnabled, hidden = false }: { job: Flo
         )}
 
         {job.status === FLOW_STATUS.DONE && (renderEnabled || job.video !== null) && (
-          <div className="flex flex-wrap items-center gap-3">
-            {[job.chosenRound1, job.chosenRound2].map((c, i) =>
-              c ? (
-                <Image
-                  key={c.id}
-                  src={imgUrl(job.entryId, c.filename)}
-                  alt={i === 0 ? "รูปที่เลือก พื้นหลังขาว" : "รูปที่เลือก ตอนใช้งาน"}
-                  width={400}
-                  height={533}
-                  className="aspect-[3/4] w-20 rounded-md border-2 border-status-success object-cover lg:w-28"
-                />
-              ) : null
-            )}
+          // คลิปคือของหลัก (ซ้าย) · สถานะ/ปุ่ม/รูปที่ใช้ทำคลิปอยู่ขวา — ไม่ปล่อยพื้นที่ว่างทั้งแถว
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
             {job.video && (
-              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" done />
+              <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="lg" done />
             )}
-            {job.video && (
-              <div className="basis-full">
-                <JobMessage status={job.status} message={job.errorMessage} />
-              </div>
-            )}
-            {canRetryUpscale(job.status, job.video, job.flowProjectId) && (
-              <div className="flex basis-full flex-wrap items-center gap-3">
-                <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
-                  <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
-                </Button>
-                <span className="text-sm leading-relaxed text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
-              </div>
-            )}
-            <Link href={`/entry/${job.entryId}`} className="text-sm leading-relaxed text-primary underline-offset-4 hover:underline">
-              ไปหน้า entry ดู prompt ที่สร้างให้แล้ว →
-            </Link>
+            <div className="flex min-w-0 flex-1 flex-col gap-3 leading-relaxed">
+              {job.video ? (
+                <p className="text-sm font-medium text-foreground">
+                  คลิปพร้อมแล้ว · {job.video.filename === FINAL_VIDEO_FILENAME ? "1080p" : "720p"}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">เสร็จแล้ว (ยังไม่มีไฟล์คลิปในแอป)</p>
+              )}
+              {job.video && <JobMessage status={job.status} message={job.errorMessage} />}
+              {canRetryUpscale(job.status, job.video, job.flowProjectId) && (
+                <div className="flex flex-col items-start gap-1">
+                  <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
+                    <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
+                  </Button>
+                  <span className="text-xs text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
+                </div>
+              )}
+              {(job.chosenRound1 || job.chosenRound2) && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-muted-foreground">รูปที่ใช้ทำคลิป</span>
+                  <div className="flex gap-2">
+                    {[job.chosenRound1, job.chosenRound2].map((c, i) =>
+                      c ? (
+                        <Image
+                          key={c.id}
+                          src={imgUrl(job.entryId, c.filename)}
+                          alt={i === 0 ? "รูปที่เลือก พื้นหลังขาว" : "รูปที่เลือก ตอนใช้งาน"}
+                          width={400}
+                          height={533}
+                          className="aspect-[3/4] w-16 rounded-md border border-border object-cover"
+                        />
+                      ) : null
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
