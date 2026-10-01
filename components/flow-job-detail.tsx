@@ -165,7 +165,7 @@ export function FlowJobDetail({
               {job.startedAt ? ` · เริ่ม${ROUND_LABELS[job.round] ?? `รอบ ${job.round}`} ${timeLabel(job.startedAt)}` : ""}
               {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
             </p>
-            <FlowProjectLink flowProjectId={job.flowProjectId} status={job.status} />
+            <FlowProjectLink jobId={job.id} flowProjectId={job.flowProjectId} status={job.status} />
           </div>
           {onNext && (
             <Button type="button" variant="outline" onClick={onNext}>

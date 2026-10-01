@@ -145,6 +145,15 @@ export function flowProjectUrl(flowProjectId: string): string {
   return /^[A-Za-z0-9-]+$/.test(id) ? `https://flow.google.com/project/${id}?hl=en` : "";
 }
 
+/**
+ * เลือกโปรไฟล์ Brave ของบัญชีสำรอง จาก profile.info_cache ใน "Local State" ของ Brave — ชื่อโปรไฟล์ต้องมีคำว่า
+ * flow / สำรอง / backup (ผู้ใช้ตั้งเอง) และต้องเจอ**ตัวเดียว** ไม่งั้นคืน null (ไม่เดา — เปิดผิดบัญชีไม่มีประโยชน์)
+ */
+export function pickBackupBrowserProfile(infoCache: Record<string, { name?: unknown }>): string | null {
+  const hits = Object.entries(infoCache).filter(([, v]) => typeof v?.name === "string" && /flow|สำรอง|backup/i.test(v.name));
+  return hits.length === 1 ? hits[0][0] : null;
+}
+
 export function videoDownloadName(productName: string): string {
   const safe = productName.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
   return `${safe === "" ? "clip" : safe}.mp4`;

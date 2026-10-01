@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
 import { Copy, Download, Eraser, ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { useState, useTransition } from "react";
+
+import { openFlowProjectInBackupProfile } from "@/app/actions";
 
 import { EXTRA_PROMPT_MAX, FLOW_STATUS, flowProjectUrl, friendlyJobMessage, videoDownloadName } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
@@ -138,30 +142,51 @@ export function JobThumb({ entryId, filename }: { entryId: string; filename: str
  * ลิงก์เปิดโปรเจกต์ Flow ของงานนี้ (บัญชีสำรอง) + ปุ่มคัดลอก — ให้ผู้ใช้เข้าไปจัดการเองได้
  * งานที่บอทกำลังทำอยู่ (running_*) เตือนว่าดูได้แต่อย่ากดสร้างเพิ่ม: บอทหาผลลัพธ์จาก "ช่องที่เพิ่งโผล่ใหม่" นับผิดได้
  */
-export function FlowProjectLink({ flowProjectId, status }: { flowProjectId: string; status: string }) {
+export function FlowProjectLink({ jobId, flowProjectId, status }: { jobId: string; flowProjectId: string; status: string }) {
   const url = flowProjectUrl(flowProjectId);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
+  const [opening, startOpening] = useTransition();
   if (url === "") return null;
   const busy = status.startsWith("running_");
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-relaxed">
-      <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline">
-        เปิดโปรเจกต์ใน Flow (บัญชีสำรอง) <ExternalLink aria-hidden="true" className="size-3.5" />
-      </a>
-      <Button
-        type="button"
-        size="xs"
-        variant="ghost"
-        onClick={() => {
-          navigator.clipboard.writeText(url).then(
-            () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
-            () => setCopied(false),
-          );
-        }}
-      >
-        <Copy data-icon="inline-start" /> {copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
-      </Button>
-      {busy && <span className="text-status-warning">บอทกำลังใช้โปรเจกต์นี้ — ดูได้ อย่ากดสร้างเพิ่ม</span>}
+    <div className="flex flex-col gap-1 text-xs leading-relaxed">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {/* Brave ของผู้ใช้ล็อกอินบัญชีหลัก — ลิงก์ธรรมดาเปิดโปรเจกต์ของบัญชีสำรองไม่ได้ จึงให้เซิร์ฟเวอร์เปิด Brave โปรไฟล์บัญชีสำรองให้ */}
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          disabled={opening}
+          onClick={() => {
+            setError("");
+            startOpening(async () => {
+              try {
+                await openFlowProjectInBackupProfile(jobId);
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "เปิดไม่สำเร็จ");
+              }
+            });
+          }}
+        >
+          <ExternalLink data-icon="inline-start" /> {opening ? "กำลังเปิด…" : "เปิดใน Flow (บัญชีสำรอง)"}
+        </Button>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          onClick={() => {
+            navigator.clipboard.writeText(url).then(
+              () => { setCopied(true); setTimeout(() => setCopied(false), 2000); },
+              () => setCopied(false),
+            );
+          }}
+        >
+          <Copy data-icon="inline-start" /> {copied ? "คัดลอกแล้ว" : "คัดลอกลิงก์"}
+        </Button>
+        {busy && <span className="text-status-warning">บอทกำลังใช้โปรเจกต์นี้ — ดูได้ อย่ากดสร้างเพิ่ม</span>}
+      </div>
+      {error !== "" && <p role="status" className="text-destructive">{error}</p>}
     </div>
   );
 }

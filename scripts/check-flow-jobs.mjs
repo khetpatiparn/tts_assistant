@@ -80,6 +80,9 @@ try {
   check("afterRedo review_r3 → queued_r3 (เรนเดอร์ใหม่)", f.afterRedo("review_r3").status, "queued_r3");
   check("canApproveRender review_r3 + มีไฟล์ → true", f.canApproveRender("review_r3", true), true);
   check("canApproveRender review_r3 + ไม่มีไฟล์ (โหลดไม่ได้) → false", f.canApproveRender("review_r3", false), false);
+  check("backup profile: เจอชื่อมี Flow สำรอง", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 3": { name: "Flow สำรอง" } }), "Profile 3");
+  check("backup profile: ไม่เจอ = null", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 2": { name: "test triple bot" } }), null);
+  check("backup profile: เจอสองอัน = null (ไม่เดา)", f.pickBackupBrowserProfile({ a: { name: "flow 1" }, b: { name: "backup" } }), null);
   check("flowProjectUrl ปกติ", f.flowProjectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"), "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   check("flowProjectUrl ว่าง = ''", f.flowProjectUrl(""), "");
   check("flowProjectUrl มีอักขระแปลก = ''", f.flowProjectUrl("abc/../x?y"), "");

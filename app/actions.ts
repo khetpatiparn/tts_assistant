@@ -49,6 +49,8 @@ import {
   WORKER_STATE_ID,
   afterApproveRender,
   canRetryUpscale,
+  flowProjectUrl,
+  pickBackupBrowserProfile,
   afterChoose,
   afterRedo,
   afterResume,
@@ -1611,6 +1613,36 @@ async function dirExists(p: string): Promise<boolean> {
  * <root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น>\ (root = CLIP_EXPORT_ROOT หรือ Desktop\TTS) · เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้
  * กดซ้ำได้ปลอดภัย: ส่งแล้ว (มีแถว user_export_clip และโฟลเดอร์ยังอยู่) = ไม่ก๊อปใหม่ แค่เปิดโฟลเดอร์เดิม
  */
+/**
+ * เปิดโปรเจกต์ Flow ของงานในโปรไฟล์ Brave ของบัญชีสำรอง (Brave ของผู้ใช้ล็อกอินบัญชีหลักไว้ ลิงก์ธรรมดาจึงเปิดไม่ได้)
+ * เซิร์ฟเวอร์รันบนเครื่องเดียวกัน จึงสั่ง brave.exe --profile-directory=<โปรไฟล์> ได้ตรงๆ
+ * · ตั้งเองได้ด้วย FLOW_BACKUP_BROWSER_PROFILE (เช่น "Profile 3") / FLOW_BACKUP_BROWSER_EXE
+ * · ห้ามชี้ไป .flow-profile ของบอท — ชนกับบอทที่เปิดอยู่
+ */
+export async function openFlowProjectInBackupProfile(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId }, select: { flowProjectId: true } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  const url = flowProjectUrl(job.flowProjectId);
+  if (url === "") throw new Error("งานนี้ยังไม่มีโปรเจกต์ใน Flow");
+  const exe = process.env.FLOW_BACKUP_BROWSER_EXE ?? "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe";
+  if (!(await stat(exe).then((st) => st.isFile(), () => false))) throw new Error("ไม่เจอ Brave ในเครื่อง — กด คัดลอกลิงก์ แล้วเปิดเองแทน");
+  let profile = process.env.FLOW_BACKUP_BROWSER_PROFILE ?? null;
+  if (profile === null) {
+    try {
+      const localState = JSON.parse(
+        await readFile(path.join(os.homedir(), "AppData", "Local", "BraveSoftware", "Brave-Browser", "User Data", "Local State"), "utf8"),
+      ) as { profile?: { info_cache?: Record<string, { name?: unknown }> } };
+      profile = pickBackupBrowserProfile(localState.profile?.info_cache ?? {});
+    } catch {
+      profile = null;
+    }
+  }
+  if (profile === null) {
+    throw new Error('ยังไม่เจอโปรไฟล์ Brave ของบัญชีสำรอง — สร้างโปรไฟล์ใน Brave ให้ชื่อมีคำว่า "Flow สำรอง" แล้วล็อกอินบัญชีสำรองในนั้น');
+  }
+  spawn(exe, [`--profile-directory=${profile}`, url], { detached: true, stdio: "ignore" }).unref();
+}
+
 export async function exportClipToFolder(jobId: string): Promise<{ path: string; alreadyExported: boolean; files: string[] }> {
   const job = await prisma.flowJob.findUnique({
     where: { id: jobId },
