@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page, Response } from "playwright";
 import type { WorkerConfig } from "./config";
@@ -629,52 +629,30 @@ export async function runRound(
     }
 
     async function findTileIndex(name: FlowStep, mediaId: string): Promise<number> {
-      const v = videoSel(name);
       const ids = await videoTileIds(name);
       const byThumb = ids.indexOf(mediaId);
       if (byThumb >= 0) return byThumb;
       const cached = foundTiles.get(mediaId);
       if (cached !== undefined && cached < ids.length) return cached;
-      const directUrls: Record<number, string> = {};
-      for (let i = 0; i < ids.length; i++) {
-        const container = page.locator(v.tileContainer).nth(i);
-        await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
-        await humanHover(page, container.locator(v.tile).first(), cfg);
-        // <video src> โผล่หลัง hover ช้าได้ (เจอจริง 2026-10-01: รอ 4 วิไม่ได้สักช่อง) — รอเท่ากับลิงก์ตรงรอบ 3
-        const deadline = Date.now() + 10_000;
-        while (Date.now() < deadline) {
-          const srcs = await container.locator(v.tileVideo).evaluateAll((els) =>
-            els.map((e) => (e as HTMLVideoElement).currentSrc || e.getAttribute("src"))
-          );
-          const url = pickDirectVideoUrl(srcs);
-          const uuid = videoUuidFromUrl(url);
-          if (uuid !== "") {
-            if (uuid === mediaId) return i;
-            directUrls[i] = url as string;
-            break;
-          }
-          await sleepMs(400);
-        }
-      }
       if (ids.length === 1) {
         log.log(name, `ไม่เจอ id ${mediaId} แต่โปรเจกต์มีคลิปช่องเดียว — ใช้ช่องนั้น`);
         return 0;
       }
-      // หลายคลิปและ id ไม่ตรง (งานที่เรนเดอร์ก่อนเก็บ uuid) → เทียบเนื้อไฟล์ 720p ที่โหลดไว้กับของแต่ละช่อง
-      // ไฟล์ที่เรามีมาจากลิงก์ตรงเดียวกันนี้ จึงต้องตรงกันทุกไบต์ — ไม่ตรงสักช่อง = ไม่เดา
-      const preview = input.previewPath && existsSync(input.previewPath) ? readFileSync(input.previewPath) : null;
-      if (preview !== null) {
-        for (const [i, url] of Object.entries(directUrls)) {
-          const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs }).catch(() => null);
-          if (res === null || !res.ok()) continue;
-          logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "match" } });
-          const body = await res.body();
-          if (body.length === preview.length && body.equals(preview)) {
-            log.log(name, `หาช่องคลิปด้วยการเทียบไฟล์ 720p — ช่องที่ ${String(Number(i) + 1)} จาก ${String(ids.length)}`);
-            return Number(i);
-          }
-        }
-        log.log(name, `เทียบไฟล์ 720p กับ ${String(Object.keys(directUrls).length)} ช่องแล้วไม่ตรงสักช่อง`);
+      // หลายคลิป: หลังเปิดโปรเจกต์ใหม่ทั้ง thumbnail และ <video src> เป็น /asb/<ลายเซ็น> ไม่มี id (เจอจริง 2026-10-01
+      // ทั้ง hover 10 วิ/ช่อง ก็ไม่ได้ลิงก์ที่มี id) → เปิดเมนูโหลด 720p ของแต่ละช่อง ดัก URL ที่หน้าเว็บขอ
+      // (`/video/<id>`) แล้วยกเลิกทันที ไม่โหลดจริง ไม่เสียเครดิต · id ใน URL = id เดียวกับที่รอบ 3 เก็บ
+      // (ยืนยันแล้ว: `_upsampled` ของกล่องพลาสติกใสใช้ id เดียวกับ thumbnail ตอนเรนเดอร์)
+      const previewQuality = videoSel(name).previewQuality;
+      for (let i = 0; i < ids.length; i++) {
+        const url = await menuRequestFileUrl(name, i, previewQuality, 30_000).catch((e: unknown) => {
+          log.log(name, `ส่องช่องที่ ${String(i + 1)} ไม่ได้: ${e instanceof Error ? e.message : String(e)}`);
+          // เมนูอาจค้างเปิดอยู่ — ปิดด้วย Escape (ห้าม Enter: เปิดหน้าแก้ไขคลิป) ก่อนส่องช่องถัดไป
+          return page.keyboard.press("Escape").then(() => null, () => null);
+        });
+        const id = videoUuidFromUrl(url);
+        log.log(name, `ช่องที่ ${String(i + 1)}/${String(ids.length)} = ${id || "(ไม่รู้)"}`);
+        if (id !== "" && id === mediaId) return i;
+        await sleepMs(randInt([800, 1500]));
       }
       return -1;
     }
@@ -729,10 +707,12 @@ export async function runRound(
      * วางบน <flow-video-tile> จริง (ยืนยันสด 2026-09-30) · Flow ยิงเป็น blob download จึงจับด้วย event "download"
      * แล้ว saveAs · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน
      */
-    async function downloadVideo(name: FlowStep, mediaId: string, quality: RegExp[], filename: string): Promise<string> {
+    /**
+     * เปิดเมนู More options → Download → ขนาดที่ต้องการ ของช่องที่ idx แล้วคืน URL ไฟล์ที่หน้าเว็บขอ — **ยกเลิก**
+     * คำขอนั้นทุกครั้ง (ไม่มี blob = ไม่มีดาวน์โหลด = Chrome ไม่ crash) ผู้เรียกดึงเองหรือแค่อ่าน id จาก URL
+     */
+    async function menuRequestFileUrl(name: FlowStep, idx: number, quality: RegExp[], timeoutMs: number): Promise<string> {
       const v = videoSel(name);
-      const idx = await tileIndexOf(name, mediaId);
-      if (idx < 0) throw new FlowStepError(name, "selector_drift", `หาช่องของคลิป ${mediaId} ในกริดไม่เจอ`);
       const container = page.locator(v.tileContainer).nth(idx);
       await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
       await humanHover(page, container.locator(v.tile).first(), cfg);
@@ -803,7 +783,6 @@ export async function runRound(
         }
         route.continue().catch(() => {});
       });
-      let buf: Buffer;
       try {
         await page.mouse.down();
         await sleepMs(randInt([60, 140]));
@@ -818,18 +797,26 @@ export async function runRound(
           fileUrl,
           new Promise<never>((_, reject) => {
             timer = setTimeout(
-              () => reject(new FlowStepError(name, "download_failed", `กดโหลดแล้ว Flow ไม่ขอไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`)),
-              cfg.renderDownloadTimeoutMs,
+              () => reject(new FlowStepError(name, "download_failed", `กดโหลดแล้ว Flow ไม่ขอไฟล์ภายใน ${String(timeoutMs / 1000)} วิ`)),
+              timeoutMs,
             );
           }),
         ]).finally(() => clearTimeout(timer));
-        log.log(name, `Flow ขอไฟล์แล้ว (ยกเลิกฝั่งหน้าเว็บ ดึงเอง): ${url.slice(0, 120)}…`);
-        const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
-        if (!res.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์จากลิงก์ตอบ HTTP ${String(res.status())}`);
-        buf = await res.body();
+        return url;
       } finally {
         await page.unroute(routeMatcher).catch(() => {});
       }
+    }
+
+    /** โหลดคลิปของช่องที่มี id นี้ผ่านเมนู แล้วดึงไฟล์เองจาก URL ที่ดักได้ · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน */
+    async function downloadVideo(name: FlowStep, mediaId: string, quality: RegExp[], filename: string): Promise<string> {
+      const idx = await tileIndexOf(name, mediaId);
+      if (idx < 0) throw new FlowStepError(name, "selector_drift", `หาช่องของคลิป ${mediaId} ในกริดไม่เจอ`);
+      const url = await menuRequestFileUrl(name, idx, quality, cfg.renderDownloadTimeoutMs);
+      log.log(name, `Flow ขอไฟล์แล้ว (ยกเลิกฝั่งหน้าเว็บ ดึงเอง): ${url.slice(0, 120)}…`);
+      const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
+      if (!res.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์จากลิงก์ตอบ HTTP ${String(res.status())}`);
+      const buf = await res.body();
       if (!isMp4Header(buf)) {
         throw new FlowStepError(name, "download_failed", `ไฟล์ที่ได้ไม่ใช่ MP4 (${String(buf.length)} bytes)`);
       }
