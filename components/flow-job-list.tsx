@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Download } from "lucide-react";
+import { ChevronRight, Download, FolderCheck } from "lucide-react";
 
 import type { FlowJobRow } from "@/lib/flow-queries";
 import { FLOW_STATUS, STATUS_LABELS, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
@@ -97,6 +97,11 @@ function FlowJobListItem({
               imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
             />
             <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
+            {job.exportedPath !== null && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <FolderCheck aria-hidden="true" className="size-4" /> ส่ง TTS แล้ว
+              </span>
+            )}
           </span>
         </span>
       </button>

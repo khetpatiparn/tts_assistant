@@ -42,6 +42,13 @@ async function main() {
   const downloads: { at: number; url: string; suggested: string; saved: string | null; failure: string | null }[] = [];
   let clickedAt = 0;
   const attach = (p: Page, label: string) => {
+    // ทุกคำขอหลังคลิก (ยกเว้น analytics) — ใช้หาว่าไฟล์มาทางไหน แม้ Chrome จะ crash ก่อนได้ response
+    p.on("request", (req) => {
+      if (clickedAt === 0) return;
+      const u = req.url();
+      if (/google-analytics|googletagmanager|play\.google\.com\/log|\/log\?/.test(u)) return;
+      note(`REQ ${req.resourceType()} nav=${String(req.isNavigationRequest())} ${req.method()} ${u.slice(0, 220)}`);
+    });
     p.on("response", (res) => {
       const h = res.headers();
       appendFileSync(

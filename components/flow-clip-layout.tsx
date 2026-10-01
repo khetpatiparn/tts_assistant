@@ -85,7 +85,7 @@ export function ClipLayout({
         >
           <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
         </a>
-        <ExportToFolder jobId={job.id} />
+        <ExportToFolder jobId={job.id} exportedPath={job.exportedPath} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-4 min-[1400px]:h-full min-[1400px]:flex-row min-[1400px]:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-4 leading-relaxed">{middle}</div>
@@ -96,9 +96,12 @@ export function ClipLayout({
 }
 
 /** ปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ให้เซิร์ฟเวอร์ก๊อปคลิป+รูป+ข้อความเข้าโฟลเดอร์ของวันนี้แล้วเปิดให้ */
-function ExportToFolder({ jobId }: { jobId: string }) {
+function ExportToFolder({ jobId, exportedPath }: { jobId: string; exportedPath: string | null }) {
   const [pending, startTransition] = useTransition();
-  const [result, setResult] = useState<{ path: string; already: boolean } | null>(null);
+  // เคยส่งแล้ว (อ่านจาก log ตอนโหลดหน้า) = โชว์ทันทีโดยไม่ต้องกดซ้ำ
+  const [result, setResult] = useState<{ path: string; already: boolean } | null>(
+    exportedPath === null ? null : { path: exportedPath, already: true },
+  );
   const [error, setError] = useState("");
   function run() {
     setError("");
@@ -120,7 +123,7 @@ function ExportToFolder({ jobId }: { jobId: string }) {
       <div role="status" className="text-xs leading-relaxed text-muted-foreground">
         {result !== null && (
           <p className="break-all">
-            {result.already ? "ส่งไปแล้วก่อนหน้านี้" : "ส่งแล้ว"} → {result.path}
+            {result.already ? "ส่งเข้าโฟลเดอร์ TTS แล้ว" : "ส่งแล้ว"} → {result.path}
           </p>
         )}
         {error !== "" && <p className="text-destructive">{error}</p>}
