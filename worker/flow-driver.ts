@@ -779,9 +779,21 @@ export async function runRound(
       }
       const picked = ((await target.textContent()) ?? "").replace(/\s+/g, " ").trim();
       log.log(name, `คลิก "${picked}" ในเมนูย่อย`);
-      const downloadEvent = page.waitForEvent("download", { timeout: cfg.renderDownloadTimeoutMs });
+      // สอดแนมจริง 2026-10-01 (worker/smoke/dl-spy.ts): กด "1080p Upscaled" → Flow ขึ้น toast "Upscaling your video…"
+      // → ~40 วิต่อมาหน้าเว็บ fetch `https://flow-content.google/video/<mediaId>_upsampled?Expires…` (video/mp4) เอง
+      // แล้วค่อยยิงเป็น blob download · เราดัก response ตัวนั้นแล้วอ่าน body ตรงๆ — ไม่พึ่ง event download/saveAs
+      // ที่พังได้ ("Target page… closed" ตอนสอดแนม) · 720p "Original size" ก็ fetch `/video/<id>` แบบเดียวกัน
+      const wantUpsampled = quality.some((re) => re.test("Upscaled"));
+      const fileResponse = page.waitForResponse(
+        (res) => {
+          const u = res.url();
+          if (pickDirectVideoUrl([u]) === null) return false;
+          return /_upsampled(\?|$)/.test(u) === wantUpsampled;
+        },
+        { timeout: cfg.renderDownloadTimeoutMs },
+      );
       // กัน unhandled rejection ถ้าขั้นอื่นพังก่อน (บั๊กคลาสเดียวกับ uploadResponse ด้านบน)
-      downloadEvent.catch(() => {});
+      fileResponse.catch(() => {});
       await page.mouse.down();
       await sleepMs(randInt([60, 140]));
       await page.mouse.up();
@@ -790,20 +802,27 @@ export async function runRound(
       if ((await page.locator(v.menuItem).filter({ visible: true }).count()) > 0) {
         throw new FlowStepError(name, "selector_drift", "คลิกแล้วเมนูไม่ปิด (ไม่ติด) — ยังไม่ได้เริ่มโหลด");
       }
-      const download = await downloadEvent.catch((e: unknown) => {
+      const res = await fileResponse.catch((e: unknown) => {
         if (isTimeout(e)) {
-          throw new FlowStepError(name, "download_failed", `กดโหลดแล้วไม่ได้ไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`);
+          throw new FlowStepError(name, "download_failed", `กดโหลดแล้ว Flow ไม่ส่งไฟล์ภายใน ${String(cfg.renderDownloadTimeoutMs / 1000)} วิ`);
         }
         throw e;
       });
-      const failure = await download.failure();
-      if (failure !== null) throw new FlowStepError(name, "download_failed", `โหลดคลิปไม่สำเร็จ: ${failure}`);
-      const file = path.join(input.outDir, filename);
-      await download.saveAs(file);
-      const buf = readFileSync(file);
+      if (!res.ok()) throw new FlowStepError(name, "download_failed", `ไฟล์คลิปตอบ HTTP ${String(res.status())}`);
+      log.log(name, `Flow ส่งไฟล์มาแล้ว: ${res.url().slice(0, 120)}…`);
+      // body() อ่านจาก buffer ของเบราว์เซอร์ · ถ้าอ่านไม่ได้ (ไฟล์ใหญ่/ถูกทิ้งแล้ว) ดึงซ้ำจากลิงก์ลายเซ็นเดิม (ใช้ได้หลายชั่วโมง ไม่ต้อง cookie)
+      let buf = await res.body().catch(() => null);
+      if (buf === null) {
+        log.log(name, "อ่าน body จาก response ไม่ได้ — ดึงซ้ำจากลิงก์เดิม");
+        const again = await page.request.get(res.url(), { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
+        if (!again.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์ซ้ำจากลิงก์ตอบ HTTP ${String(again.status())}`);
+        buf = await again.body();
+      }
       if (!isMp4Header(buf)) {
         throw new FlowStepError(name, "download_failed", `ไฟล์ที่ได้ไม่ใช่ MP4 (${String(buf.length)} bytes)`);
       }
+      const file = path.join(input.outDir, filename);
+      writeFileSync(file, buf);
       log.log(name, `ได้ไฟล์ ${filename} ${String(Math.round(buf.length / 1024))} KB`);
       logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "menu" } });
       return file;

@@ -129,7 +129,8 @@ export function videoUuidFromUrl(src: string | null): string {
   const url = pickDirectVideoUrl([src]);
   if (url === null) return "";
   const m = /^\/video\/([^/]+)/.exec(new URL(url).pathname);
-  return m ? m[1] : "";
+  // ไฟล์ 1080p ใช้ id เดิมต่อท้าย _upsampled (สอดแนม 2026-10-01) — ตัดทิ้งให้เทียบกับ id ที่เก็บไว้ได้
+  return m ? m[1].replace(/_upsampled$/, "") : "";
 }
 
 /**

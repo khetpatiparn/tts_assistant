@@ -187,6 +187,7 @@ try {
   check("thumbnail /asb/ ไม่ใช่ลิงก์วิดีโอ → ''", fs2.videoUuidFromUrl("https://flow.google.com/asb/ANqvLObCdgr6Jm4"), "");
   check("โดเมนหลอก → ''", fs2.videoUuidFromUrl("https://flow-content.google.evil.com/video/x"), "");
   check("null → ''", fs2.videoUuidFromUrl(null), "");
+  check("uuid จากไฟล์ 1080p (_upsampled) = id เดิม", fs2.videoUuidFromUrl("https://flow-content.google/video/3a913221-986f-4141-90ca-c6c7f26bc5bf_upsampled?Expires=1&Signature=x"), "3a913221-986f-4141-90ca-c6c7f26bc5bf");
 
   // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
   const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
