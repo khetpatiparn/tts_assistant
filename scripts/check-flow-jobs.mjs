@@ -81,6 +81,12 @@ try {
   check("canApproveRender review_r3 + มีไฟล์ → true", f.canApproveRender("review_r3", true), true);
   check("canApproveRender review_r3 + ไม่มีไฟล์ (โหลดไม่ได้) → false", f.canApproveRender("review_r3", false), false);
   check("canApproveRender สถานะอื่น → false", f.canApproveRender("review_r2", true), false);
+  const v720 = { filename: "r3-a1.mp4", chosen: false };
+  check("canRetryUpscale done + 720p + มีโปรเจกต์ → true", f.canRetryUpscale("done", v720, "proj"), true);
+  check("canRetryUpscale ได้ 1080p แล้ว → false", f.canRetryUpscale("done", { filename: "r3-final.mp4", chosen: true }, "proj"), false);
+  check("canRetryUpscale ไม่มีคลิป → false", f.canRetryUpscale("done", null, "proj"), false);
+  check("canRetryUpscale ไม่รู้โปรเจกต์ → false", f.canRetryUpscale("done", v720, ""), false);
+  check("canRetryUpscale ยังไม่จบ → false", f.canRetryUpscale("review_r3", v720, "proj"), false);
   checkThrows("afterRedo done throws", () => f.afterRedo("done"));
   checkThrows("afterRedo awaiting_prompt throws", () => f.afterRedo("awaiting_prompt"));
   check("afterApproveRender review_r3 → queued_upscale (ยังไม่ done จนได้ 1080p)", f.afterApproveRender("review_r3").status, "queued_upscale");

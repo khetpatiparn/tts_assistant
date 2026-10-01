@@ -178,6 +178,18 @@ export function afterApproveRender(status: string): { status: FlowStatus; round:
   throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
 }
 
+/**
+ * งานที่จบด้วยตัวอย่าง 720p (โหลด 1080p ไม่ได้) → "ลองโหลด 1080p อีกครั้ง" ได้ ไม่เสียเครดิต ไม่เรนเดอร์ใหม่
+ * ต้องมีแถวคลิปที่ยังไม่ใช่ไฟล์ 1080p และรู้โปรเจกต์ที่คลิปอยู่
+ */
+export function canRetryUpscale(
+  status: string,
+  video: { filename: string; chosen: boolean } | null,
+  flowProjectId: string,
+): boolean {
+  return status === FLOW_STATUS.DONE && video !== null && !video.chosen && video.filename !== FINAL_VIDEO_FILENAME && flowProjectId !== "";
+}
+
 export function afterResume(round: JobRound): { status: FlowStatus } {
   return { status: queuedStatus(round) };
 }

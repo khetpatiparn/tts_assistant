@@ -26,6 +26,7 @@ export const ACTIVITY_KINDS = [
   "user_resume",
   "user_finish_manual",
   "user_prompt_now",
+  "user_retry_upscale",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 

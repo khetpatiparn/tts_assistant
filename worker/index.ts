@@ -241,6 +241,7 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         checkpointDir,
         renderPrompt,
         mediaId: approvedVideo?.flowMediaId,
+        previewPath: approvedVideo ? path.join(outDir, approvedVideo.filename) : undefined,
       },
       cfg,
       sel,
@@ -288,7 +289,8 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         const saved = await persistAfterRender("คลิป 1080p", job, () => prisma.$transaction(async (tx) => {
           // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
           await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
-          await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } });
+          // ล้างหมายเหตุ "ได้ 720p" ของรอบก่อน (กรณีผู้ใช้กด "ลองโหลด 1080p อีกครั้ง")
+          await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "" } });
         }), () => prisma.flowJob.update({
           where: { id: job.id },
           data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ — ดู r3-final.mp4 ในโฟลเดอร์ flow ของ entry" },

@@ -43,6 +43,7 @@ import {
   FLOW_STATUS,
   WORKER_STATE_ID,
   afterApproveRender,
+  canRetryUpscale,
   afterChoose,
   afterRedo,
   afterResume,
@@ -1601,6 +1602,34 @@ export async function approveFlowRender(jobId: string): Promise<void> {
     jobId,
     round: job.round,
     detail: { round: job.round, attempt: job.attempt, waitedMs: waitedMsSince(job.updatedAt) },
+  });
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${job.entryId}`);
+}
+
+/**
+ * "ลองโหลด 1080p อีกครั้ง" — งานที่จบด้วย 720p กลับเข้าคิวรอบ 4 (โหลดคลิปเดิมจากโปรเจกต์ ไม่เรนเดอร์ใหม่ ไม่เสียเครดิต)
+ * ถ้ารอบนี้ก็ไม่ได้ บอทจบงานด้วย 720p เหมือนเดิม (worker/index.ts)
+ */
+export async function retryFlowUpscale(jobId: string): Promise<void> {
+  const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+  const video = job.images.find((i) => i.kind === "video") ?? null;
+  if (!canRetryUpscale(job.status, video, job.flowProjectId)) {
+    throw new Error("งานนี้ลองโหลด 1080p ใหม่ไม่ได้ (ยังไม่จบ ได้ 1080p แล้ว หรือไม่มีคลิป)");
+  }
+  await prisma.flowJob.update({
+    where: { id: jobId },
+    data: {
+      status: FLOW_STATUS.QUEUED_UPSCALE, round: 4, finishedAt: null,
+      errorMessage: "", failedStep: "", errorKind: "", failureDir: "",
+    },
+  });
+  await logUserActivity({
+    kind: "user_retry_upscale",
+    jobId,
+    round: 4,
+    detail: { round: 4, attempt: job.attempt, waitedMs: waitedMsSince(job.updatedAt) },
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);

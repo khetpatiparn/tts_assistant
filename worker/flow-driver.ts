@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page, Response } from "playwright";
 import type { WorkerConfig } from "./config";
@@ -38,6 +38,8 @@ export type RoundInput = {
   renderPrompt?: string;
   /** รอบ 4: id ของคลิปที่ผ่าน (FlowJobImage.flowMediaId ที่รอบ 3 เก็บไว้) */
   mediaId?: string;
+  /** รอบ 4: ไฟล์ตัวอย่าง 720p ที่โหลดไว้ — ใช้เทียบเนื้อไฟล์หาช่องคลิปเมื่อโปรเจกต์มีหลายคลิปและ id ไม่ตรง */
+  previewPath?: string;
 };
 
 /** mediaId = id ของคลิปใน Flow (รอบ 3-4) ให้ worker เก็บไว้หาช่องเดิมตอนโหลด 1080p */
@@ -616,10 +618,21 @@ export async function runRound(
      * (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id — เจอจริง 2026-10-01 ทำรอบ 4 พังทั้งที่มีคลิปช่องเดียว)
      */
     async function tileIndexOf(name: FlowStep, mediaId: string): Promise<number> {
+      const found = await findTileIndex(name, mediaId);
+      // จำช่องที่เจอแล้ว — find-video กับ download-final ถามซ้ำ ไม่ต้อง hover/โหลดไฟล์มาเทียบอีกรอบ
+      if (found >= 0) foundTiles.set(mediaId, found);
+      return found;
+    }
+    const foundTiles = new Map<string, number>();
+
+    async function findTileIndex(name: FlowStep, mediaId: string): Promise<number> {
       const v = videoSel(name);
       const ids = await videoTileIds(name);
       const byThumb = ids.indexOf(mediaId);
       if (byThumb >= 0) return byThumb;
+      const cached = foundTiles.get(mediaId);
+      if (cached !== undefined && cached < ids.length) return cached;
+      const directUrls: Record<number, string> = {};
       for (let i = 0; i < ids.length; i++) {
         const container = page.locator(v.tileContainer).nth(i);
         await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
@@ -629,9 +642,11 @@ export async function runRound(
           const srcs = await container.locator(v.tileVideo).evaluateAll((els) =>
             els.map((e) => (e as HTMLVideoElement).currentSrc || e.getAttribute("src"))
           );
-          const uuid = videoUuidFromUrl(pickDirectVideoUrl(srcs));
+          const url = pickDirectVideoUrl(srcs);
+          const uuid = videoUuidFromUrl(url);
           if (uuid !== "") {
             if (uuid === mediaId) return i;
+            directUrls[i] = url as string;
             break;
           }
           await sleepMs(400);
@@ -640,6 +655,22 @@ export async function runRound(
       if (ids.length === 1) {
         log.log(name, `ไม่เจอ id ${mediaId} แต่โปรเจกต์มีคลิปช่องเดียว — ใช้ช่องนั้น`);
         return 0;
+      }
+      // หลายคลิปและ id ไม่ตรง (งานที่เรนเดอร์ก่อนเก็บ uuid) → เทียบเนื้อไฟล์ 720p ที่โหลดไว้กับของแต่ละช่อง
+      // ไฟล์ที่เรามีมาจากลิงก์ตรงเดียวกันนี้ จึงต้องตรงกันทุกไบต์ — ไม่ตรงสักช่อง = ไม่เดา
+      const preview = input.previewPath && existsSync(input.previewPath) ? readFileSync(input.previewPath) : null;
+      if (preview !== null) {
+        for (const [i, url] of Object.entries(directUrls)) {
+          const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs }).catch(() => null);
+          if (res === null || !res.ok()) continue;
+          logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "match" } });
+          const body = await res.body();
+          if (body.length === preview.length && body.equals(preview)) {
+            log.log(name, `หาช่องคลิปด้วยการเทียบไฟล์ 720p — ช่องที่ ${String(Number(i) + 1)} จาก ${String(ids.length)}`);
+            return Number(i);
+          }
+        }
+        log.log(name, `เทียบไฟล์ 720p กับ ${String(Object.keys(directUrls).length)} ช่องแล้วไม่ตรงสักช่อง`);
       }
       return -1;
     }

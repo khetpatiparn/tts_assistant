@@ -8,6 +8,7 @@ import { Check, Download, Eraser, RotateCcw, SkipForward, Play } from "lucide-re
 import {
   approveFlowRender,
   finishRenderManually,
+  retryFlowUpscale,
   chooseFlowCandidate,
   generateWithAI,
   logFlowPromptNow,
@@ -25,6 +26,7 @@ import {
   STEP_LABELS,
   buildFlowPrompt,
   canApproveRender,
+  canRetryUpscale,
   friendlyJobMessage,
   normalizeExtraPrompt,
   videoDownloadName,
@@ -411,6 +413,14 @@ export function FlowReviewRow({ job, renderEnabled }: { job: FlowJobRow; renderE
             {job.video && (
               <div className="basis-full">
                 <JobMessage status={job.status} message={job.errorMessage} />
+              </div>
+            )}
+            {canRetryUpscale(job.status, job.video, job.flowProjectId) && (
+              <div className="flex basis-full flex-wrap items-center gap-3">
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
+                  <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
+                </Button>
+                <span className="text-sm leading-relaxed text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
               </div>
             )}
             <Link href={`/entry/${job.entryId}`} className="text-sm leading-relaxed text-primary underline-offset-4 hover:underline">
