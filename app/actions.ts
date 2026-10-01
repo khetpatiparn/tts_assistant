@@ -1,7 +1,11 @@
 "use server";
 
-import { mkdir, readFile, writeFile, unlink, copyFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink, copyFile, readdir, stat, rm } from "node:fs/promises";
+import os from "node:os";
+import { spawn } from "node:child_process";
 import path from "node:path";
+import { buildPostText, exportDateParts, nextSlotNumber, shortFolderName, slotFolderName } from "@/lib/clip-export";
+import { extractVoiceover } from "@/lib/claim-check";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
@@ -40,6 +44,7 @@ import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
 import {
   DEFAULT_CAPTIONS,
+  FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
   WORKER_STATE_ID,
   afterApproveRender,
@@ -1582,6 +1587,109 @@ export async function finishRenderManually(jobId: string): Promise<void> {
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
+}
+
+function openInExplorer(dir: string): void {
+  if (process.env.CLIP_EXPORT_NO_OPEN === "1") return;
+  try {
+    spawn("explorer.exe", [dir], { detached: true, stdio: "ignore" }).unref();
+  } catch {
+    // เปิดโฟลเดอร์ไม่ได้ไม่ใช่เรื่องร้ายแรง — ไฟล์ส่งแล้ว
+  }
+}
+
+async function dirExists(p: string): Promise<boolean> {
+  try {
+    return (await stat(p)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * "ส่งเข้าโฟลเดอร์ TTS" — ก๊อปคลิป + รูปที่เลือก + เสียงพากย์ + ข้อความโพสต์ของงานไปที่
+ * <root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น>\ (root = CLIP_EXPORT_ROOT หรือ Desktop\TTS) · เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้
+ * กดซ้ำได้ปลอดภัย: ส่งแล้ว (มีแถว user_export_clip และโฟลเดอร์ยังอยู่) = ไม่ก๊อปใหม่ แค่เปิดโฟลเดอร์เดิม
+ */
+export async function exportClipToFolder(jobId: string): Promise<{ path: string; alreadyExported: boolean; files: string[] }> {
+  const job = await prisma.flowJob.findUnique({
+    where: { id: jobId },
+    include: {
+      entry: { select: { productName: true, chatgptOutput: true, caption: true, hashtags: true } },
+      images: true,
+    },
+  });
+  if (!job) throw new Error("ไม่พบงาน Flow");
+
+  // ส่งไปแล้วและโฟลเดอร์ยังอยู่ → คืนของเดิม
+  const prior = await prisma.flowActivity.findMany({ where: { kind: "user_export_clip", jobId }, orderBy: { at: "desc" } });
+  for (const row of prior) {
+    let p = "";
+    try {
+      const d = JSON.parse(row.detail) as { path?: unknown };
+      if (typeof d.path === "string") p = d.path;
+    } catch {
+      continue;
+    }
+    if (p !== "" && (await dirExists(p))) {
+      const files = await readdir(p).catch(() => [] as string[]);
+      openInExplorer(p);
+      return { path: p, alreadyExported: true, files };
+    }
+  }
+
+  const video = job.images.find((i) => i.kind === "video");
+  if (!video) throw new Error("งานนี้ยังไม่มีไฟล์คลิป");
+  const flowDir = joinPath(UPLOAD_ROOT, job.entryId, "flow");
+  const videoSrc = joinPath(flowDir, video.filename);
+  if (!(await stat(videoSrc).then((s) => s.isFile(), () => false))) throw new Error("หาไฟล์คลิปในเครื่องไม่เจอ");
+
+  const root = process.env.CLIP_EXPORT_ROOT ?? path.join(os.homedir(), "Desktop", "TTS");
+  const { month, day } = exportDateParts(new Date());
+  const dayDir = path.join(root, month, day);
+  let dir = "";
+  const files: string[] = [];
+  try {
+    await mkdir(dayDir, { recursive: true });
+    const entries = await readdir(dayDir, { withFileTypes: true });
+    const n = nextSlotNumber(entries.filter((e) => e.isDirectory()).map((e) => e.name));
+    dir = path.join(dayDir, slotFolderName(n, shortFolderName(job.entry.productName)));
+    await mkdir(dir);
+
+    const clipName = video.filename === FINAL_VIDEO_FILENAME ? "คลิป-1080p.mp4" : "คลิป-720p.mp4";
+    await copyFile(videoSrc, path.join(dir, clipName));
+    files.push(clipName);
+
+    const chosen = (round: number) => job.images.find((i) => i.kind === "candidate" && i.round === round && i.chosen);
+    for (const [row, label] of [[chosen(1), "รูป-พื้นหลังขาว"], [chosen(2), "รูป-ตอนใช้งาน"]] as const) {
+      if (!row) continue;
+      const src = joinPath(flowDir, row.filename);
+      if (!(await stat(src).then((s) => s.isFile(), () => false))) continue;
+      const name = `${label}${path.extname(row.filename)}`;
+      await copyFile(src, path.join(dir, name));
+      files.push(name);
+    }
+
+    const voice = extractVoiceover(job.entry.chatgptOutput).trim();
+    if (voice !== "") {
+      await writeFile(path.join(dir, "เสียงพากย์.txt"), voice + "\n", "utf8");
+      files.push("เสียงพากย์.txt");
+    }
+    const post = buildPostText({ productName: job.entry.productName, caption: job.entry.caption, hashtags: job.entry.hashtags });
+    if (post !== "") {
+      await writeFile(path.join(dir, "โพสต์.txt"), post + "\n", "utf8");
+      files.push("โพสต์.txt");
+    }
+  } catch (err) {
+    if (dir !== "") await rm(dir, { recursive: true, force: true }).catch(() => {});
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EACCES" || code === "EPERM") throw new Error("ไม่มีสิทธิ์เขียนในโฟลเดอร์ TTS");
+    throw new Error("ส่งเข้าโฟลเดอร์ TTS ไม่สำเร็จ ลองอีกครั้ง");
+  }
+
+  await logUserActivity({ kind: "user_export_clip", jobId, round: job.round, detail: { path: dir } });
+  openInExplorer(dir);
+  return { path: dir, alreadyExported: false, files };
 }
 
 /**

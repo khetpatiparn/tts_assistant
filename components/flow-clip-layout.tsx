@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Copy, Download, X } from "lucide-react";
+import { Check, Copy, Download, FolderInput, X } from "lucide-react";
 
+import { exportClipToFolder } from "@/app/actions";
 import { videoDownloadName } from "@/lib/flow-jobs";
 import type { FlowCheckpoint, FlowJobRow } from "@/lib/flow-queries";
 import { cn } from "@/lib/utils";
@@ -15,8 +16,8 @@ import { ClaimWarnings } from "@/components/claim-warnings";
 /** สูงสุด/ต่ำสุดของกรอบคลิปบนเดสก์ท็อป (px) — คลิปเป็น 9:16 ความกว้างตามความสูง */
 const CLIP_MIN_H = 280;
 const CLIP_MAX_H = 760;
-/** ที่เผื่อให้ปุ่มดาวน์โหลด + ช่องไฟใต้คลิป */
-const CLIP_FOOTER_PX = 52;
+/** ที่เผื่อให้ปุ่มดาวน์โหลด + ปุ่มส่งเข้าโฟลเดอร์ TTS + ข้อความผลลัพธ์ใต้คลิป */
+const CLIP_FOOTER_PX = 150;
 
 /**
  * หน้างานแบบคลิป (ดูตัวอย่าง/รอโหลด 1080p/เสร็จ) ที่ lg: ขึ้นไป — 3 โซน: คลิป · กลาง (สถานะ/ปุ่ม/รูป/ขั้นตอนบอท) · ขวา (พร้อมโพสต์ หรือพรอมต์)
@@ -84,10 +85,45 @@ export function ClipLayout({
         >
           <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
         </a>
+        <ExportToFolder jobId={job.id} />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-4 min-[1400px]:h-full min-[1400px]:flex-row min-[1400px]:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-4 leading-relaxed">{middle}</div>
         <div className="flex min-w-0 flex-col gap-3 min-[1400px]:min-h-0 min-[1400px]:w-80 min-[1400px]:shrink-0 min-[1700px]:w-88">{right}</div>
+      </div>
+    </div>
+  );
+}
+
+/** ปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ให้เซิร์ฟเวอร์ก๊อปคลิป+รูป+ข้อความเข้าโฟลเดอร์ของวันนี้แล้วเปิดให้ */
+function ExportToFolder({ jobId }: { jobId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<{ path: string; already: boolean } | null>(null);
+  const [error, setError] = useState("");
+  function run() {
+    setError("");
+    startTransition(async () => {
+      try {
+        const r = await exportClipToFolder(jobId);
+        setResult({ path: r.path, already: r.alreadyExported });
+      } catch (e) {
+        setResult(null);
+        setError(e instanceof Error ? e.message : "ส่งเข้าโฟลเดอร์ TTS ไม่สำเร็จ");
+      }
+    });
+  }
+  return (
+    <div className="flex w-0 min-w-full flex-col gap-1.5">
+      <Button type="button" size="sm" disabled={pending} onClick={run} className="self-start">
+        <FolderInput data-icon="inline-start" /> {pending ? "กำลังส่ง…" : "ส่งเข้าโฟลเดอร์ TTS"}
+      </Button>
+      <div role="status" className="text-xs leading-relaxed text-muted-foreground">
+        {result !== null && (
+          <p className="break-all">
+            {result.already ? "ส่งไปแล้วก่อนหน้านี้" : "ส่งแล้ว"} → {result.path}
+          </p>
+        )}
+        {error !== "" && <p className="text-destructive">{error}</p>}
       </div>
     </div>
   );

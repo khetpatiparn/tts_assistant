@@ -35,7 +35,7 @@ try {
   check("t กับ t+10:00 เป๊ะ ไม่อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(10 * 60000)], localNow).peakPer10Min, 1);
   check("t กับ t+9:59 อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(9 * 60000 + 59000)], localNow).peakPer10Min, 2);
   check("lastWarnAt = http_warn หรือ bot_signal ล่าสุด", a.summarizeActivity([{ at: at(50), kind: "http_warn" }, { at: at(20), kind: "bot_signal" }, gen(1)], now).lastWarnAt, at(20));
-  check("ACTIVITY_KINDS มีครบตามสเปก", a.ACTIVITY_KINDS, ["generate_image", "generate_video", "upload", "new_project", "download", "http_warn", "bot_signal", "break", "session_start", "user_enqueue", "user_choose", "user_redraw", "user_approve_render", "user_redo_render", "user_skip", "user_resume", "user_finish_manual", "user_prompt_now", "user_retry_upscale"]);
+  check("ACTIVITY_KINDS มีครบตามสเปก", a.ACTIVITY_KINDS, ["generate_image", "generate_video", "upload", "new_project", "download", "http_warn", "bot_signal", "break", "session_start", "user_enqueue", "user_choose", "user_redraw", "user_approve_render", "user_redo_render", "user_skip", "user_resume", "user_finish_manual", "user_prompt_now", "user_retry_upscale", "user_export_clip"]);
   const userRows = a.ACTIVITY_KINDS.filter((k) => k.startsWith("user_")).map((k, i) => ({ at: at(i), kind: k }));
   check("kind ของผู้ใช้ไม่นับเป็นคำขอของบอท (today/peak) และไม่นับเป็นสัญญาณเตือน", a.summarizeActivity(userRows, now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
   check("ปนกับของบอท นับเฉพาะของบอท", a.summarizeActivity([...userRows, gen(1)], now).today, 1);

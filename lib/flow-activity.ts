@@ -27,6 +27,8 @@ export const ACTIVITY_KINDS = [
   "user_finish_manual",
   "user_prompt_now",
   "user_retry_upscale",
+  /** ส่งคลิป+รูป+ข้อความเข้าโฟลเดอร์ TTS บนเครื่อง (detail.path) — ใช้กันส่งซ้ำ */
+  "user_export_clip",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
