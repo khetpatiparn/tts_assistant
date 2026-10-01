@@ -32,6 +32,9 @@ try {
     "ห้ามพูดว่าดีที่สุด ห้ามคำว่า 100% ห้ามการันตี",
   ].join("\n");
 
+  const script = c.extractVoiceoverScript(tenPart);
+  check("บทพากย์สำหรับ TTS = บล็อก script ครั้งเดียว ไม่ซ้ำกับบรรทัดเสียงพากย์", script, "ตะขอตัวนี้ดีที่สุดเลย แขวนได้เยอะ");
+  check("ไม่มีบล็อก script = ต่อบรรทัดเสียงพากย์", c.extractVoiceoverScript("เสียงพากย์: “ก”\nเสียงพากย์: “ข”"), "ก\nข");
   const vo = c.extractVoiceover(tenPart);
   check("voice-over รวม script + บรรทัดเสียงพากย์", vo.includes("ดีที่สุดเลย") && vo.includes("ทนทานมาก"), true);
   check("voice-over ไม่รวม Negative Prompt", vo.includes("ห้ามคำว่า 100%"), false);

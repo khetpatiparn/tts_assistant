@@ -5,7 +5,7 @@ import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { buildPostText, exportDateParts, nextSlotNumber, shortFolderName, slotFolderName } from "@/lib/clip-export";
-import { extractVoiceover } from "@/lib/claim-check";
+import { extractVoiceoverScript } from "@/lib/claim-check";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
@@ -1670,7 +1670,7 @@ export async function exportClipToFolder(jobId: string): Promise<{ path: string;
       files.push(name);
     }
 
-    const voice = extractVoiceover(job.entry.chatgptOutput).trim();
+    const voice = extractVoiceoverScript(job.entry.chatgptOutput).trim();
     if (voice !== "") {
       await writeFile(path.join(dir, "เสียงพากย์.txt"), voice + "\n", "utf8");
       files.push("เสียงพากย์.txt");

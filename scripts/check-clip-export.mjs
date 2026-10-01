@@ -33,6 +33,7 @@ try {
 
   check("short: อักขระต้องห้ามหาย", c.shortFolderName('a\\b/c:d*e?f"g<h>i|j'), "abcdefghij");
   check("short: ขึ้นบรรทัดใหม่ + ยุบช่องว่าง", c.shortFolderName("ที่ลับ\nเล็บ   แมว"), "ที่ลับ เล็บ แมว");
+  check("short: ตัดวงเล็บโปร 【…】", c.shortFolderName("【พร้อมฝา+ช้อน】กล่องพลาสติกใส"), "กล่องพลาสติกใส");
   check("short: ตัดที่ 30 ตัว", Array.from(c.shortFolderName("ก".repeat(50))).length, 30);
   check("short: ว่าง → clip", c.shortFolderName("   "), "clip");
   check("short: มีแต่อักขระต้องห้าม → clip", c.shortFolderName("???"), "clip");

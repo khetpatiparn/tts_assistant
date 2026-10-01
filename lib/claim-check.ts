@@ -38,6 +38,31 @@ export function extractVoiceover(tenPart: string): string {
   return picked.join("\n");
 }
 
+/**
+ * บทพากย์ครั้งเดียวสำหรับเอาไปทำเสียง (ไฟล์ เสียงพากย์.txt) — ใช้บล็อก "Full voice-over script" ถ้ามี
+ * ไม่งั้นต่อบรรทัด "เสียงพากย์:" ตามลำดับ · ต่างจาก extractVoiceover ที่รวมทั้งสองแบบ (ไว้ตรวจคำให้ครบ) จนบทซ้ำ
+ */
+export function extractVoiceoverScript(tenPart: string): string {
+  const lines = tenPart.replace(/\r\n/g, "\n").split("\n");
+  const script: string[] = [];
+  const perBeat: string[] = [];
+  let inScript = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (/voice-?over script/i.test(t)) { inScript = true; continue; }
+    if (inScript) {
+      if (t === "") { if (script.length > 0) inScript = false; continue; }
+      if (t.startsWith("**") || /^\d+\.\s/.test(t)) { inScript = false; continue; }
+      script.push(t);
+      continue;
+    }
+    const m = /^(?:[-*]\s*)?เสียงพากย์\s*[:：]\s*(.+)$/.exec(t);
+    if (m) perBeat.push(m[1]);
+  }
+  const unquote = (s: string) => s.replace(/^["“”']+|["“”']+$/g, "").trim();
+  return (script.length > 0 ? script : perBeat).map(unquote).filter((s) => s !== "").join("\n");
+}
+
 function isSafeContext(text: string, index: number, word: string): boolean {
   for (const phrase of SAFE_PHRASES[word] ?? []) {
     const off = phrase.indexOf(word);

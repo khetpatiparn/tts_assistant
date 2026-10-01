@@ -25,6 +25,8 @@ const SHORT_NAME_MAX = 30;
 /** ชื่อสั้นของโฟลเดอร์: ตัดอักขระต้องห้ามของ Windows + ขึ้นบรรทัดใหม่, ยุบช่องว่าง, ตัดที่ 30 ตัว, ว่าง = "clip" */
 export function shortFolderName(name: string): string {
   const cleaned = name
+    // วงเล็บโปรของร้าน เช่น 【พร้อมฝา+ช้อน】 กินที่ชื่อโฟลเดอร์โดยไม่บอกว่าสินค้าคืออะไร
+    .replace(/【[^】]*】/g, " ")
     .replace(/[\\/:*?"<>|]/g, "")
     .replace(/[\r\n\t]+/g, " ")
     .replace(/\s+/g, " ")
