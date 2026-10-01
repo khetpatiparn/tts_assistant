@@ -12,7 +12,8 @@
     "flow-smoke:s2": "tsx worker/smoke/s2-round.ts",
     "flow-smoke:s3": "tsx worker/smoke/s3-round2.ts",
     "flow-smoke:dl": "tsx worker/smoke/dl-spy.ts",
-    "check:flow": "node scripts/check-flow-worker-pure.mjs && node scripts/check-flow-jobs.mjs && node scripts/check-flow-activity.mjs && node scripts/check-flow-activity-hooks.mjs"
+    "check:flow": "node scripts/check-flow-worker-pure.mjs && node scripts/check-flow-jobs.mjs && node scripts/check-flow-activity.mjs && node scripts/check-flow-activity-hooks.mjs && node scripts/check-claims.mjs",
+    "check:claims": "node scripts/check-claims.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
