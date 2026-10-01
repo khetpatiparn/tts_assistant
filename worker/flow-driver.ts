@@ -447,6 +447,13 @@ export async function runRound(
       await sleepMs(randInt([400, 800]));
     }
 
+    // ตัวแปรที่ฟังก์ชันของรอบ 3-4 ใช้ต้องประกาศก่อนบรรทัด return ด้านล่าง — ฟังก์ชัน hoist แต่ let/const ไม่ hoist
+    // (เคยวางไว้ใต้ฟังก์ชันแล้วรอบ 4 พังด้วย "Cannot access 'foundTiles' before initialization" 2026-10-01)
+    /** id ถาวรของคลิปที่ลิงก์ตรงล่าสุดโหลดมา — รอบ 3 เก็บค่านี้แทน id จาก thumbnail (ดู videoUuidFromUrl) */
+    let lastDirectVideoUuid = "";
+    /** ช่องคลิปที่หาเจอแล้ว — find-video กับ download-final ถามซ้ำ ไม่ต้อง hover/โหลดไฟล์มาเทียบอีกรอบ */
+    const foundTiles = new Map<string, number>();
+
     // รอบ 3-4 แยกทางตรงนี้ — ใช้ step/checkpoint/openSettings/closeSettings/attachReferences ร่วมกับรอบรูป
     // (ฟังก์ชันประกาศไว้ถัดลงไปใน block เดียวกัน) · ต่อจากนี้คือรอบรูปเดิม ไม่เปลี่ยนพฤติกรรม
     if (input.round === 4) return await upscaleRound();
@@ -609,9 +616,6 @@ export async function runRound(
       return srcs.map(flowMediaIdFromSrc);
     }
 
-    /** id ถาวรของคลิปที่ลิงก์ตรงล่าสุดโหลดมา — รอบ 3 เก็บค่านี้แทน id จาก thumbnail (ดู videoUuidFromUrl) */
-    let lastDirectVideoUuid = "";
-
     /**
      * หาช่องของคลิป (-1 = ไม่เจอ) · id ที่เก็บไว้อาจเป็น id จาก thumbnail (ใช้ได้เฉพาะในหน้าที่เพิ่งเรนเดอร์) หรือ uuid
      * จากลิงก์ตรง · ลำดับ: thumbnail → hover อ่าน <video src> ทีละช่อง → ถ้าโปรเจกต์มีคลิปช่องเดียว ใช้ช่องนั้น
@@ -623,7 +627,6 @@ export async function runRound(
       if (found >= 0) foundTiles.set(mediaId, found);
       return found;
     }
-    const foundTiles = new Map<string, number>();
 
     async function findTileIndex(name: FlowStep, mediaId: string): Promise<number> {
       const v = videoSel(name);

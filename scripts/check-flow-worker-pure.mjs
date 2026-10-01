@@ -211,5 +211,16 @@ try {
   rmSync(out, { recursive: true, force: true });
 }
 
+// runRound: ตัวแปร let/const ที่ฟังก์ชันรอบ 3-4 ใช้ต้องอยู่ก่อนบรรทัดแยกทาง — ฟังก์ชัน hoist แต่ตัวแปรไม่ hoist
+// (2026-10-01: foundTiles อยู่ใต้ฟังก์ชัน รอบ 4 พังทุกครั้งด้วย "Cannot access ... before initialization")
+{
+  const src = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
+  const dispatch = src.indexOf("if (input.round === 4) return await upscaleRound();");
+  const renderStart = src.indexOf("async function renderRound()");
+  const between = dispatch >= 0 && renderStart > dispatch ? src.slice(dispatch, renderStart) : null;
+  const late = between === null ? ["หาบรรทัดแยกทาง/renderRound ไม่เจอ"] : between.split("\n").filter((l) => /^ {4}(let|const) /.test(l));
+  check("ไม่มี let/const ระดับ runRound ระหว่างบรรทัดแยกทางรอบ 3-4 กับ renderRound", late.join(" | "), "");
+}
+
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
 console.log("\nall checks passed");
