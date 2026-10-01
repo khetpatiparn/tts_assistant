@@ -157,6 +157,8 @@
    เขียนทับเฉพาะตัวที่ต่างจริง — ตัวที่อ้าง var() ของ token ที่ถูกทับ
    (เช่น --card: var(--surface)) จะตามมาเองเพราะ CSS คลี่ var ตอนใช้งาน */
 :root[data-theme="dark"] {
+  /* บอกเบราว์เซอร์ว่าเป็นธีมมืด — ไม่มีบรรทัดนี้ แถบเลื่อน/ช่องกรอก/ตัวเล่นวิดีโอของระบบจะเป็นแบบสว่างโพลนบนพื้นมืด */
+  color-scheme: dark;
   --background: var(--navy-900);
   --foreground: var(--navy-200);
   --surface: var(--navy-850);
@@ -177,8 +179,17 @@
 }
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
   * {
     @apply border-border outline-ring/50;
+    /* แถบเลื่อนบางและสีจางกลืนพื้น (ผู้ใช้ไม่ชอบแถบเลื่อนหนาของระบบ) — เข้มขึ้นตอนชี้ ยังรู้ว่าเลื่อนต่อได้ */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-interactive) transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--muted-foreground) transparent;
   }
   body {
     @apply bg-background text-foreground text-base;
