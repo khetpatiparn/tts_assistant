@@ -181,6 +181,13 @@ try {
   check("โดเมนหลอก evil-flow-content.google → null", fs2.pickDirectVideoUrl(["https://evil-flow-content.google/video/x"]), null);
   check("http (ไม่ใช่ https) → null", fs2.pickDirectVideoUrl(["http://flow-content.google/video/x"]), null);
 
+  // uuid ถาวรของคลิป (รอบ 4 หาช่องด้วยค่านี้ เพราะ thumbnail หลังเปิดโปรเจกต์ใหม่เป็น /asb/<ลายเซ็น> ไม่มี id)
+  check("uuid จากลิงก์ตรง", fs2.videoUuidFromUrl(direct), "a243bbd9-ab27-4a08-b41b-a51e9caac4b9");
+  check("uuid คงที่แม้ลายเซ็นเปลี่ยน", fs2.videoUuidFromUrl(direct.replace("Signature=abc", "Signature=zzz")), "a243bbd9-ab27-4a08-b41b-a51e9caac4b9");
+  check("thumbnail /asb/ ไม่ใช่ลิงก์วิดีโอ → ''", fs2.videoUuidFromUrl("https://flow.google.com/asb/ANqvLObCdgr6Jm4"), "");
+  check("โดเมนหลอก → ''", fs2.videoUuidFromUrl("https://flow-content.google.evil.com/video/x"), "");
+  check("null → ''", fs2.videoUuidFromUrl(null), "");
+
   // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
   const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
   check("ได้ไฟล์ → review_r3 + สร้างแถว video ชื่อ r3-a1.mp4 ไม่มี errorMessage",

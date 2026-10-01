@@ -122,6 +122,17 @@ export function pickDirectVideoUrl(srcs: (string | null)[]): string | null {
 }
 
 /**
+ * id ถาวรของคลิปจากลิงก์ตรง `https://flow-content.google/video/<uuid>?…` ("" = ไม่ใช่ลิงก์นั้น)
+ * ใช้แทน id จาก thumbnail ซึ่งเปลี่ยนเป็น `/asb/<ลายเซ็น>` ทุกครั้งที่เปิดโปรเจกต์ใหม่ (เจอจริง 2026-10-01 รอบ 4)
+ */
+export function videoUuidFromUrl(src: string | null): string {
+  const url = pickDirectVideoUrl([src]);
+  if (url === null) return "";
+  const m = /^\/video\/([^/]+)/.exec(new URL(url).pathname);
+  return m ? m[1] : "";
+}
+
+/**
  * ผลของรอบ Render → สิ่งที่ worker เขียนลง DB (pure เพื่อทดสอบได้ — ส่วน Playwright ทดสอบไม่ได้)
  * กติกา: หลัง Flow เรนเดอร์เสร็จ **ห้ามเป็น failed** ไม่ว่าจะโหลดไฟล์ได้หรือไม่ (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์)
  * ไม่ได้ไฟล์ = review_r3 โดยไม่มีแถว video + errorMessage บอกเหตุ (UI ปิดปุ่ม "ผ่าน" ผ่าน canApproveRender)

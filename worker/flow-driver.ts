@@ -10,7 +10,7 @@ import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import {
-  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason,
+  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason, videoUuidFromUrl,
   renderSettingsLabelOk, submenuArrowDowns,
 } from "./flow-signals";
 
@@ -607,6 +607,43 @@ export async function runRound(
       return srcs.map(flowMediaIdFromSrc);
     }
 
+    /** id ถาวรของคลิปที่ลิงก์ตรงล่าสุดโหลดมา — รอบ 3 เก็บค่านี้แทน id จาก thumbnail (ดู videoUuidFromUrl) */
+    let lastDirectVideoUuid = "";
+
+    /**
+     * หาช่องของคลิป (-1 = ไม่เจอ) · id ที่เก็บไว้อาจเป็น id จาก thumbnail (ใช้ได้เฉพาะในหน้าที่เพิ่งเรนเดอร์) หรือ uuid
+     * จากลิงก์ตรง · ลำดับ: thumbnail → hover อ่าน <video src> ทีละช่อง → ถ้าโปรเจกต์มีคลิปช่องเดียว ใช้ช่องนั้น
+     * (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id — เจอจริง 2026-10-01 ทำรอบ 4 พังทั้งที่มีคลิปช่องเดียว)
+     */
+    async function tileIndexOf(name: FlowStep, mediaId: string): Promise<number> {
+      const v = videoSel(name);
+      const ids = await videoTileIds(name);
+      const byThumb = ids.indexOf(mediaId);
+      if (byThumb >= 0) return byThumb;
+      for (let i = 0; i < ids.length; i++) {
+        const container = page.locator(v.tileContainer).nth(i);
+        await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
+        await humanHover(page, container.locator(v.tile).first(), cfg);
+        const deadline = Date.now() + 4000;
+        while (Date.now() < deadline) {
+          const srcs = await container.locator(v.tileVideo).evaluateAll((els) =>
+            els.map((e) => (e as HTMLVideoElement).currentSrc || e.getAttribute("src"))
+          );
+          const uuid = videoUuidFromUrl(pickDirectVideoUrl(srcs));
+          if (uuid !== "") {
+            if (uuid === mediaId) return i;
+            break;
+          }
+          await sleepMs(400);
+        }
+      }
+      if (ids.length === 1) {
+        log.log(name, `ไม่เจอ id ${mediaId} แต่โปรเจกต์มีคลิปช่องเดียว — ใช้ช่องนั้น`);
+        return 0;
+      }
+      return -1;
+    }
+
     /**
      * ทางแรกของการโหลดคลิป: hover ช่อง → อ่าน <video src> ที่ Flow ใส่ให้ → ดึงไฟล์ตรงด้วย page.request (แนบ cookie ของบอท
      * ให้เองเผื่อวันหน้า Google บังคับ) · ไม่แตะเมนู ⋯ เลย — เมนูซ้อน 3 ชั้นคือขั้นที่พังบ่อยที่สุด (2 ใน 2 รอบจริง)
@@ -615,7 +652,7 @@ export async function runRound(
      */
     async function downloadVideoDirect(name: FlowStep, mediaId: string, filename: string): Promise<string | null> {
       const v = videoSel(name);
-      const idx = (await videoTileIds(name)).indexOf(mediaId);
+      const idx = await tileIndexOf(name, mediaId);
       if (idx < 0) return null;
       const container = page.locator(v.tileContainer).nth(idx);
       await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
@@ -646,6 +683,7 @@ export async function runRound(
       }
       const file = path.join(input.outDir, filename);
       writeFileSync(file, buf);
+      lastDirectVideoUuid = videoUuidFromUrl(url);
       log.log(name, `ได้ไฟล์ ${filename} ${String(Math.round(buf.length / 1024))} KB (ลิงก์ตรง)`);
       logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { via: "direct" } });
       return file;
@@ -658,7 +696,7 @@ export async function runRound(
      */
     async function downloadVideo(name: FlowStep, mediaId: string, quality: RegExp[], filename: string): Promise<string> {
       const v = videoSel(name);
-      const idx = (await videoTileIds(name)).indexOf(mediaId);
+      const idx = await tileIndexOf(name, mediaId);
       if (idx < 0) throw new FlowStepError(name, "selector_drift", `หาช่องของคลิป ${mediaId} ในกริดไม่เจอ`);
       const container = page.locator(v.tileContainer).nth(idx);
       await container.scrollIntoViewIfNeeded({ timeout: cfg.selectorTimeoutMs });
@@ -927,7 +965,8 @@ export async function runRound(
         files: preview.file === null ? [] : [preview.file],
         projectId: projectId as string,
         responseBody: null,
-        mediaId,
+        // uuid จากลิงก์ตรงคงที่ข้ามการเปิดโปรเจกต์ใหม่ (id จาก thumbnail ไม่คงที่) — รอบ 4 ใช้หาช่องนี้
+        mediaId: lastDirectVideoUuid || mediaId,
         downloadFailed: preview.failed,
       };
     }
@@ -946,6 +985,11 @@ export async function runRound(
         while (Date.now() < deadline) {
           ids = await videoTileIds("find-video");
           if (ids.includes(mediaId)) return;
+          // thumbnail โหลดครบแล้ว (ไม่มีช่องว่าง) แต่ id ไม่ตรง → ลองหาแบบ hover / ช่องเดียว ไม่ต้องรอจนหมดเวลา
+          if (ids.length > 0 && !ids.includes("")) {
+            if ((await tileIndexOf("find-video", mediaId)) >= 0) return;
+            break;
+          }
           await sleepMs(1500);
         }
         throw new FlowStepError(

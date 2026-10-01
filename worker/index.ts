@@ -352,11 +352,26 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         msSinceLastBatch: lastBatchAt > 0 ? Date.now() - lastBatchAt : null,
       },
     });
+    const failureDir = path.relative(process.cwd(), failureDirAbs).split(path.sep).join("/");
+    // รอบ 4 (โหลด 1080p) ไม่เสียเครดิตและผู้ใช้มี 720p อยู่แล้ว — พังที่ขั้นไหนก็จบงานด้วย 720p ไม่หยุดคิว
+    // ยกเว้นสัญญาณบอท/หลุด login ที่ต้องหยุดเพื่อป้องกันบัญชีเหมือนเดิม (เจอจริง 2026-10-01: find-video หยุดคิวทั้งที่มีคลิปแล้ว)
+    if (round === 4 && kind !== "captcha" && kind !== "login_required" && videoRowOf(job) !== null) {
+      await prisma.flowJob.update({
+        where: { id: job.id },
+        data: {
+          status: FLOW_STATUS.DONE, finishedAt: new Date(), failureDir,
+          errorMessage: `ได้ 720p (โหลด 1080p ไม่ได้ที่ขั้น ${step}: ${message})`.slice(0, 2000),
+        },
+      });
+      log(`งาน ${job.id} จบด้วย 720p (รอบ 4 พังที่ ${step} — ไม่หยุดคิว) หลักฐาน: ${failureDirAbs}`);
+      notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
+      return true;
+    }
     await prisma.flowJob.update({
       where: { id: job.id },
       data: {
         status: FLOW_STATUS.FAILED, failedStep: step, errorKind: kind, errorMessage: message.slice(0, 2000),
-        failureDir: path.relative(process.cwd(), failureDirAbs).split(path.sep).join("/"),
+        failureDir,
       },
     });
     await pauseWorker(kind);
