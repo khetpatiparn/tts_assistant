@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
+import { BotSteps, ClipLayout, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
 import { ClipPlayer, ExtraPromptField, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
 
 /**
@@ -126,8 +127,24 @@ export function FlowJobDetail({
   const usedExtra = (isRenderReview ? job.video?.promptExtra : job.candidates[0]?.promptExtra) ?? "";
   const lightboxItems = job.candidates.map((c, i) => ({ src: imgUrl(job.entryId, c.filename), label: `รูป ${i + 1}` }));
 
+  // งานคลิปที่มีไฟล์ → หน้า 3 โซนที่ lg: (คลิป · สถานะ/ปุ่ม · พร้อมโพสต์/พรอมต์) — ดู components/flow-clip-layout.tsx
+  const clipFile = job.video?.filename ?? null;
+  const clipLayout =
+    clipFile !== null && (isRenderReview || isUpscale || job.status === FLOW_STATUS.DONE);
+
+  const approveButtons = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button type="button" disabled={isPending || !canApproveRender(job.status, job.video !== null)} onClick={() => run(() => approveFlowRender(job.id))}>
+        <Check data-icon="inline-start" /> ผ่าน
+      </Button>
+      <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => redoFlowRound(job.id, extra))}>
+        <RotateCcw data-icon="inline-start" /> เรนเดอร์ใหม่
+      </Button>
+    </div>
+  );
+
   return (
-    <article className="flex min-w-0 flex-col gap-4">
+    <article className={cn("flex min-w-0 flex-col gap-4", clipLayout && "lg:h-full")}>
       <header className="flex flex-col gap-3 border-b border-border pb-3">
         <Button type="button" variant="ghost" size="sm" className="self-start lg:hidden" onClick={onBack}>
           <ArrowLeft data-icon="inline-start" /> กลับไปรายการ
@@ -160,7 +177,7 @@ export function FlowJobDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-4">
+      <div className={cn("flex flex-col gap-4", clipLayout && "lg:min-h-0 lg:flex-1")}>
         {isImageReview && (
           <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:gap-6">
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-3 sm:grid-cols-4">
@@ -240,7 +257,38 @@ export function FlowJobDetail({
           </div>
         )}
 
-        {isRenderReview && (
+        {isRenderReview && clipLayout && clipFile !== null && (
+          <ClipLayout
+            job={job}
+            filename={clipFile}
+            middle={
+              <>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  ตัวอย่าง 720p — กดผ่านแล้วบอทจะโหลดไฟล์ 1080p ให้
+                </p>
+                {/* มีไฟล์แต่มีข้อความ (เช่น ได้แค่ 720p เพราะโหลด 1080p ไม่ได้) ต้องโชว์ด้วย */}
+                <JobMessage status={job.status} message={job.errorMessage} />
+                {approveButtons}
+                <ExtraPromptField
+                  id={`extra-${job.id}`}
+                  label="ข้อความเพิ่มเติมต่อท้ายพรอมต์ (ใช้ถ้ากดเรนเดอร์ใหม่)"
+                  placeholder="เช่น ห้ามมีคนในฉาก"
+                  value={extra}
+                  onChange={setExtra}
+                  disabled={isPending}
+                  preview={`ส่งถ้ากดเรนเดอร์ใหม่: พรอมต์ของงานนี้${
+                    normalizeExtraPrompt(extra) === "" ? "" : ` + “${normalizeExtraPrompt(extra)}”`
+                  }`}
+                />
+                <UsedImages job={job} />
+                <BotSteps checkpoints={job.checkpoints} />
+              </>
+            }
+            right={<PromptCard job={job} usedExtra={usedExtra} />}
+          />
+        )}
+
+        {isRenderReview && !clipLayout && (
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
             {job.video ? (
               <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="lg" />
@@ -332,7 +380,22 @@ export function FlowJobDetail({
           </div>
         )}
 
-        {isUpscale && (
+        {isUpscale && clipLayout && clipFile !== null && (
+          <ClipLayout
+            job={job}
+            filename={clipFile}
+            middle={
+              <>
+                <p className="text-sm font-medium text-foreground">ผ่านแล้ว — บอทกำลังโหลดไฟล์ 1080p</p>
+                <UsedImages job={job} />
+                <BotSteps checkpoints={job.checkpoints} />
+              </>
+            }
+            right={<ReadyToPostCard job={job} />}
+          />
+        )}
+
+        {isUpscale && !clipLayout && (
           <div className="flex flex-wrap items-start gap-3">
             {job.video && (
               <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" />
@@ -377,7 +440,34 @@ export function FlowJobDetail({
           <ManualRenderPanel entryId={job.entryId} prompt={job.prompt} images={manualImages} collapsed />
         )}
 
-        {job.status === FLOW_STATUS.DONE && (renderEnabled || job.video !== null) && (
+        {job.status === FLOW_STATUS.DONE && clipLayout && clipFile !== null && (
+          <ClipLayout
+            job={job}
+            filename={clipFile}
+            done
+            middle={
+              <>
+                <p className="text-sm font-medium text-foreground">
+                  คลิปพร้อมแล้ว · {clipFile === FINAL_VIDEO_FILENAME ? "1080p" : "720p"}
+                </p>
+                <JobMessage status={job.status} message={job.errorMessage} />
+                {canRetryUpscale(job.status, job.video, job.flowProjectId) && (
+                  <div className="flex flex-col items-start gap-1">
+                    <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
+                      <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
+                    </Button>
+                    <span className="text-xs text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
+                  </div>
+                )}
+                <UsedImages job={job} />
+                <BotSteps checkpoints={job.checkpoints} />
+              </>
+            }
+            right={<ReadyToPostCard job={job} />}
+          />
+        )}
+
+        {job.status === FLOW_STATUS.DONE && !clipLayout && (renderEnabled || job.video !== null) && (
           // คลิปคือของหลัก (ซ้าย) · สถานะ/ปุ่ม/รูปที่ใช้ทำคลิปอยู่ขวา — ไม่ปล่อยพื้นที่ว่างทั้งแถว
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
             {job.video && (
@@ -430,7 +520,7 @@ export function FlowJobDetail({
         )}
 
         {/* ภาพจุดเช็ก 4 จุดของครั้งล่าสุด — ย้อนดูว่าบอทตั้งค่า/แนบรูป/พิมพ์พรอมต์ถูกไหม (ลบเองหลัง 14 วัน) */}
-        {job.checkpoints.length > 0 && (
+        {job.checkpoints.length > 0 && !clipLayout && (
           <details className="text-sm leading-relaxed">
             <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
               ดูขั้นตอนที่บอททำ ({job.checkpoints.length} ภาพ)

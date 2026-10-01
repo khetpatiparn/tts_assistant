@@ -26,6 +26,10 @@ export type FlowJobRow = {
   productName: string;
   /** 10-part prompt ของ Entry — ใช้ในแผง "ทำคลิปเองใน Flow" ("" = ยังไม่ได้สร้าง) */
   prompt: string;
+  /** แคปชัน/แฮชแท็ก/angle ของ Entry — ใช้ในการ์ด "พร้อมโพสต์" ของคลิปที่เสร็จ ("" = ยังไม่มี) */
+  caption: string;
+  hashtags: string;
+  angle: string;
   status: string;
   round: number;
   attempt: number;
@@ -129,7 +133,7 @@ export async function getFlowQueueData(): Promise<{
         ],
       },
       include: {
-        entry: { select: { productName: true, chatgptOutput: true } },
+        entry: { select: { productName: true, chatgptOutput: true, caption: true, hashtags: true, angle: true } },
         images: { orderBy: [{ round: "asc" }, { attempt: "asc" }, { index: "asc" }] },
       },
     }),
@@ -155,6 +159,9 @@ export async function getFlowQueueData(): Promise<{
         entryId: j.entryId,
         productName: j.entry.productName,
         prompt: j.entry.chatgptOutput,
+        caption: j.entry.caption,
+        hashtags: j.entry.hashtags,
+        angle: j.entry.angle,
         status: j.status,
         round: j.round,
         attempt: j.attempt,
