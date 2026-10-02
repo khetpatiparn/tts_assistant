@@ -246,12 +246,9 @@ export function collectImageUrls(body: unknown, hosts: string[], out: Set<string
   return [...out];
 }
 
+/** โฮสต์ network strategy อ่าน response ของ RPC เจนรูปตรงๆ — รหัสบล็อก (401/403/429) ใช้กฎเดียวกับ blockKindForStatus ที่เหลือ ≥400 = flow_error */
 function kindForStatus(status: number): ErrorKind | null {
-  if (status === 401) return "login_required";
-  if (status === 403) return "captcha";
-  if (status === 429) return "flow_error";
-  if (status >= 400) return "flow_error";
-  return null;
+  return blockKindForStatus(status) ?? (status >= 400 ? "flow_error" : null);
 }
 
 /**
