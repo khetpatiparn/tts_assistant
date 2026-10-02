@@ -8,17 +8,20 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync } from
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, STALE_RENDER_MESSAGE, WORKER_STATE_ID, buildRenderPrompt,
-  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, staleRenderRecovery, toJobRound,
-  type JobRound,
+  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID, buildRenderPrompt,
+  claimOrder, queuedStatus, toJobRound, type JobRound,
 } from "@/lib/flow-jobs";
+import {
+  claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
+  previewUnsaved, roundFailed, staleRender, staleRunning, staleUpscale,
+} from "@/lib/flow-lifecycle";
+import { applyBulk, applyPlan, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
 import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
 import { notify } from "./notify";
 import { logActivity } from "./activity";
 import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
 import { runRound } from "./flow-driver";
-import { renderOutcome } from "./flow-signals";
 import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
 import { randInt, sleepMs } from "./humanize";
@@ -93,12 +96,7 @@ async function pauseWorker(reason: ErrorKind): Promise<void> {
  */
 async function markJobFailedImmediately(jobId: string, e: unknown): Promise<void> {
   const message = e instanceof Error ? e.message : String(e);
-  await prisma.flowJob
-    .update({
-      where: { id: jobId },
-      data: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: message.slice(0, 2000) },
-    })
-    .catch((err) => log(`บันทึกงานพังไม่สำเร็จ (${jobId}): ${String(err)}`));
+  await applyPlan(jobId, claimCrashed(message)).catch((err) => log(`บันทึกงานพังไม่สำเร็จ (${jobId}): ${String(err)}`));
 }
 
 /**
@@ -113,11 +111,8 @@ async function claimNextJob(rounds: JobRound[]) {
       select: { id: true },
     });
     if (!candidate) continue;
-    const claimed = await prisma.flowJob.updateMany({
-      where: { id: candidate.id, status: queuedStatus(round) },
-      data: { status: runningStatus(round), startedAt: new Date(), failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
-    });
-    if (claimed.count === 1) {
+    const claimed = await applyBulk(claim(round, new Date()), { id: candidate.id });
+    if (claimed === 1) {
       try {
         return await prisma.flowJob.findUniqueOrThrow({ where: { id: candidate.id }, include: { entry: true, images: true } });
       } catch (e) {
@@ -250,91 +245,46 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     );
 
     if (round === 3) {
-      const outcome = renderOutcome(result.files, result.downloadFailed, job.attempt);
-      const saved = await persistAfterRender("คลิป", job, () => prisma.$transaction(async (tx) => {
-        // มีได้แถวเดียว — "เรนเดอร์ใหม่" ลบของ attempt ก่อนไปแล้ว แต่ถ้ารันต่อหลังพังแล้วมีแถวค้าง ให้แทนที่
-        await tx.flowJobImage.deleteMany({ where: { jobId: job.id, kind: "video" } });
-        if (outcome.createVideoRow && outcome.filename !== null) {
-          await tx.flowJobImage.create({
-            data: {
-              jobId: job.id,
-              kind: "video",
-              round: 3,
-              attempt: job.attempt,
-              index: 0,
-              filename: outcome.filename,
-              mimeType: "video/mp4",
-              promptExtra: job.extraPrompt,
-              flowMediaId: result.mediaId ?? "",
-            },
-          });
-        }
-        await tx.flowJob.update({
-          where: { id: job.id },
-          data: { status: outcome.status, flowProjectId: result.projectId, errorMessage: outcome.errorMessage },
-        });
-      }), () => prisma.flowJob.update({
-        where: { id: job.id },
-        data: { status: FLOW_STATUS.REVIEW_R3, errorMessage: "คลิปเสร็จแล้วแต่บันทึกลง DB ไม่ได้ — ดูไฟล์ในโฟลเดอร์ flow ของ entry หรือกดเรนเดอร์ใหม่" },
-      }));
+      const gotFile = result.files.length > 0;
+      const saved = await persistAfterRender(
+        "คลิป",
+        job,
+        () => applyPlan(job.id, previewReady({
+          gotFile, downloadFailed: result.downloadFailed, job, mediaId: result.mediaId ?? "", projectId: result.projectId,
+        })),
+        () => applyPlan(job.id, previewUnsaved()),
+      );
       if (!saved) return true;
-      log(outcome.createVideoRow ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
-      notify(outcome.createVideoRow ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
+      log(gotFile ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
+      notify(gotFile ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
       return true;
     }
 
     if (round === 4 && approvedVideo !== null) {
       if (result.files.length > 0) {
-        const saved = await persistAfterRender("คลิป 1080p", job, () => prisma.$transaction(async (tx) => {
-          // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
-          await tx.flowJobImage.update({ where: { id: approvedVideo.id }, data: { filename: FINAL_VIDEO_FILENAME, chosen: true } });
-          // ล้างหมายเหตุ "ได้ 720p" ของรอบก่อน (กรณีผู้ใช้กด "ลองโหลด 1080p อีกครั้ง")
-          await tx.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "" } });
-        }), () => prisma.flowJob.update({
-          where: { id: job.id },
-          data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ — ดู r3-final.mp4 ในโฟลเดอร์ flow ของ entry" },
-        }));
+        // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
+        const saved = await persistAfterRender(
+          "คลิป 1080p",
+          job,
+          () => applyPlan(job.id, finalClipSaved(approvedVideo.id, new Date())),
+          () => applyPlan(job.id, finalClipUnsaved(new Date())),
+        );
         if (!saved) return true;
         if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
         log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
         notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
       } else {
-        await prisma.flowJob.update({
-          where: { id: job.id },
-          data: {
-            status: FLOW_STATUS.DONE,
-            finishedAt: new Date(),
-            errorMessage: `ได้ 720p (โหลด 1080p ไม่ได้: ${result.downloadFailed ?? ""})`.slice(0, 2000),
-          },
-        });
+        await applyPlan(job.id, finalClipMissing(result.downloadFailed, new Date()));
         log(`งาน ${job.id} จบด้วย 720p (1080p โหลดไม่ได้)`);
         notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
       }
       return true;
     }
 
-    const imageRound = round === 2 ? 2 : 1;
-    await prisma.$transaction(async (tx) => {
-      for (const [index, file] of result.files.entries()) {
-        const ext = path.extname(file).slice(1) === "jpg" ? "jpg" : "png";
-        await tx.flowJobImage.create({
-          data: {
-            jobId: job.id,
-            kind: "candidate",
-            round: imageRound,
-            attempt: job.attempt,
-            index,
-            filename: candidateFilename(imageRound, job.attempt, index, ext),
-            mimeType: ext === "jpg" ? "image/jpeg" : "image/png",
-            promptExtra: job.extraPrompt,
-          },
-        });
-      }
-      await tx.flowJob.update({
-        where: { id: job.id },
-        data: { status: reviewStatus(imageRound), flowProjectId: result.projectId },
-      });
-    });
+    await applyPlan(
+      job.id,
+      imagesReady(round === 2 ? 2 : 1, job, result.files.map((file) => path.extname(file).slice(1)), result.projectId),
+    );
     log(`งาน ${job.id} รอบ ${round} เสร็จ → รอผู้ใช้เลือก`);
     notify("รูปพร้อมให้เลือก", `${job.entry.productName} · รอบ ${round}`);
     return true;
@@ -355,28 +305,15 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       },
     });
     const failureDir = path.relative(process.cwd(), failureDirAbs).split(path.sep).join("/");
-    // รอบ 4 (โหลด 1080p) ไม่เสียเครดิตและผู้ใช้มี 720p อยู่แล้ว — พังที่ขั้นไหนก็จบงานด้วย 720p ไม่หยุดคิว
-    // ยกเว้นสัญญาณบอท/หลุด login ที่ต้องหยุดเพื่อป้องกันบัญชีเหมือนเดิม (เจอจริง 2026-10-01: find-video หยุดคิวทั้งที่มีคลิปแล้ว)
-    if (round === 4 && kind !== "captcha" && kind !== "login_required" && videoRowOf(job) !== null) {
-      await prisma.flowJob.update({
-        where: { id: job.id },
-        data: {
-          status: FLOW_STATUS.DONE, finishedAt: new Date(), failureDir,
-          errorMessage: `ได้ 720p (โหลด 1080p ไม่ได้ที่ขั้น ${step}: ${message})`.slice(0, 2000),
-        },
-      });
+    // รอบ 4 (โหลด 1080p) ที่มี 720p แล้ว พังที่ขั้นไหนก็จบงานด้วย 720p ไม่หยุดคิว ยกเว้นสัญญาณบอท/หลุด login (roundFailed)
+    const failure = roundFailed({ round, hasVideoRow: videoRowOf(job) !== null, step, kind, message, failureDir, now: new Date() });
+    await applyPlan(job.id, failure.plan);
+    if (failure.pause === null) {
       log(`งาน ${job.id} จบด้วย 720p (รอบ 4 พังที่ ${step} — ไม่หยุดคิว) หลักฐาน: ${failureDirAbs}`);
       notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
       return true;
     }
-    await prisma.flowJob.update({
-      where: { id: job.id },
-      data: {
-        status: FLOW_STATUS.FAILED, failedStep: step, errorKind: kind, errorMessage: message.slice(0, 2000),
-        failureDir,
-      },
-    });
-    await pauseWorker(kind);
+    await pauseWorker(failure.pause);
     log(`งาน ${job.id} พังที่ ${step} (${kind}) — หยุดทั้งคิว หลักฐาน: ${failureDirAbs}`);
     return false;
   }
@@ -420,39 +357,30 @@ async function main() {
 
   // งานค้าง running_upscale ที่มีตัวอย่าง 720p แล้ว = คลิปเรนเดอร์เสร็จแล้ว (เครดิตจ่ายแล้ว) → จบด้วย 720p ไม่พัง ไม่หยุดคิว
   // (เจอจริง 2026-10-01: Chrome crash ตอนโหลด 1080p → งานค้าง "กำลังโหลด" ผู้ใช้รอเป็นชั่วโมง)
-  const staleUpscale = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_UPSCALE }, include: { images: true } });
-  for (const j of staleUpscale) {
-    if (!j.images.some((i) => i.kind === "video")) continue;
-    await prisma.flowJob.update({
-      where: { id: j.id },
-      data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ 720p (บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้)" },
-    });
+  const upscaleLeft = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_UPSCALE }, include: { images: true } });
+  for (const j of upscaleLeft) {
+    const plan = staleUpscale(j.images.some((i) => i.kind === "video"), new Date());
+    if (plan === null) continue;
+    await applyPlan(j.id, plan);
     log(`งานค้างโหลด 1080p ${j.id} → จบด้วย 720p`);
   }
 
   // งานค้าง running_r3 ที่กดสร้างคลิปไปแล้ว (มี generate_video ตั้งแต่ startedAt) = เสียเครดิตแล้ว คลิปอยู่ในโปรเจกต์ Flow
   // → review_r3 ไม่มีแถว video + ข้อความให้ไปโหลดเอง/ปิดงาน ไม่หยุดคิว · ถ้าตีเป็น failed ผู้ใช้กด "รันต่อ" = เรนเดอร์ซ้ำเสีย 15 เครดิต
-  const staleRender = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_R3 }, select: { id: true, startedAt: true } });
-  for (const j of staleRender) {
+  const renderLeft = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_R3 }, select: { id: true, startedAt: true } });
+  for (const j of renderLeft) {
     const generated = await prisma.flowActivity.findMany({ where: { kind: "generate_video", jobId: j.id }, select: { at: true } });
-    if (staleRenderRecovery(j.startedAt, generated.map((g) => g.at)) !== "review") continue;
-    await prisma.$transaction([
-      // แถวคลิปที่ค้าง (ถ้ามี) เป็นของ attempt ก่อน — ห้ามให้ปุ่ม "ผ่าน" ไปอนุมัติคลิปผิดตัว
-      prisma.flowJobImage.deleteMany({ where: { jobId: j.id, kind: "video" } }),
-      prisma.flowJob.update({ where: { id: j.id }, data: { status: FLOW_STATUS.REVIEW_R3, errorMessage: STALE_RENDER_MESSAGE } }),
-    ]);
+    const plan = staleRender(j.startedAt, generated.map((g) => g.at));
+    if (plan === null) continue;
+    await applyPlan(j.id, plan);
     log(`งานค้าง Render ${j.id} กดสร้างคลิปไปแล้ว → รอผู้ใช้ดูใน Flow (ไม่หยุดคิว)`);
   }
 
-  const stale = await prisma.flowJob.updateMany({
-    where: {
-      status: { in: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2, FLOW_STATUS.RUNNING_R3, FLOW_STATUS.RUNNING_UPSCALE] },
-    },
-    data: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: "worker ตายกลางคันในรอบก่อน" },
-  });
-  if (stale.count > 0) {
-    await pauseWorker("worker_crash");
-    log(`พบงานค้าง running ${stale.count} งาน → failed + หยุดคิว รอผู้ใช้กดรันต่อ`);
+  const sweep = staleRunning();
+  const stale = await applyBulk(sweep);
+  if (stale > 0) {
+    await pauseWorker(sweep.pause);
+    log(`พบงานค้าง running ${stale} งาน → failed + หยุดคิว รอผู้ใช้กดรันต่อ`);
   }
 
   await upsertState({ lastSeenAt: new Date(), currentJobId: null });
@@ -523,19 +451,14 @@ async function main() {
   // login_required กลับเข้าคิวรอบเดิม แบบเดียวกับกด "รันต่อ" (resumeFlowWorker ใน app/actions.ts)
   const pausedReason = (await readState())?.pausedReason ?? "";
   if (pausedReason === "login_required") {
-    for (const round of [1, 2, 3, 4] as JobRound[]) {
-      await prisma.flowJob.updateMany({
-        where: { status: FLOW_STATUS.FAILED, errorKind: "login_required", round },
-        data: { status: queuedStatus(round), failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
-      });
-    }
-    await upsertState({ pausedReason: "", pausedAt: null });
+    for (const requeue of loginRecovered()) await applyBulk(requeue);
+    await unpauseWorker();
     log("session กลับมาใช้ได้แล้ว — ปลดการหยุดและคืนงานที่ค้างเพราะ login เข้าคิว");
   } else if (pausedReason !== "" && (await prisma.flowJob.count({ where: { status: FLOW_STATUS.FAILED } })) === 0) {
     // หยุดค้างอยู่แต่ไม่มีงานที่พังเลย = ทางตันในหน้า /flow (ปุ่ม "รันต่อ"/"ข้าม" อยู่บนงานที่พังเท่านั้น)
     // เช่นรอบก่อนล้มระหว่างเปิดตัว · การเปิดบอทใหม่คือการกู้คืนของคน จึงปลดให้ ส่วนการหยุดที่มีงานพัง
     // (รวม stale sweep ข้างบน) ยังต้องให้คนกด "รันต่อ" เหมือนเดิม
-    await upsertState({ pausedReason: "", pausedAt: null });
+    await unpauseWorker();
     log(`ปลดการหยุด (${pausedReason}) ที่ค้างจากรอบก่อน — ไม่มีงานที่พังให้กดรันต่อ`);
   }
 

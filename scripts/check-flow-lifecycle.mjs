@@ -1,0 +1,271 @@
+/**
+ * ตรวจวงจรชีวิตของงานคิว Flow (lib/flow-lifecycle.ts) — แผนของทุกจังหวะต้องเขียนลง FlowJob เหมือนโค้ดเดิมที่เคยกระจาย
+ * อยู่ใน app/actions.ts กับ worker/index.ts ทุกช่อง (ค่าที่คาดไว้ข้างล่างคัดจากโค้ดเดิมก่อนย้าย 2026-10-02)
+ * รัน: node scripts/check-flow-lifecycle.mjs
+ */
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const out = mkdtempSync(join(process.cwd(), ".check-flow-tmp-"));
+let failed = 0;
+function check(name, actual, expected) {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  const ok = a === e;
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+  if (!ok) console.log(`      ได้ ${a}\n      ควรได้ ${e}`);
+}
+function checkThrows(name, fn, includes) {
+  let msg = null;
+  try { fn(); } catch (e) { msg = e instanceof Error ? e.message : String(e); }
+  const ok = msg !== null && msg.includes(includes);
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+  if (!ok) console.log(`      ได้ ${JSON.stringify(msg)} ควรมีคำว่า ${JSON.stringify(includes)}`);
+}
+
+try {
+  try {
+    execFileSync(
+      "npx",
+      ["tsc", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+      { stdio: "pipe", shell: true },
+    );
+  } catch (e) {
+    // ไม่ได้ส่ง paths mapping ให้ tsc — "@/lib/flow-jobs" หาไม่เจอ (TS2307) โดยตั้งใจ แต่ยัง emit .js ให้ (exit 2)
+    // แบบเดียวกับ check-recommender.mjs · type error จริงจับด้วย npx tsc --noEmit ของทั้งโปรเจกต์
+    const diag = String(e.stdout ?? "");
+    if (e.status !== 2 || diag.split("\n").some((l) => l.includes("error TS") && !l.includes("TS2307"))) {
+      console.log(diag);
+      throw e;
+    }
+  }
+  const lcPath = join(out, "flow-lifecycle.js");
+  writeFileSync(lcPath, readFileSync(lcPath, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"'));
+  const L = await import(pathToFileURL(lcPath).href);
+
+  const now = new Date("2026-10-02T12:00:00Z");
+  const cleared = { failedStep: "", errorKind: "", errorMessage: "", failureDir: "" };
+
+  // ---------- ผู้ใช้ ----------
+  check("enqueue: งานใหม่รอบ 1 + extraPrompt ผ่าน normalize + แถวรูปต้นทาง",
+    L.enqueue("  เอาแค่\nแผ่นเดียว ", [{ filename: "source-0.jpg", mimeType: "image/jpeg" }, { filename: "source-1.png", mimeType: "image/png" }]),
+    {
+      job: { status: "queued_r1", round: 1, attempt: 1, extraPrompt: "เอาแค่ แผ่นเดียว" },
+      sourceRows: [
+        { kind: "source", round: 0, attempt: 1, index: 0, filename: "source-0.jpg", mimeType: "image/jpeg" },
+        { kind: "source", round: 0, attempt: 1, index: 1, filename: "source-1.png", mimeType: "image/png" },
+      ],
+    });
+  check("enqueue: ไม่มีข้อความเพิ่มเติม = ''", L.enqueue(undefined, []).job.extraPrompt, "");
+
+  const img = (round, attempt = 1) => ({ id: "img1", kind: "candidate", round, attempt });
+  const on = () => true;
+  const off = () => false;
+  {
+    const p = L.choose({ status: "review_r1", round: 1, attempt: 2 }, img(1, 2), on, now);
+    check("choose รอบ 1 → queued_r2 รอบ 2 attempt 1 ล้าง extraPrompt", p.job, { status: "queued_r2", round: 2, attempt: 1, extraPrompt: "" });
+    check("choose รอบ 1 → ตั้ง chosen ของรอบ 1 · ไม่ก๊อป ProductImage", [p.next, p.markChosen, p.copyToProductImages, p.unpauseWorker ?? false, p.deleteVideoRows ?? false],
+      ["queued_r2", { round: 1, imageId: "img1" }, false, false, false]);
+    check("choose รอบ 1 + ปิด Render ยังไปรอบ 2 ตามปกติ", L.choose({ status: "review_r1", round: 1, attempt: 1 }, img(1), off, now).next, "queued_r2");
+  }
+  {
+    const p = L.choose({ status: "review_r2", round: 2, attempt: 1 }, img(2), on, now);
+    check("choose รอบ 2 → awaiting_prompt รอบ 3 ล้าง extraPrompt (ยังไม่จบ ต้อง Render ก่อน)", p.job, { status: "awaiting_prompt", round: 3, attempt: 1, extraPrompt: "" });
+    check("choose รอบ 2 → ก๊อป 2 รูปเป็น ProductImage", [p.next, p.copyToProductImages, p.markChosen], ["awaiting_prompt", true, { round: 2, imageId: "img1" }]);
+    const d = L.choose({ status: "review_r2", round: 2, attempt: 1 }, img(2), off, now);
+    check("choose รอบ 2 + ปิด Render อัตโนมัติ → done (ผู้ใช้ทำคลิปเอง) ไม่แตะ round/extraPrompt", d.job, { status: "done", finishedAt: now });
+    check("choose คืนรูปที่เลือก (ใช้ต่อใน action)", d.image.id, "img1");
+  }
+  checkThrows("choose รูปผิดรอบ", () => L.choose({ status: "review_r2", round: 2, attempt: 1 }, img(1), on, now), "รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  checkThrows("choose รูปผิด attempt", () => L.choose({ status: "review_r1", round: 1, attempt: 2 }, img(1, 1), on, now), "รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  checkThrows("choose ไม่เจอรูป", () => L.choose({ status: "review_r1", round: 1, attempt: 1 }, undefined, on, now), "รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  checkThrows("choose ตรวจรูปก่อนอ่าน config (ลำดับ error เดิม)",
+    () => L.choose({ status: "review_r1", round: 1, attempt: 1 }, undefined, () => { throw new Error("config พัง"); }, now), "รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  checkThrows("choose อ่าน config ก่อนตรวจสถานะ (ลำดับ error เดิม)",
+    () => L.choose({ status: "queued_r1", round: 1, attempt: 1 }, img(1), () => { throw new Error("config พัง"); }, now), "config พัง");
+  checkThrows("choose queued_r1 throws", () => L.choose({ status: "queued_r1", round: 1, attempt: 1 }, img(1), on, now), "งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
+  checkThrows("choose review_r3 throws (คลิปไม่มีให้เลือก)", () => L.choose({ status: "review_r3", round: 3, attempt: 1 }, { ...img(3) }, on, now), "งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
+
+  check("promptReady: awaiting_prompt → queued_r3", L.promptReady(), { where: { status: "awaiting_prompt" }, job: { status: "queued_r3" } });
+
+  {
+    const job = (status, extraPrompt = "เดิม") => ({ status, attempt: 2, extraPrompt });
+    check("redo review_r1 ไม่ส่งข้อความ → queued_r1 attempt+1 ไม่แตะ extraPrompt", L.redo(job("review_r1"), undefined).job, { status: "queued_r1", attempt: 3 });
+    check("redo review_r1 ไม่ส่งข้อความ → log ใช้ค่าเดิม", L.redo(job("review_r1"), undefined).extraPrompt, "เดิม");
+    check("redo review_r2 ส่ง '' = กลับพรอมต์ตั้งต้น", L.redo(job("review_r2"), "").job, { status: "queued_r2", attempt: 3, extraPrompt: "" });
+    const r = L.redo(job("review_r3"), " ห้าม\nมีคน ");
+    check("redo review_r3 (เรนเดอร์ใหม่) → queued_r3 + normalize ข้อความ", r.job, { status: "queued_r3", attempt: 3, extraPrompt: "ห้าม มีคน" });
+    check("redo review_r3 ลบแถวคลิปตัวอย่าง · รูป candidate ไม่ลบ", [r.deleteVideoRows, r.isRender, L.redo(job("review_r1"), undefined).deleteVideoRows], [true, true, false]);
+    checkThrows("redo done throws", () => L.redo(job("done"), undefined), "ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
+    checkThrows("redo awaiting_prompt throws", () => L.redo(job("awaiting_prompt"), undefined), "ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
+  }
+
+  check("approveRender review_r3 + มีคลิป → queued_upscale round 4 (ยังไม่ done จนได้ 1080p)", L.approveRender({ status: "review_r3" }, true), { job: { status: "queued_upscale", round: 4 } });
+  checkThrows("approveRender review_r2 throws (ตรวจสถานะก่อนไฟล์)", () => L.approveRender({ status: "review_r2" }, false), "งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
+  checkThrows("approveRender running_r3 throws", () => L.approveRender({ status: "running_r3" }, true), "งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
+  checkThrows("approveRender ไม่มีไฟล์คลิป throws", () => L.approveRender({ status: "review_r3" }, false), "ยังไม่มีไฟล์คลิป");
+  check("canApproveRender review_r3 + มีไฟล์ → true", L.canApproveRender("review_r3", true), true);
+  check("canApproveRender review_r3 + ไม่มีไฟล์ (โหลดไม่ได้) → false", L.canApproveRender("review_r3", false), false);
+  check("canApproveRender สถานะอื่น → false", L.canApproveRender("review_r2", true), false);
+
+  const v720 = { filename: "r3-a1.mp4", chosen: false };
+  check("canRetryUpscale done + 720p + มีโปรเจกต์ → true", L.canRetryUpscale("done", v720, "proj"), true);
+  check("canRetryUpscale ได้ 1080p แล้ว → false", L.canRetryUpscale("done", { filename: "r3-final.mp4", chosen: true }, "proj"), false);
+  check("canRetryUpscale ไม่มีคลิป → false", L.canRetryUpscale("done", null, "proj"), false);
+  check("canRetryUpscale ไม่รู้โปรเจกต์ → false", L.canRetryUpscale("done", v720, ""), false);
+  check("canRetryUpscale ยังไม่จบ → false", L.canRetryUpscale("review_r3", v720, "proj"), false);
+  check("retryUpscale → queued_upscale round 4 ล้าง finishedAt + ร่องรอยพัง",
+    L.retryUpscale({ status: "done", flowProjectId: "proj" }, v720), { job: { status: "queued_upscale", round: 4, finishedAt: null, ...cleared } });
+  checkThrows("retryUpscale ได้ 1080p แล้ว throws", () => L.retryUpscale({ status: "done", flowProjectId: "proj" }, { filename: "r3-final.mp4", chosen: true }), "ลองโหลด 1080p ใหม่ไม่ได้");
+
+  check("resume รอบ 2 → queued_r2 ล้างร่องรอยพัง + ปลดการหยุด", L.resume({ status: "failed", round: 2 }), { job: { status: "queued_r2", ...cleared }, unpauseWorker: true });
+  check("resume รอบ 3 → queued_r3 (งาน Render ที่พังกลับเข้าคิว Render)", L.resume({ status: "failed", round: 3 }).job.status, "queued_r3");
+  check("resume รอบ 4 → queued_upscale (โหลด 1080p ที่พังไม่ Render ใหม่)", L.resume({ status: "failed", round: 4 }).job.status, "queued_upscale");
+  check("resume round แปลก → รอบ 1 (toJobRound)", L.resume({ status: "failed", round: 0 }).job.status, "queued_r1");
+  checkThrows("resume งานที่ไม่ได้พัง throws", () => L.resume({ status: "review_r1", round: 1 }), "รันต่อได้เฉพาะงานที่พัง");
+
+  check("skip งานค้าง → skipped + ปลดการหยุด (แม้ไม่ได้พัง)", L.skip({ status: "review_r1" }, now), { job: { status: "skipped", finishedAt: now }, unpauseWorker: true });
+  check("skip งานที่จบแล้ว → null (ไม่ทำอะไร)", [L.skip({ status: "done" }, now), L.skip({ status: "skipped" }, now)], [null, null]);
+
+  check("finishManually งานพังขั้นคลิป → done + ปลดการหยุด", L.finishManually({ status: "failed", round: 3 }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: true });
+  check("finishManually review_r3 → done ไม่แตะการหยุด", L.finishManually({ status: "review_r3", round: 3 }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: false });
+  check("canFinishManually: awaiting_prompt/queued_r3/review_r3/failed≥3 ได้ · running_r3/failed รอบ 2/review_r2 ไม่ได้",
+    [["awaiting_prompt", 3], ["queued_r3", 3], ["review_r3", 3], ["failed", 3], ["failed", 4], ["running_r3", 3], ["failed", 2], ["review_r2", 2]].map(([s, r]) => L.canFinishManually(s, r)),
+    [true, true, true, true, true, false, false, false]);
+  checkThrows("finishManually running_r3 throws (บอทกำลังทำ)", () => L.finishManually({ status: "running_r3", round: 3 }, now), "ปิดได้เฉพาะงานที่อยู่ขั้นทำคลิป");
+
+  // ---------- บอท ----------
+  check("claim รอบ 2 → running_r2 + startedAt + ล้างร่องรอยพัง (where กันหยิบซ้ำ)", L.claim(2, now),
+    { where: { status: "queued_r2" }, job: { status: "running_r2", startedAt: now, ...cleared } });
+  check("claim รอบ 4 → running_upscale", L.claim(4, now).job.status, "running_upscale");
+  check("claimCrashed → failed/unknown/worker_crash ตัด 2000 · ไม่แตะ failureDir", L.claimCrashed("x".repeat(3000)),
+    { job: { status: "failed", failedStep: "unknown", errorKind: "worker_crash", errorMessage: "x".repeat(2000) } });
+
+  check("imagesReady รอบ 2: แถว candidate (jpg = jpg นอกนั้น png) + review_r2 + project",
+    L.imagesReady(2, { attempt: 2, extraPrompt: "บนโต๊ะ" }, ["png", "jpg", ""], "proj"),
+    {
+      createImages: [
+        { kind: "candidate", round: 2, attempt: 2, index: 0, filename: "r2-a2-0.png", mimeType: "image/png", promptExtra: "บนโต๊ะ" },
+        { kind: "candidate", round: 2, attempt: 2, index: 1, filename: "r2-a2-1.jpg", mimeType: "image/jpeg", promptExtra: "บนโต๊ะ" },
+        { kind: "candidate", round: 2, attempt: 2, index: 2, filename: "r2-a2-2.png", mimeType: "image/png", promptExtra: "บนโต๊ะ" },
+      ],
+      job: { status: "review_r2", flowProjectId: "proj" },
+    });
+
+  // หลัง Render: ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์) — เดิม renderOutcome ใน worker/flow-signals.ts
+  {
+    const job = { attempt: 1, extraPrompt: "ห้ามมีคน" };
+    check("previewReady ได้ไฟล์ → แทนที่แถวคลิปด้วย r3-a1.mp4 + review_r3 ไม่มี errorMessage",
+      L.previewReady({ gotFile: true, downloadFailed: null, job, mediaId: "uuid-1", projectId: "proj" }),
+      {
+        deleteVideoRows: true,
+        createImages: [{ kind: "video", round: 3, attempt: 1, index: 0, filename: "r3-a1.mp4", mimeType: "video/mp4", promptExtra: "ห้ามมีคน", flowMediaId: "uuid-1" }],
+        job: { status: "review_r3", flowProjectId: "proj", errorMessage: "" },
+      });
+    const noFile = L.previewReady({ gotFile: false, downloadFailed: "ลิงก์ตรง 403 · เมนูไม่เจอ", job: { attempt: 2, extraPrompt: "" }, mediaId: "", projectId: "proj" });
+    check("previewReady ไม่ได้ไฟล์ → ยัง review_r3 ไม่มีแถวคลิป (ลบของเก่า) + errorMessage บอกว่าคลิปอยู่ใน Flow",
+      [noFile.job.status, noFile.deleteVideoRows, noFile.createImages.length, noFile.job.errorMessage],
+      ["review_r3", true, 0, "โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ลิงก์ตรง 403 · เมนูไม่เจอ"]);
+    check("previewReady errorMessage ยาวเกิน 2000 ถูกตัด",
+      L.previewReady({ gotFile: false, downloadFailed: "x".repeat(5000), job, mediaId: "", projectId: "p" }).job.errorMessage.length, 2000);
+    check("previewReady attempt 3 → r3-a3.mp4", L.previewReady({ gotFile: true, downloadFailed: null, job: { attempt: 3, extraPrompt: "" }, mediaId: "", projectId: "p" }).createImages[0].filename, "r3-a3.mp4");
+  }
+  check("previewUnsaved → review_r3 + ข้อความเดิม", L.previewUnsaved(),
+    { job: { status: "review_r3", errorMessage: "คลิปเสร็จแล้วแต่บันทึกลง DB ไม่ได้ — ดูไฟล์ในโฟลเดอร์ flow ของ entry หรือกดเรนเดอร์ใหม่" } });
+  check("finalClipSaved → แถวคลิปเป็น Final clip + done ล้างหมายเหตุ 720p", L.finalClipSaved("vid1", now),
+    { finalizeVideoRowId: "vid1", job: { status: "done", finishedAt: now, errorMessage: "" } });
+  check("finalClipUnsaved → done + ข้อความเดิม", L.finalClipUnsaved(now),
+    { job: { status: "done", finishedAt: now, errorMessage: "ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ — ดู r3-final.mp4 ในโฟลเดอร์ flow ของ entry" } });
+  check("finalClipMissing → done + ข้อความ 720p เดิมทุกตัวอักษร", L.finalClipMissing("เมนูไม่เจอ", now),
+    { job: { status: "done", finishedAt: now, errorMessage: "ได้ 720p (โหลด 1080p ไม่ได้: เมนูไม่เจอ)" } });
+  check("finalClipMissing ไม่มีเหตุผล", L.finalClipMissing(null, now).job.errorMessage, "ได้ 720p (โหลด 1080p ไม่ได้: )");
+
+  {
+    const base = { step: "find-video", message: "หาไม่เจอ", failureDir: "uploads/_flow-failures/j-1", now };
+    check("roundFailed รอบ 4 มีคลิป + flow_error → done ด้วย 720p ไม่หยุดคิว",
+      L.roundFailed({ ...base, round: 4, hasVideoRow: true, kind: "flow_error" }),
+      { plan: { job: { status: "done", finishedAt: now, failureDir: base.failureDir, errorMessage: "ได้ 720p (โหลด 1080p ไม่ได้ที่ขั้น find-video: หาไม่เจอ)" } }, pause: null });
+    const failedPlan = (kind) => ({ plan: { job: { status: "failed", failedStep: "find-video", errorKind: kind, errorMessage: "หาไม่เจอ", failureDir: base.failureDir } }, pause: kind });
+    check("roundFailed รอบ 4 captcha → failed + หยุดคิว (ป้องกันบัญชี)", L.roundFailed({ ...base, round: 4, hasVideoRow: true, kind: "captcha" }), failedPlan("captcha"));
+    check("roundFailed รอบ 4 login_required → failed + หยุดคิว", L.roundFailed({ ...base, round: 4, hasVideoRow: true, kind: "login_required" }), failedPlan("login_required"));
+    check("roundFailed รอบ 4 ไม่มีคลิป → failed + หยุดคิว", L.roundFailed({ ...base, round: 4, hasVideoRow: false, kind: "flow_error" }), failedPlan("flow_error"));
+    check("roundFailed รอบ 3 → failed + หยุดคิว", L.roundFailed({ ...base, round: 3, hasVideoRow: true, kind: "selector_drift" }), failedPlan("selector_drift"));
+    check("roundFailed ข้อความยาวตัด 2000", L.roundFailed({ ...base, round: 1, hasVideoRow: false, kind: "worker_crash", message: "y".repeat(2500) }).plan.job.errorMessage.length, 2000);
+  }
+
+  // ---------- เปิดบอท: กวาดงานค้าง ----------
+  check("staleUpscale มีคลิป → done ด้วย 720p ข้อความเดิม", L.staleUpscale(true, now),
+    { job: { status: "done", finishedAt: now, errorMessage: "ได้ 720p (บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้)" } });
+  check("staleUpscale ไม่มีคลิป → null (ปล่อยให้ staleRunning ตีเป็น failed)", L.staleUpscale(false, now), null);
+  {
+    const started = new Date("2026-10-02T10:00:00Z");
+    const after = new Date("2026-10-02T10:03:00Z");
+    const before = new Date("2026-10-02T09:00:00Z");
+    check("กดสร้างแล้วหลังเริ่มงาน → review", L.staleRenderRecovery(started, [after]), "review");
+    check("กดสร้างตรงเวลาเริ่มพอดี → review", L.staleRenderRecovery(started, [started]), "review");
+    check("ยังไม่ได้กดสร้าง → failed (หยุดคิวเหมือนเดิม)", L.staleRenderRecovery(started, []), "failed");
+    check("generate_video ของ attempt ก่อน (ก่อน startedAt) ไม่นับ → failed", L.staleRenderRecovery(started, [before]), "failed");
+    check("ไม่มี startedAt → failed (ไม่เดา)", L.staleRenderRecovery(null, [after]), "failed");
+    check("staleRender review → ลบแถวคลิปค้าง + review_r3 + STALE_RENDER_MESSAGE ไม่หยุดคิว", L.staleRender(started, [after]),
+      { deleteVideoRows: true, job: { status: "review_r3", errorMessage: L.STALE_RENDER_MESSAGE } });
+    check("staleRender failed → null", L.staleRender(started, []), null);
+    check("ข้อความบอกว่าคลิปน่าจะอยู่ใน Flow และเรนเดอร์ใหม่เสีย 15 เครดิต",
+      L.STALE_RENDER_MESSAGE.includes("คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว") && L.STALE_RENDER_MESSAGE.includes("15 เครดิต"), true);
+    check("ข้อความนี้โชว์ตรงๆ ในหน้า /flow (ไม่ถูกพับเป็นข้อความเทคนิค)", L.friendlyJobMessage("review_r3", L.STALE_RENDER_MESSAGE).detail, null);
+  }
+  check("staleRunning → running_* ทั้ง 4 รอบเป็น failed + หยุดคิว worker_crash", L.staleRunning(), {
+    where: { status: ["running_r1", "running_r2", "running_r3", "running_upscale"] },
+    job: { status: "failed", failedStep: "unknown", errorKind: "worker_crash", errorMessage: "worker ตายกลางคันในรอบก่อน" },
+    pause: "worker_crash",
+  });
+  check("loginRecovered → คืนงานที่พังเพราะ login เข้าคิวรอบเดิม ทีละรอบ 1-4", L.loginRecovered(), [1, 2, 3, 4].map((round) => ({
+    where: { status: "failed", errorKind: "login_required", round },
+    job: { status: ["queued_r1", "queued_r2", "queued_r3", "queued_upscale"][round - 1], ...cleared },
+  })));
+
+  // ---------- errorMessage "ได้ 720p" — คู่เขียน/อ่านคู่เดียว ----------
+  check("previewOnlyMessage", L.previewOnlyMessage("abc"), "ได้ 720p (abc)");
+  check("previewOnlyMessage ตัด 2000", L.previewOnlyMessage("z".repeat(3000)).length, 2000);
+  check("isPreviewOnlyMessage อ่านสิ่งที่เขียน (มีช่องว่างนำหน้าก็ได้)", [L.isPreviewOnlyMessage(L.previewOnlyMessage("x")), L.isPreviewOnlyMessage("  ได้ 720p (x)"), L.isPreviewOnlyMessage("ได้ไฟล์ 1080p แต่บันทึก")], [true, true, false]);
+  const fm = L.friendlyJobMessage;
+  check("friendly: ว่าง", fm("done", ""), { summary: "", detail: null });
+  check("friendly: ได้ 720p", fm("done", "ได้ 720p (โหลด 1080p ไม่ได้: locator.focus: Timeout 8000ms exceeded. Call log: x)").summary, "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ");
+  check("friendly: ได้ 720p เก็บข้อความเต็มใน detail", fm("done", "ได้ 720p (abc)").detail, "ได้ 720p (abc)");
+  check("friendly: ทุกข้อความ 720p ที่วงจรชีวิตเขียน → สรุปบรรทัดเดียว",
+    [L.finalClipMissing("x", now), L.staleUpscale(true, now), L.roundFailed({ round: 4, hasVideoRow: true, step: "s", kind: "flow_error", message: "m", failureDir: "", now }).plan]
+      .map((p) => fm("done", p.job.errorMessage).summary),
+    ["ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ", "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ", "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ"]);
+  check("friendly: failed + ข้อความดิบ → พับ", fm("failed", "locator.click: Timeout 8000ms exceeded.\nCall log:\n - waiting").detail !== null, true);
+  check("friendly: ข้อความสั้นอ่านรู้เรื่อง ไม่พับ", fm("failed", "โหลดไม่ครบ"), { summary: "โหลดไม่ครบ", detail: null });
+} finally {
+  rmSync(out, { recursive: true, force: true });
+}
+
+// ---------- ที่เดียวที่เขียน FlowJob: lib/flow-lifecycle-db.ts ----------
+{
+  const strip = (f) =>
+    readFileSync(f, "utf8")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
+      .join("\n");
+  const callers = ["app/actions.ts", "worker/index.ts"];
+  for (const f of callers) {
+    const src = strip(f);
+    const writes = src.match(/\b(flowJob|flowJobImage)\.(update|updateMany|create|createMany|delete|deleteMany|upsert)\(/g) ?? [];
+    check(`${f} ไม่เขียน FlowJob/FlowJobImage เอง (ผ่าน lib/flow-lifecycle-db.ts)`, writes, []);
+    check(`${f} ไม่ปลดการหยุดของบอทเอง (pausedReason: "")`, /pausedReason: ""/.test(src), false);
+  }
+  const sources = ["app/actions.ts", "worker/index.ts", "lib/flow-jobs.ts", "lib/flow-lifecycle-db.ts", "components/flow-job-detail.tsx", "components/flow-job-parts.tsx"];
+  check("ข้อความ 'ได้ 720p' มีแค่ใน lib/flow-lifecycle.ts", sources.filter((f) => strip(f).includes("ได้ 720p")), []);
+  const detail = strip("components/flow-job-detail.tsx");
+  check("หน้า /flow ใช้ canFinishManually (ไม่มีรายการสถานะขั้นคลิปซ้ำ)", detail.includes("canFinishManually(") && !detail.includes("job.round >= 3"), true);
+  check("finishRenderManually ใช้ finishManually", /export async function finishRenderManually[^]*?finishManually\(/.test(strip("app/actions.ts")), true);
+}
+
+if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
+console.log("\nall checks passed");

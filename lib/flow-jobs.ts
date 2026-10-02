@@ -203,65 +203,6 @@ export function buildRenderPrompt(tenPartPrompt: string, extra = ""): string {
   return extra === "" ? tenPartPrompt : `${tenPartPrompt} ${extra}`;
 }
 
-/**
- * รอบ 1 → รอบ 2 · รอบ 2 → รอ 10-part prompt ก่อน Render (ไม่ใช่ done แล้ว — รูปถูกก๊อปเป็น ProductImage ตอนนี้
- * เหมือนเดิม แต่งานยังไม่จบจนกว่าผู้ใช้กด "ผ่าน" คลิป)
- */
-export function afterChoose(status: string, renderEnabled = true): { status: FlowStatus } {
-  if (status === FLOW_STATUS.REVIEW_R1) return { status: FLOW_STATUS.QUEUED_R2 };
-  // ปิด Render อัตโนมัติ (flow-worker.config.json renderEnabled) = งานจบที่รูป 2 รอบ ผู้ใช้ทำคลิปเองใน Flow
-  if (status === FLOW_STATUS.REVIEW_R2) return { status: renderEnabled ? FLOW_STATUS.AWAITING_PROMPT : FLOW_STATUS.DONE };
-  throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
-}
-
-export function afterRedo(status: string): { status: FlowStatus } {
-  if (status === FLOW_STATUS.REVIEW_R1) return { status: FLOW_STATUS.QUEUED_R1 };
-  if (status === FLOW_STATUS.REVIEW_R2) return { status: FLOW_STATUS.QUEUED_R2 };
-  if (status === FLOW_STATUS.REVIEW_R3) return { status: FLOW_STATUS.QUEUED_R3 };
-  throw new Error("ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
-}
-
-/** review_r3 ที่ไม่มีไฟล์ (โหลดไม่ได้ทั้งสองทาง): กด "ผ่าน" ไม่ได้ (ไม่มีไฟล์ให้ผ่าน) แต่ "เรนเดอร์ใหม่" ได้ */
-export function canApproveRender(status: string, hasVideoFile: boolean): boolean {
-  return status === FLOW_STATUS.REVIEW_R3 && hasVideoFile;
-}
-
-/** "ผ่าน" คลิปตัวอย่าง → ให้บอทโหลดคลิปเดิมแบบ 1080p (round 4) · งานจบเมื่อโหลดสำเร็จ */
-export function afterApproveRender(status: string): { status: FlowStatus; round: JobRound } {
-  if (status === FLOW_STATUS.REVIEW_R3) return { status: FLOW_STATUS.QUEUED_UPSCALE, round: 4 };
-  throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
-}
-
-/**
- * งานที่จบด้วยตัวอย่าง 720p (โหลด 1080p ไม่ได้) → "ลองโหลด 1080p อีกครั้ง" ได้ ไม่เสียเครดิต ไม่เรนเดอร์ใหม่
- * ต้องมีแถวคลิปที่ยังไม่ใช่ไฟล์ 1080p และรู้โปรเจกต์ที่คลิปอยู่
- */
-export function canRetryUpscale(
-  status: string,
-  video: { filename: string; chosen: boolean } | null,
-  flowProjectId: string,
-): boolean {
-  return status === FLOW_STATUS.DONE && video !== null && !video.chosen && video.filename !== FINAL_VIDEO_FILENAME && flowProjectId !== "";
-}
-
-/** errorMessage ของงาน Render ที่บอทตายหลังกดสร้างคลิป (stale sweep ใน worker/index.ts) — หน้า /flow โชว์ลิงก์โปรเจกต์ + ปุ่มปิดงาน */
-export const STALE_RENDER_MESSAGE =
-  "บอทหยุดกลางทางหลังกดสร้างคลิป — คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว: เปิดโปรเจกต์ดู/โหลดเอง แล้วปิดงาน หรือกด เรนเดอร์ใหม่ (เสีย 15 เครดิต)";
-
-/**
- * งานค้าง running_r3 ตอนเปิดบอท (บอทรอบก่อนตายกลางคัน): ถ้ามีแถว FlowActivity generate_video ของงานนี้ตั้งแต่ startedAt
- * แปลว่ากดสร้างคลิปไปแล้ว (เสีย 15 เครดิต คลิปอยู่ในโปรเจกต์) → "review" = review_r3 ไม่มีแถว video ไม่หยุดคิว
- * (failed + "รันต่อ" = เรนเดอร์ซ้ำเสียเครดิตอีกรอบ) · ไม่มี/ไม่รู้ startedAt → "failed" + หยุดคิวเหมือนเดิม
- */
-export function staleRenderRecovery(startedAt: Date | null, generateVideoAt: Date[]): "review" | "failed" {
-  if (startedAt === null) return "failed";
-  return generateVideoAt.some((at) => at.getTime() >= startedAt.getTime()) ? "review" : "failed";
-}
-
-export function afterResume(round: JobRound): { status: FlowStatus } {
-  return { status: queuedStatus(round) };
-}
-
 export type QueueCategory = "waitingBot" | "waitingUser" | "done" | "failed";
 
 /**
@@ -349,19 +290,3 @@ export const ERROR_KIND_LABELS: Record<string, string> = {
   worker_crash: "บอทล้มโดยไม่ทราบสาเหตุ",
   host_unsupported: "บัญชีอยู่บนโฮสต์ที่ยังไม่รองรับ",
 };
-
-/**
- * ข้อความของงาน (errorMessage) แบบคนอ่านรู้เรื่อง — summary บรรทัดเดียวภาษาไทยธรรมดา + detail คือข้อความดิบเต็ม
- * (ไว้พับใน <details>) · ว่าง = ไม่มีอะไรให้โชว์ · ข้อความสั้นที่เป็นภาษาไทยอยู่แล้วและไม่ใช่ error ดิบ แสดงตามเดิมไม่พับ
- */
-export function friendlyJobMessage(status: string, errorMessage: string): { summary: string; detail: string | null } {
-  const raw = errorMessage.trim();
-  if (raw === "") return { summary: "", detail: null };
-  if (raw.startsWith("ได้ 720p")) return { summary: "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ", detail: raw };
-  const looksTechnical =
-    raw.length > 140 || /Timeout \d+ms|Call log|locator\.|page\.|net::|at \S+:\d+|\n/.test(raw);
-  if (!looksTechnical) return { summary: raw, detail: null };
-  const summary =
-    status === FLOW_STATUS.FAILED ? "บอทแจ้งข้อผิดพลาดทางเทคนิค — ดูรายละเอียดด้านล่าง" : "มีข้อความทางเทคนิคจากบอท — ดูรายละเอียดด้านล่าง";
-  return { summary, detail: raw };
-}

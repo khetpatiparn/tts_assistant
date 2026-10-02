@@ -134,25 +134,9 @@ export function videoUuidFromUrl(src: string | null): string {
 }
 
 /**
- * ผลของรอบ Render → สิ่งที่ worker เขียนลง DB (pure เพื่อทดสอบได้ — ส่วน Playwright ทดสอบไม่ได้)
- * กติกา: หลัง Flow เรนเดอร์เสร็จ **ห้ามเป็น failed** ไม่ว่าจะโหลดไฟล์ได้หรือไม่ (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์)
- * ไม่ได้ไฟล์ = review_r3 โดยไม่มีแถว video + errorMessage บอกเหตุ (UI ปิดปุ่ม "ผ่าน" ผ่าน canApproveRender)
+ * เหตุผลที่ขั้นหลัง Render พังก่อนเริ่มโหลด → ข้อความใน downloadFailed (ไม่ทำให้งาน failed — สิ่งที่เขียนลง DB หลัง Render
+ * ตัดสินที่ previewReady ใน lib/flow-lifecycle.ts)
  */
-export function renderOutcome(
-  files: string[],
-  downloadFailed: string | null,
-  attempt: number
-): { status: "review_r3"; createVideoRow: boolean; filename: string | null; errorMessage: string } {
-  const gotFile = files.length > 0;
-  return {
-    status: "review_r3",
-    createVideoRow: gotFile,
-    filename: gotFile ? `r3-a${String(attempt)}.mp4` : null,
-    errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${downloadFailed ?? ""}`.slice(0, 2000),
-  };
-}
-
-/** เหตุผลที่ขั้นหลัง Render พังก่อนเริ่มโหลด → ข้อความใน downloadFailed (ไม่ทำให้งาน failed — ดู renderOutcome) */
 export function postRenderFailReason(step: string, reason: string): string {
   return `${step} พังก่อนเริ่มโหลด: ${reason}`;
 }

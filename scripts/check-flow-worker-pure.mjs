@@ -190,15 +190,7 @@ try {
   check("mediaId ว่าง → ไม่รับ", fs2.fileUrlIsMedia(up, ""), false);
   check("URL null (ส่องไม่ได้) → ไม่รับ", fs2.fileUrlIsMedia(null, U), false);
 
-  // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
-  const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
-  check("ได้ไฟล์ → review_r3 + สร้างแถว video ชื่อ r3-a1.mp4 ไม่มี errorMessage",
-    JSON.stringify(okOutcome), JSON.stringify({ status: "review_r3", createVideoRow: true, filename: "r3-a1.mp4", errorMessage: "" }));
-  const noFile = fs2.renderOutcome([], "ลิงก์ตรง 403 · เมนูไม่เจอ", 2);
-  check("ไม่ได้ไฟล์ → ยัง review_r3 ไม่สร้างแถว video", noFile.status + "|" + String(noFile.createVideoRow) + "|" + String(noFile.filename), "review_r3|false|null");
-  check("ไม่ได้ไฟล์ → errorMessage บอกว่าคลิปอยู่ใน Flow", noFile.errorMessage.startsWith("โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว)"), true);
-  check("errorMessage ยาวเกิน 2000 ถูกตัด", fs2.renderOutcome([], "x".repeat(5000), 1).errorMessage.length <= 2000, true);
-  check("attempt 3 → ชื่อไฟล์ r3-a3.mp4", fs2.renderOutcome(["C:/x/r3-a3.mp4"], null, 3).filename, "r3-a3.mp4");
+  // สิ่งที่เขียนลง DB หลัง Render (เดิม renderOutcome ที่นี่) ย้ายไป previewReady ใน lib/flow-lifecycle.ts — ตรวจใน check-flow-lifecycle.mjs
   check("ขั้นหลัง Render พัง → เหตุผลระบุชื่อขั้น", fs2.postRenderFailReason("dwell", "เจอสัญญาณ captcha: x"), "dwell พังก่อนเริ่มโหลด: เจอสัญญาณ captcha: x");
 
   check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);

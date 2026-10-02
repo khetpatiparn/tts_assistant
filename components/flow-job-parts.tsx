@@ -6,7 +6,8 @@ import { useState, useTransition } from "react";
 
 import { openFlowProjectInBackupProfile } from "@/app/actions";
 
-import { EXTRA_PROMPT_MAX, FLOW_STATUS, flowProjectUrl, friendlyJobMessage, videoDownloadName } from "@/lib/flow-jobs";
+import { EXTRA_PROMPT_MAX, FLOW_STATUS, flowProjectUrl, videoDownloadName } from "@/lib/flow-jobs";
+import { friendlyJobMessage } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import type { BadgeVariant } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";

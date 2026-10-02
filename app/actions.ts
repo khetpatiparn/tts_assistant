@@ -50,25 +50,28 @@ import {
   DEFAULT_CAPTIONS,
   FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
-  WORKER_STATE_ID,
-  afterApproveRender,
-  canRetryUpscale,
   acceptShortName,
   SHORT_NAME_TIMEOUT_MS,
   withTimeout,
   FULL_TITLE_PREFIX,
   flowProjectUrl,
   pickBackupBrowserProfile,
-  afterChoose,
-  afterRedo,
-  afterResume,
-  isOpenStatus,
-  normalizeExtraPrompt,
   EXTRA_PROMPT_MAX,
   sourceFilename,
-  toJobRound,
   type FlowRound,
 } from "@/lib/flow-jobs";
+import {
+  approveRender,
+  choose,
+  enqueue,
+  finishManually,
+  promptReady,
+  redo,
+  resume,
+  retryUpscale,
+  skip,
+} from "@/lib/flow-lifecycle";
+import { addImage, applyBulk, applyPlan, createJob } from "@/lib/flow-lifecycle-db";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -612,11 +615,8 @@ export async function generateWithAI(
   // มีงาน Flow รอพรอมต์อยู่ (เพิ่งเลือกรูปรอบ 2) → ส่งให้บอท Render คลิปต่อทันที — พรอมต์บันทึกแล้วจริง
   // จึงทำตรงนี้ ไม่รอขั้น caption · ครอบกรณีที่ผู้ใช้มากด "สร้างด้วย AI" เองทีหลังด้วย (ถ้าตัวอัตโนมัติพัง)
   // งานที่ Render ไปแล้ว (review_r3/done) ไม่ถูกแตะ — เรนเดอร์ใหม่ต้องกดเองที่หน้าคิว Flow
-  const renderQueued = await prisma.flowJob.updateMany({
-    where: { entryId, status: FLOW_STATUS.AWAITING_PROMPT },
-    data: { status: FLOW_STATUS.QUEUED_R3 },
-  });
-  if (renderQueued.count > 0) revalidatePath("/flow");
+  const renderQueued = await applyBulk(promptReady(), { entryId });
+  if (renderQueued > 0) revalidatePath("/flow");
 
   let captionError: string | null = null;
 
@@ -1434,15 +1434,15 @@ async function enqueueFlowJobCore(
   const dir = path.join(UPLOAD_ROOT, entryId, "flow");
   await mkdir(dir, { recursive: true });
 
-  const job = await prisma.flowJob.create({
-    data: { entryId, status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1, extraPrompt: normalizeExtraPrompt(extraPrompt) },
-  });
+  const plan = enqueue(
+    extraPrompt,
+    images.map((img, index) => ({ filename: sourceFilename(index, extFromMime(img.mimeType)), mimeType: img.mimeType })),
+  );
+  const job = await createJob(entryId, plan.job);
   for (const [index, img] of images.entries()) {
-    const filename = sourceFilename(index, extFromMime(img.mimeType));
-    await writeFile(path.join(dir, filename), img.buffer);
-    await prisma.flowJobImage.create({
-      data: { jobId: job.id, kind: "source", round: 0, attempt: 1, index, filename, mimeType: img.mimeType },
-    });
+    const row = plan.sourceRows[index];
+    await writeFile(path.join(dir, row.filename), img.buffer);
+    await addImage(job.id, row);
   }
 
   await logUserActivity({
@@ -1484,32 +1484,13 @@ export async function enqueueFlowJob(formData: FormData): Promise<string> {
 export async function chooseFlowCandidate(jobId: string, imageId: string, extraPrompt?: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const image = job.images.find((i) => i.id === imageId);
-  if (!image || image.kind !== "candidate" || image.round !== job.round || image.attempt !== job.attempt) {
-    throw new Error("รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
-  }
-  // Render อัตโนมัติปิดอยู่ (ค่าเริ่มต้น) = จบงานที่รูปรอบ 2 ผู้ใช้ทำคลิปเองใน Flow บัญชีหลัก — ดู WorkerConfig.renderEnabled
-  const next = afterChoose(job.status, loadWorkerConfig().renderEnabled);
+  // Render อัตโนมัติปิดอยู่ = จบงานที่รูปรอบ 2 ผู้ใช้ทำคลิปเองใน Flow บัญชีหลัก — ดู WorkerConfig.renderEnabled
+  const plan = choose(job, job.images.find((i) => i.id === imageId), () => loadWorkerConfig().renderEnabled, new Date());
+  const image = plan.image;
 
   await prisma.$transaction(async (tx) => {
-    await tx.flowJobImage.updateMany({
-      where: { jobId, kind: "candidate", round: job.round },
-      data: { chosen: false },
-    });
-    await tx.flowJobImage.update({ where: { id: imageId }, data: { chosen: true } });
-
-    if (next.status === FLOW_STATUS.QUEUED_R2) {
-      await tx.flowJob.update({
-        where: { id: jobId },
-        data: {
-          status: next.status,
-          round: 2,
-          attempt: 1,
-          // รอบ 2 เริ่มด้วยพรอมต์ตั้งต้นเสมอ — ข้อความเพิ่มเติมของรอบ 1 มักสั่งเฉพาะภาพพื้นหลังขาว พอติดไปรอบ 2
-          // ภาพ "ตอนใช้งาน" ออกมาเหมือนรอบ 1 (ผู้ใช้เจอจริง 2026-10-02) · อยากสั่งรอบ 2 ให้พิมพ์แล้วกด "วาดใหม่" ในรอบ 2
-          extraPrompt: "",
-        },
-      });
+    if (!plan.copyToProductImages) {
+      await applyPlan(jobId, plan, tx);
       return;
     }
 
@@ -1553,15 +1534,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
       }
       throw err;
     }
-    // ล้างข้อความเพิ่มเติม — ข้อความของรอบรูป (เช่น "เอาแค่แผ่นเดียว") พูดถึงรูปอ้างอิง ไม่ใช่คลิป
-    // ถ้าติดไปต่อท้าย 10-part prompt จะกลายเป็นคำสั่งแปลกๆ ท้ายพรอมต์วิดีโอ
-    await tx.flowJob.update({
-      where: { id: jobId },
-      data:
-        next.status === FLOW_STATUS.DONE
-          ? { status: next.status, finishedAt: new Date() }
-          : { status: next.status, round: 3, attempt: 1, extraPrompt: "" },
-    });
+    await applyPlan(jobId, plan, tx);
   });
 
   await logUserActivity({
@@ -1572,8 +1545,8 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
       round: job.round,
       attempt: job.attempt,
       candidateIndex: image.index,
-      toStatus: next.status,
-      ...(next.status === FLOW_STATUS.QUEUED_R2 ? extraDetail(extraPrompt) : { extraPromptLen: 0 }),
+      toStatus: plan.next,
+      ...(plan.next === FLOW_STATUS.QUEUED_R2 ? extraDetail(extraPrompt) : { extraPromptLen: 0 }),
       waitedMs: waitedMsSince(job.updatedAt),
     },
   });
@@ -1590,24 +1563,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
 export async function finishRenderManually(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const renderStage =
-    job.status === FLOW_STATUS.AWAITING_PROMPT ||
-    job.status === FLOW_STATUS.QUEUED_R3 ||
-    job.status === FLOW_STATUS.REVIEW_R3 ||
-    (job.status === FLOW_STATUS.FAILED && job.round >= 3);
-  if (!renderStage) throw new Error("ปิดได้เฉพาะงานที่อยู่ขั้นทำคลิป (และบอทไม่ได้กำลังทำอยู่)");
-  await prisma.$transaction([
-    prisma.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.DONE, finishedAt: new Date() } }),
-    ...(job.status === FLOW_STATUS.FAILED
-      ? [
-          prisma.flowWorkerState.upsert({
-            where: { id: WORKER_STATE_ID },
-            create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
-            update: { pausedReason: "", pausedAt: null },
-          }),
-        ]
-      : []),
-  ]);
+  await applyPlan(jobId, finishManually(job, new Date()));
   await logUserActivity({
     kind: "user_finish_manual",
     jobId,
@@ -1783,12 +1739,7 @@ export async function exportClipToFolder(
 export async function approveFlowRender(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const next = afterApproveRender(job.status);
-  // กันกดผ่านทั้งที่ไม่มีไฟล์คลิป (ปุ่มถูก disable ในหน้าเว็บอยู่แล้ว แต่ action ต้องกันเองด้วย)
-  if (!job.images.some((i) => i.kind === "video")) {
-    throw new Error("ยังไม่มีไฟล์คลิป — กด เรนเดอร์ใหม่ หรือโหลดเองแล้วปิดงาน");
-  }
-  await prisma.flowJob.update({ where: { id: jobId }, data: { status: next.status, round: next.round } });
+  await applyPlan(jobId, approveRender(job, job.images.some((i) => i.kind === "video")));
   await logUserActivity({
     kind: "user_approve_render",
     jobId,
@@ -1806,17 +1757,7 @@ export async function approveFlowRender(jobId: string): Promise<void> {
 export async function retryFlowUpscale(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const video = job.images.find((i) => i.kind === "video") ?? null;
-  if (!canRetryUpscale(job.status, video, job.flowProjectId)) {
-    throw new Error("งานนี้ลองโหลด 1080p ใหม่ไม่ได้ (ยังไม่จบ ได้ 1080p แล้ว หรือไม่มีคลิป)");
-  }
-  await prisma.flowJob.update({
-    where: { id: jobId },
-    data: {
-      status: FLOW_STATUS.QUEUED_UPSCALE, round: 4, finishedAt: null,
-      errorMessage: "", failedStep: "", errorKind: "", failureDir: "",
-    },
-  });
+  await applyPlan(jobId, retryUpscale(job, job.images.find((i) => i.kind === "video") ?? null));
   await logUserActivity({
     kind: "user_retry_upscale",
     jobId,
@@ -1835,32 +1776,24 @@ export async function retryFlowUpscale(jobId: string): Promise<void> {
 export async function redoFlowRound(jobId: string, extraPrompt?: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const next = afterRedo(job.status);
-  if (job.status === FLOW_STATUS.REVIEW_R3) {
+  const plan = redo(job, extraPrompt);
+  if (plan.deleteVideoRows) {
     // คลิปตัวอย่างที่ไม่ผ่านลบทิ้งทั้งไฟล์และแถว (ต่างจากรูป candidate ที่เก็บไว้) — ไฟล์ละหลาย MB และงานมีคลิปได้
     // แถวเดียว หน้าเว็บจะได้ไม่ชี้ไปคลิปที่ผู้ใช้ปัดตกแล้ว · จำนวนครั้งที่เรนเดอร์ยังดูได้จาก attempt
     for (const v of job.images.filter((i) => i.kind === "video")) {
       await unlink(joinPath(UPLOAD_ROOT, job.entryId, "flow", v.filename)).catch(() => undefined);
     }
-    await prisma.flowJobImage.deleteMany({ where: { jobId, kind: "video" } });
   }
-  await prisma.flowJob.update({
-    where: { id: jobId },
-    data: {
-      status: next.status,
-      attempt: job.attempt + 1,
-      ...(extraPrompt === undefined ? {} : { extraPrompt: normalizeExtraPrompt(extraPrompt) }),
-    },
-  });
+  await applyPlan(jobId, plan);
   await logUserActivity({
-    kind: job.status === FLOW_STATUS.REVIEW_R3 ? "user_redo_render" : "user_redraw",
+    kind: plan.isRender ? "user_redo_render" : "user_redraw",
     jobId,
     round: job.round,
     detail: {
       round: job.round,
       attempt: job.attempt,
       nextAttempt: job.attempt + 1,
-      ...extraDetail(extraPrompt === undefined ? job.extraPrompt : normalizeExtraPrompt(extraPrompt)),
+      ...extraDetail(plan.extraPrompt),
       waitedMs: waitedMsSince(job.updatedAt),
     },
   });
@@ -1872,20 +1805,8 @@ export async function redoFlowRound(jobId: string, extraPrompt?: string): Promis
 export async function resumeFlowWorker(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  if (job.status !== FLOW_STATUS.FAILED) throw new Error("รันต่อได้เฉพาะงานที่พัง");
   // round 3 = งาน Render ที่พัง → กลับเข้าคิว Render (queued_r3) ไม่ใช่วาดรูปใหม่
-  const round = toJobRound(job.round);
-  await prisma.$transaction([
-    prisma.flowJob.update({
-      where: { id: jobId },
-      data: { status: afterResume(round).status, failedStep: "", errorKind: "", errorMessage: "", failureDir: "" },
-    }),
-    prisma.flowWorkerState.upsert({
-      where: { id: WORKER_STATE_ID },
-      create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
-      update: { pausedReason: "", pausedAt: null },
-    }),
-  ]);
+  await applyPlan(jobId, resume(job));
   await logUserActivity({
     kind: "user_resume",
     jobId,
@@ -1906,15 +1827,9 @@ export async function resumeFlowWorker(jobId: string): Promise<void> {
 export async function skipFlowJob(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  if (!isOpenStatus(job.status)) return;
-  await prisma.$transaction([
-    prisma.flowJob.update({ where: { id: jobId }, data: { status: FLOW_STATUS.SKIPPED, finishedAt: new Date() } }),
-    prisma.flowWorkerState.upsert({
-      where: { id: WORKER_STATE_ID },
-      create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
-      update: { pausedReason: "", pausedAt: null },
-    }),
-  ]);
+  const plan = skip(job, new Date());
+  if (plan === null) return;
+  await applyPlan(jobId, plan);
   await logUserActivity({
     kind: "user_skip",
     jobId,

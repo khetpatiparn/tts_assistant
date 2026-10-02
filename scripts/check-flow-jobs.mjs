@@ -14,12 +14,6 @@ function check(name, actual, expected) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
   if (!ok) console.log(`      ได้ ${JSON.stringify(actual)} ควรได้ ${JSON.stringify(expected)}`);
 }
-function checkThrows(name, fn) {
-  let threw = false;
-  try { fn(); } catch { threw = true; }
-  if (!threw) failed++;
-  console.log(`${threw ? "PASS" : "FAIL"}  ${name}`);
-}
 
 try {
   execFileSync("npx", ["tsc", "lib/flow-jobs.ts", "lib/http-range.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"], { stdio: "inherit", shell: true });
@@ -63,24 +57,12 @@ try {
   check("sourceFilename", f.sourceFilename(0, "jpg"), "source-0.jpg");
 
   check("videoFilename", f.videoFilename(2), "r3-a2.mp4");
-  check("videoFilename(2) ตรงกับ renderOutcome", f.videoFilename(2), "r3-a2.mp4");
   check("videoDownloadName ตัดอักขระต้องห้ามของ Windows", f.videoDownloadName('กล่อง 2/3 "ใหม่"'), "กล่อง 2 3 ใหม่.mp4");
   check("videoDownloadName ชื่อว่าง", f.videoDownloadName("  "), "clip.mp4");
   const tenPart = "1. Style\nบรรทัดสอง\n\n2. Scene";
   check("render prompt ไม่มีข้อความเพิ่มเติม = 10-part prompt ทุกตัวอักษร (ขึ้นบรรทัดคงเดิม)", f.buildRenderPrompt(tenPart, ""), tenPart);
   check("render prompt + ข้อความเพิ่มเติม ต่อท้ายด้วยช่องว่างเดียว", f.buildRenderPrompt(tenPart, "ห้ามมีคน"), `${tenPart} ห้ามมีคน`);
 
-  check("afterChoose review_r1 → queued_r2", f.afterChoose("review_r1").status, "queued_r2");
-  check("afterChoose review_r2 → awaiting_prompt (ยังไม่จบ ต้อง Render ก่อน)", f.afterChoose("review_r2").status, "awaiting_prompt");
-  check("afterChoose review_r2 + ปิด Render อัตโนมัติ → done (ผู้ใช้ทำคลิปเอง)", f.afterChoose("review_r2", false).status, "done");
-  check("afterChoose review_r1 + ปิด Render ยังไปรอบ 2 ตามปกติ", f.afterChoose("review_r1", false).status, "queued_r2");
-  checkThrows("afterChoose queued_r1 throws", () => f.afterChoose("queued_r1"));
-  checkThrows("afterChoose review_r3 throws (คลิปไม่มีให้เลือก)", () => f.afterChoose("review_r3"));
-  check("afterRedo review_r1 → queued_r1", f.afterRedo("review_r1").status, "queued_r1");
-  check("afterRedo review_r2 → queued_r2", f.afterRedo("review_r2").status, "queued_r2");
-  check("afterRedo review_r3 → queued_r3 (เรนเดอร์ใหม่)", f.afterRedo("review_r3").status, "queued_r3");
-  check("canApproveRender review_r3 + มีไฟล์ → true", f.canApproveRender("review_r3", true), true);
-  check("canApproveRender review_r3 + ไม่มีไฟล์ (โหลดไม่ได้) → false", f.canApproveRender("review_r3", false), false);
   check("backup profile: เจอชื่อมี Flow สำรอง", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 3": { name: "Flow สำรอง" } }), "Profile 3");
   check("backup profile: ไม่เจอ = null", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 2": { name: "test triple bot" } }), null);
   check("backup profile: เจอสองอัน = null (ไม่เดา)", f.pickBackupBrowserProfile({ a: { name: "flow 1" }, b: { name: "backup" } }), null);
@@ -108,22 +90,6 @@ try {
     const probed = execFileSync("npx", ["tsx", join(out, "selectors-probe.ts")], { shell: true, encoding: "utf8" }).trim();
     check("บอทเปิดลิงก์โปรเจกต์เดิมทุกตัวอักษร (tsx)", probed, "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   }
-  check("canApproveRender สถานะอื่น → false", f.canApproveRender("review_r2", true), false);
-  const v720 = { filename: "r3-a1.mp4", chosen: false };
-  check("canRetryUpscale done + 720p + มีโปรเจกต์ → true", f.canRetryUpscale("done", v720, "proj"), true);
-  check("canRetryUpscale ได้ 1080p แล้ว → false", f.canRetryUpscale("done", { filename: "r3-final.mp4", chosen: true }, "proj"), false);
-  check("canRetryUpscale ไม่มีคลิป → false", f.canRetryUpscale("done", null, "proj"), false);
-  check("canRetryUpscale ไม่รู้โปรเจกต์ → false", f.canRetryUpscale("done", v720, ""), false);
-  check("canRetryUpscale ยังไม่จบ → false", f.canRetryUpscale("review_r3", v720, "proj"), false);
-  checkThrows("afterRedo done throws", () => f.afterRedo("done"));
-  checkThrows("afterRedo awaiting_prompt throws", () => f.afterRedo("awaiting_prompt"));
-  check("afterApproveRender review_r3 → queued_upscale (ยังไม่ done จนได้ 1080p)", f.afterApproveRender("review_r3").status, "queued_upscale");
-  check("afterApproveRender ย้ายเป็น round 4", f.afterApproveRender("review_r3").round, 4);
-  checkThrows("afterApproveRender review_r2 throws", () => f.afterApproveRender("review_r2"));
-  checkThrows("afterApproveRender running_r3 throws", () => f.afterApproveRender("running_r3"));
-  check("afterResume(2) → queued_r2", f.afterResume(2).status, "queued_r2");
-  check("afterResume(3) → queued_r3 (งาน Render ที่พังกลับเข้าคิว Render)", f.afterResume(3).status, "queued_r3");
-  check("afterResume(4) → queued_upscale (โหลด 1080p ที่พังไม่ Render ใหม่)", f.afterResume(4).status, "queued_upscale");
   check("claimOrder ปกติ: 1080p → รอบ 2 → Render → รอบ 1", f.claimOrder(true, true).join(","), "4,2,3,1");
   check("claimOrder ครบเพดานคลิป: ยังวาดรูปได้", f.claimOrder(true, false).join(","), "4,2,1");
   check("claimOrder ครบเพดานรูป: ยัง Render ได้", f.claimOrder(false, true).join(","), "4,3");
@@ -161,28 +127,7 @@ try {
   check("worker dead after 3× heartbeat", f.isWorkerAlive(new Date("2026-09-06T09:58:00Z"), now, 30000), false);
   check("worker dead when never seen", f.isWorkerAlive(null, now, 30000), false);
   check("STEP_LABELS has click-generate", typeof f.STEP_LABELS["click-generate"], "string");
-  const fm = f.friendlyJobMessage;
-  check("friendly: ว่าง", JSON.stringify(fm("done", "")), JSON.stringify({ summary: "", detail: null }));
-  check("friendly: ได้ 720p", fm("done", "ได้ 720p (โหลด 1080p ไม่ได้: locator.focus: Timeout 8000ms exceeded. Call log: x)").summary, "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ");
-  check("friendly: ได้ 720p เก็บข้อความเต็มใน detail", fm("done", "ได้ 720p (abc)").detail, "ได้ 720p (abc)");
-  check("friendly: failed + ข้อความดิบ → พับ", fm("failed", "locator.click: Timeout 8000ms exceeded.\nCall log:\n - waiting").detail !== null, true);
-  check("friendly: ข้อความสั้นอ่านรู้เรื่อง ไม่พับ", JSON.stringify(fm("failed", "โหลดไม่ครบ")), JSON.stringify({ summary: "โหลดไม่ครบ", detail: null }));
   check("DEFAULT_CAPTIONS round 1", f.DEFAULT_CAPTIONS[1], "สินค้า พื้นหลังขาว");
-
-  // B2: งานค้าง running_r3 ตอนเปิดบอท — กดสร้างคลิปไปแล้ว (มีแถว generate_video หลัง startedAt) = คลิปอยู่ใน Flow แล้ว ห้าม failed
-  {
-    const started = new Date("2026-10-02T10:00:00Z");
-    const after = new Date("2026-10-02T10:03:00Z");
-    const before = new Date("2026-10-02T09:00:00Z");
-    check("กดสร้างแล้วหลังเริ่มงาน → review", f.staleRenderRecovery(started, [after]), "review");
-    check("กดสร้างตรงเวลาเริ่มพอดี → review", f.staleRenderRecovery(started, [started]), "review");
-    check("ยังไม่ได้กดสร้าง → failed (หยุดคิวเหมือนเดิม)", f.staleRenderRecovery(started, []), "failed");
-    check("generate_video ของ attempt ก่อน (ก่อน startedAt) ไม่นับ → failed", f.staleRenderRecovery(started, [before]), "failed");
-    check("ไม่มี startedAt → failed (ไม่เดา)", f.staleRenderRecovery(null, [after]), "failed");
-    check("ข้อความบอกว่าคลิปน่าจะอยู่ใน Flow และเรนเดอร์ใหม่เสีย 15 เครดิต",
-      f.STALE_RENDER_MESSAGE.includes("คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว") && f.STALE_RENDER_MESSAGE.includes("15 เครดิต"), true);
-    check("ข้อความนี้โชว์ตรงๆ ในหน้า /flow (ไม่ถูกพับเป็นข้อความเทคนิค)", f.friendlyJobMessage("review_r3", f.STALE_RENDER_MESSAGE).detail, null);
-  }
 
   // B4: ย่อชื่อด้วย Gemini ต้องมีเพดานเวลา และต้องเรียกก่อนเช็กกันสร้างงานซ้ำ (ช่อง guard→create สั้นเหมือนเดิม)
   {

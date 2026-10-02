@@ -24,13 +24,12 @@ import {
   STATUS_LABELS,
   STEP_LABELS,
   buildFlowPrompt,
-  canApproveRender,
-  canRetryUpscale,
   FINAL_VIDEO_FILENAME,
   flowProjectUrl,
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
+import { canApproveRender, canFinishManually, canRetryUpscale } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,11 +77,7 @@ export function FlowJobDetail({
   const source = job.sources[0] ?? null;
   const selectedId = job.candidates.some((c) => c.id === selected) ? selected : null;
   // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
-  const isStuckInRender =
-    job.status === FLOW_STATUS.AWAITING_PROMPT ||
-    job.status === FLOW_STATUS.QUEUED_R3 ||
-    job.status === FLOW_STATUS.REVIEW_R3 ||
-    (job.status === FLOW_STATUS.FAILED && job.round >= 3);
+  const isStuckInRender = canFinishManually(job.status, job.round);
   // รูป 2 รูปที่เลือกไว้ สำหรับแผงทำคลิปเอง (รอบ 1 = พื้นหลังขาว · รอบ 2 = ตอนใช้งาน)
   const manualImages = [job.chosenRound1, job.chosenRound2].flatMap((c, i) =>
     c
