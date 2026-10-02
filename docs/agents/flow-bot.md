@@ -105,6 +105,7 @@ spec/แผนรอบแรก: `docs/superpowers/specs/2026-09-06-flow-image-
 ## ทดสอบ
 
 - `npm run check:flow` (pure ทั้งหมด ไม่แตะ Flow)
+- `npx tsx scripts/check-flow-lifecycle-db.ts dev-test.db` — รัน `applyPlan`/`applyBulk` กับ SQLite จริง (สำเนาเท่านั้น `cp dev.db dev-test.db` ก่อน · ปฏิเสธ `dev.db`) เทียบคู่ทุกจังหวะของ FlowJob กับโค้ด Prisma เดิมก่อน 321bee2 (ฝั่ง `OLD` ในสคริปต์) · ไม่อยู่ใน `check:flow` เพราะต้องมีสำเนา DB · ตั้งใจเปลี่ยนจังหวะไหนต้องแก้ `OLD` ของจังหวะนั้นด้วย
 - smoke `npm run flow-smoke:s1|s2|s3|dl` ใช้บัญชีสำรองจริง และต้อง `stop.bat` ก่อน (โปรไฟล์เปิดได้ทีละตัว)
 - `FLOW_FORCE_FAIL_STEP=<step>` บังคับพังเพื่อทดสอบ fail-fast — "รันต่อ" หลังพังใช้ได้จริงทั้ง fail path ปลอมและของจริงโดยไม่ต้องแก้ selector
 - เวลาจริงบนบัญชีสำรอง (E2E 2026-09-07): เปิดโปรเจกต์ใหม่ + ตั้งโมเดล/สัดส่วน/จำนวนรูป ~2–2.5 นาที · ตัวเจน (`click-generate` → ผลลัพธ์) ~35–45 วิ · ทั้งรอบ (open-flow ถึง download-4) รอบแรกของโปรเจกต์ ~3–4 นาที รอบถัดไปในโปรเจกต์เดิม ~1.5–2 นาที (ข้าม ensure-project และค่าที่ตั้งไว้ยังติดอยู่)
