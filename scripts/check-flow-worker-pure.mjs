@@ -175,6 +175,21 @@ try {
   check("null → ''", fs2.videoUuidFromUrl(null), "");
   check("uuid จากไฟล์ 1080p (_upsampled) = id เดิม", fs2.videoUuidFromUrl("https://flow-content.google/video/3a913221-986f-4141-90ca-c6c7f26bc5bf_upsampled?Expires=1&Signature=x"), "3a913221-986f-4141-90ca-c6c7f26bc5bf");
 
+  // B3: รอบ 4 ห้ามเดาช่อง — ไม่รู้ id ต้องส่องเมนู (แม้โปรเจกต์มีช่องเดียว) และไฟล์ 1080p ต้องเป็นของคลิปนี้จริง
+  const U = "3a913221-986f-4141-90ca-c6c7f26bc5bf";
+  check("id จาก thumbnail ตรง → ช่องนั้น", fs2.knownTileIndex(["x", U], U, undefined), 1);
+  check("ช่องที่จำไว้ → ใช้ได้", fs2.knownTileIndex(["a", "b", "c"], U, 2), 2);
+  check("ช่องที่จำไว้เกินจำนวนช่อง → ต้องส่อง", fs2.knownTileIndex(["a"], U, 3), null);
+  check("โปรเจกต์มีช่องเดียวแต่ id ไม่ตรง → ต้องส่อง (ห้ามเดาช่อง 0)", fs2.knownTileIndex(["flow.google.com/asb/abc"], U, undefined), null);
+  check("mediaId ว่าง → ห้ามจับคู่ช่องที่ thumbnail ยังไม่โหลด", fs2.knownTileIndex(["", "a"], "", undefined), null);
+  const up = `https://flow-content.google/video/${U}_upsampled?Expires=1&Signature=x`;
+  check("ไฟล์ 1080p ของคลิปนี้ → รับ", fs2.fileUrlIsMedia(up, U), true);
+  check("ไฟล์ 1080p ของคลิปอื่น → ไม่รับ", fs2.fileUrlIsMedia(up.replace(U, "aaaaaaaa-0000-0000-0000-000000000000"), U), false);
+  check("ไฟล์ 720p ของคลิปนี้ (ส่อง) → รับ", fs2.fileUrlIsMedia(`https://flow-content.google/video/${U}?Expires=1`, U), true);
+  check("URL ที่ไม่ใช่ flow-content.google → ไม่รับ", fs2.fileUrlIsMedia(`https://evil.example/video/${U}`, U), false);
+  check("mediaId ว่าง → ไม่รับ", fs2.fileUrlIsMedia(up, ""), false);
+  check("URL null (ส่องไม่ได้) → ไม่รับ", fs2.fileUrlIsMedia(null, U), false);
+
   // หลัง Render: ตัดสินใจว่าเขียนอะไรลง DB — ต้องเป็น review_r3 เสมอ ไม่มีทาง failed (spec §2 "หลักการรวม")
   const okOutcome = fs2.renderOutcome(["C:/x/r3-a1.mp4"], null, 1);
   check("ได้ไฟล์ → review_r3 + สร้างแถว video ชื่อ r3-a1.mp4 ไม่มี errorMessage",
@@ -207,6 +222,14 @@ try {
   const between = dispatch >= 0 && renderStart > dispatch ? src.slice(dispatch, renderStart) : null;
   const late = between === null ? ["หาบรรทัดแยกทาง/renderRound ไม่เจอ"] : between.split("\n").filter((l) => /^ {4}(let|const) /.test(l));
   check("ไม่มี let/const ระดับ runRound ระหว่างบรรทัดแยกทางรอบ 3-4 กับ renderRound", late.join(" | "), "");
+}
+
+// รอบ 4: findTileIndex ต้องตัดสินด้วย knownTileIndex (ไม่มีทางลัด "ช่องเดียวใช้เลย") และโหลด 1080p ต้องเช็ก id ของไฟล์
+{
+  const src = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
+  check("flow-driver ไม่มีทางลัดโปรเจกต์ช่องเดียว (ids.length === 1)", /ids\.length === 1/.test(src), false);
+  check("findTileIndex ใช้ knownTileIndex", /knownTileIndex\(/.test(src), true);
+  check("downloadVideo เช็ก id ของไฟล์ด้วย fileUrlIsMedia", /fileUrlIsMedia\(/.test(src), true);
 }
 
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }

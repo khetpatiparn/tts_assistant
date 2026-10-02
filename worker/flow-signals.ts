@@ -156,3 +156,21 @@ export function renderOutcome(
 export function postRenderFailReason(step: string, reason: string): string {
   return `${step} พังก่อนเริ่มโหลด: ${reason}`;
 }
+
+/**
+ * รอบ 4: ช่องของคลิปจากข้อมูลที่ไม่ต้องเปิดเมนู — id จาก thumbnail ตรง → ช่องนั้น · ช่องที่หาเจอแล้วในรอบนี้ (foundTiles)
+ * · ไม่งั้น null = ต้องเปิดเมนูส่อง id ทุกช่อง **รวมโปรเจกต์ที่มีช่องเดียว** (ห้ามเดาว่าเป็นช่อง 0 — อาจเป็นคลิปอื่น)
+ */
+export function knownTileIndex(thumbIds: string[], mediaId: string, cached: number | undefined): number | null {
+  if (mediaId === "") return null;
+  const byThumb = thumbIds.indexOf(mediaId);
+  if (byThumb >= 0) return byThumb;
+  if (cached !== undefined && cached >= 0 && cached < thumbIds.length) return cached;
+  return null;
+}
+
+/** URL ไฟล์ที่หน้าเว็บขอ (720p ที่ส่อง หรือ 1080p `_upsampled`) เป็นของคลิป mediaId จริงไหม — ไม่ใช่/อ่านไม่ออก = false */
+export function fileUrlIsMedia(url: string | null, mediaId: string): boolean {
+  if (mediaId === "") return false;
+  return videoUuidFromUrl(url) === mediaId;
+}

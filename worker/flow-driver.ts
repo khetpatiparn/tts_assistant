@@ -10,8 +10,8 @@ import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import {
-  blockKindForStatus, errorKindForTileTexts, flowMediaIdFromSrc, generateAccepted, isMp4Header, pickDirectVideoUrl, pickNewThumbnail, postRenderFailReason, videoUuidFromUrl,
-  renderSettingsLabelOk,
+  blockKindForStatus, errorKindForTileTexts, fileUrlIsMedia, flowMediaIdFromSrc, generateAccepted, isMp4Header, knownTileIndex, pickDirectVideoUrl,
+  pickNewThumbnail, postRenderFailReason, renderSettingsLabelOk, videoUuidFromUrl,
 } from "./flow-signals";
 
 export type RoundInput = {
@@ -616,8 +616,8 @@ export async function runRound(
 
     /**
      * หาช่องของคลิป (-1 = ไม่เจอ) · id ที่เก็บไว้ = uuid ของคลิป (จากลิงก์ตรง หรือ id จาก thumbnail ตอนเรนเดอร์ — ค่าเดียวกัน)
-     * ลำดับ: id จาก thumbnail → ช่องที่จำไว้ (foundTiles) → โปรเจกต์มีคลิปช่องเดียวใช้ช่องนั้น → เปิดเมนูโหลด 720p
-     * ของทีละช่องแล้วอ่าน id จากคำขอ `/video/<id>` ที่ถูกยกเลิก (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id)
+     * ลำดับ: id จาก thumbnail → ช่องที่จำไว้ (foundTiles) → เปิดเมนูโหลด 720p ของทีละช่อง (แม้มีช่องเดียว) แล้วรับเฉพาะช่องที่
+     * id จากคำขอ `/video/<id>` ที่ถูกยกเลิกตรงกับ mediaId (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id)
      */
     async function tileIndexOf(name: FlowStep, mediaId: string): Promise<number> {
       const found = await findTileIndex(name, mediaId);
@@ -627,17 +627,11 @@ export async function runRound(
 
     async function findTileIndex(name: FlowStep, mediaId: string): Promise<number> {
       const ids = await videoTileIds(name);
-      const byThumb = ids.indexOf(mediaId);
-      if (byThumb >= 0) return byThumb;
-      const cached = foundTiles.get(mediaId);
-      if (cached !== undefined && cached < ids.length) return cached;
-      if (ids.length === 1) {
-        log.log(name, `ไม่เจอ id ${mediaId} แต่โปรเจกต์มีคลิปช่องเดียว — ใช้ช่องนั้น`);
-        return 0;
-      }
-      // หลายคลิป: หลังเปิดโปรเจกต์ใหม่ทั้ง thumbnail และ <video src> เป็น /asb/<ลายเซ็น> ไม่มี id (เจอจริง 2026-10-01)
-      // → เปิดเมนูโหลด 720p ของแต่ละช่อง ดัก URL ที่หน้าเว็บขอ
-      // (`/video/<id>`) แล้วยกเลิกทันที ไม่โหลดจริง ไม่เสียเครดิต · id ใน URL = id เดียวกับที่รอบ 3 เก็บ
+      const known = knownTileIndex(ids, mediaId, foundTiles.get(mediaId));
+      if (known !== null) return known;
+      // ไม่รู้ id จาก thumbnail: หลังเปิดโปรเจกต์ใหม่ทั้ง thumbnail และ <video src> เป็น /asb/<ลายเซ็น> ไม่มี id (เจอจริง 2026-10-01)
+      // → เปิดเมนูโหลด 720p ของแต่ละช่อง ดัก URL ที่หน้าเว็บขอ (`/video/<id>`) แล้วยกเลิกทันที ไม่โหลดจริง ไม่เสียเครดิต
+      // · ส่องแม้โปรเจกต์มีช่องเดียว — ห้ามเดาว่าเป็นคลิปที่ผ่าน · id ใน URL = id เดียวกับที่รอบ 3 เก็บ
       // (ยืนยันแล้ว: `_upsampled` ของกล่องพลาสติกใสใช้ id เดียวกับ thumbnail ตอนเรนเดอร์)
       const previewQuality = videoSel(name).previewQuality;
       for (let i = 0; i < ids.length; i++) {
@@ -646,9 +640,8 @@ export async function runRound(
           // เมนูอาจค้างเปิดอยู่ — ปิดด้วย Escape (ห้าม Enter: เปิดหน้าแก้ไขคลิป) ก่อนส่องช่องถัดไป
           return page.keyboard.press("Escape").then(() => null, () => null);
         });
-        const id = videoUuidFromUrl(url);
-        log.log(name, `ช่องที่ ${String(i + 1)}/${String(ids.length)} = ${id || "(ไม่รู้)"}`);
-        if (id !== "" && id === mediaId) return i;
+        log.log(name, `ช่องที่ ${String(i + 1)}/${String(ids.length)} = ${videoUuidFromUrl(url) || "(ไม่รู้)"}`);
+        if (fileUrlIsMedia(url, mediaId)) return i;
         await sleepMs(randInt([800, 1500]));
       }
       return -1;
@@ -799,11 +792,18 @@ export async function runRound(
       }
     }
 
-    /** โหลดคลิปของช่องที่มี id นี้ผ่านเมนู แล้วดึงไฟล์เองจาก URL ที่ดักได้ · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน */
-    async function downloadVideo(name: FlowStep, mediaId: string, quality: RegExp[], filename: string): Promise<string> {
+    /**
+     * โหลดคลิปของช่องที่มี id นี้ผ่านเมนู แล้วดึงไฟล์เองจาก URL ที่ดักได้ · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน
+     * verifyId (รอบ 4): URL ที่หน้าเว็บขอต้องเป็นของคลิป mediaId — ไม่ตรง = ไม่โหลด (ไม่เอาคลิปอื่นมาเป็นไฟล์ 1080p ของงานนี้)
+     * · รอบ 3 ไม่เช็ก เพราะ id ตอนนั้นมาจาก thumbnail ซึ่งบางหน้าเป็น /asb/<ลายเซ็น> ไม่ใช่ uuid
+     */
+    async function downloadVideo(name: FlowStep, mediaId: string, quality: RegExp[], filename: string, verifyId = false): Promise<string> {
       const idx = await tileIndexOf(name, mediaId);
       if (idx < 0) throw new FlowStepError(name, "selector_drift", `หาช่องของคลิป ${mediaId} ในกริดไม่เจอ`);
       const url = await menuRequestFileUrl(name, idx, quality, cfg.renderDownloadTimeoutMs);
+      if (verifyId && !fileUrlIsMedia(url, mediaId)) {
+        throw new FlowStepError(name, "download_failed", `ไฟล์ที่ Flow ขอเป็นของคลิปอื่น (${videoUuidFromUrl(url) || "อ่าน id ไม่ได้"} ไม่ใช่ ${mediaId}) — ไม่โหลด`);
+      }
       log.log(name, `Flow ขอไฟล์แล้ว (ยกเลิกฝั่งหน้าเว็บ ดึงเอง): ${url.slice(0, 120)}…`);
       const res = await page.request.get(url, { maxRedirects: 3, timeout: cfg.renderDownloadTimeoutMs });
       if (!res.ok()) throw new FlowStepError(name, "download_failed", `ดึงไฟล์จากลิงก์ตอบ HTTP ${String(res.status())}`);
@@ -1050,7 +1050,8 @@ export async function runRound(
       // 1080p ล้ม = ไม่พัง: ผู้ใช้มี 720p อยู่แล้ว งานจบด้วยหมายเหตุ (spec 2026-09-30 §2)
       const final = await step("download-final", async () => {
         try {
-          return { file: await downloadVideo("download-final", mediaId, videoSel("download-final").finalQuality, `${input.filePrefix}.mp4`), failed: null as string | null };
+          const file = await downloadVideo("download-final", mediaId, videoSel("download-final").finalQuality, `${input.filePrefix}.mp4`, true);
+          return { file, failed: null as string | null };
         } catch (e) {
           const reason = e instanceof Error ? e.message : String(e);
           log.log("download-final", `โหลด 1080p ไม่ได้ — ใช้ 720p ที่มีอยู่แล้ว: ${reason}`);
