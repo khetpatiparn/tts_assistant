@@ -221,6 +221,20 @@ export function canRetryUpscale(
   return status === FLOW_STATUS.DONE && video !== null && !video.chosen && video.filename !== FINAL_VIDEO_FILENAME && flowProjectId !== "";
 }
 
+/** errorMessage ของงาน Render ที่บอทตายหลังกดสร้างคลิป (stale sweep ใน worker/index.ts) — หน้า /flow โชว์ลิงก์โปรเจกต์ + ปุ่มปิดงาน */
+export const STALE_RENDER_MESSAGE =
+  "บอทหยุดกลางทางหลังกดสร้างคลิป — คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว: เปิดโปรเจกต์ดู/โหลดเอง แล้วปิดงาน หรือกด เรนเดอร์ใหม่ (เสีย 15 เครดิต)";
+
+/**
+ * งานค้าง running_r3 ตอนเปิดบอท (บอทรอบก่อนตายกลางคัน): ถ้ามีแถว FlowActivity generate_video ของงานนี้ตั้งแต่ startedAt
+ * แปลว่ากดสร้างคลิปไปแล้ว (เสีย 15 เครดิต คลิปอยู่ในโปรเจกต์) → "review" = review_r3 ไม่มีแถว video ไม่หยุดคิว
+ * (failed + "รันต่อ" = เรนเดอร์ซ้ำเสียเครดิตอีกรอบ) · ไม่มี/ไม่รู้ startedAt → "failed" + หยุดคิวเหมือนเดิม
+ */
+export function staleRenderRecovery(startedAt: Date | null, generateVideoAt: Date[]): "review" | "failed" {
+  if (startedAt === null) return "failed";
+  return generateVideoAt.some((at) => at.getTime() >= startedAt.getTime()) ? "review" : "failed";
+}
+
 export function afterResume(round: JobRound): { status: FlowStatus } {
   return { status: queuedStatus(round) };
 }

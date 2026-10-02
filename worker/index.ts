@@ -8,8 +8,8 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync } from
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID, buildRenderPrompt,
-  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, toJobRound,
+  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, STALE_RENDER_MESSAGE, WORKER_STATE_ID, buildRenderPrompt,
+  candidateFilename, claimOrder, queuedStatus, reviewStatus, runningStatus, staleRenderRecovery, toJobRound,
   type JobRound,
 } from "@/lib/flow-jobs";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -428,6 +428,20 @@ async function main() {
       data: { status: FLOW_STATUS.DONE, finishedAt: new Date(), errorMessage: "ได้ 720p (บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้)" },
     });
     log(`งานค้างโหลด 1080p ${j.id} → จบด้วย 720p`);
+  }
+
+  // งานค้าง running_r3 ที่กดสร้างคลิปไปแล้ว (มี generate_video ตั้งแต่ startedAt) = เสียเครดิตแล้ว คลิปอยู่ในโปรเจกต์ Flow
+  // → review_r3 ไม่มีแถว video + ข้อความให้ไปโหลดเอง/ปิดงาน ไม่หยุดคิว · ถ้าตีเป็น failed ผู้ใช้กด "รันต่อ" = เรนเดอร์ซ้ำเสีย 15 เครดิต
+  const staleRender = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.RUNNING_R3 }, select: { id: true, startedAt: true } });
+  for (const j of staleRender) {
+    const generated = await prisma.flowActivity.findMany({ where: { kind: "generate_video", jobId: j.id }, select: { at: true } });
+    if (staleRenderRecovery(j.startedAt, generated.map((g) => g.at)) !== "review") continue;
+    await prisma.$transaction([
+      // แถวคลิปที่ค้าง (ถ้ามี) เป็นของ attempt ก่อน — ห้ามให้ปุ่ม "ผ่าน" ไปอนุมัติคลิปผิดตัว
+      prisma.flowJobImage.deleteMany({ where: { jobId: j.id, kind: "video" } }),
+      prisma.flowJob.update({ where: { id: j.id }, data: { status: FLOW_STATUS.REVIEW_R3, errorMessage: STALE_RENDER_MESSAGE } }),
+    ]);
+    log(`งานค้าง Render ${j.id} กดสร้างคลิปไปแล้ว → รอผู้ใช้ดูใน Flow (ไม่หยุดคิว)`);
   }
 
   const stale = await prisma.flowJob.updateMany({

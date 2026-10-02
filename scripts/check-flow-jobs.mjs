@@ -151,6 +151,21 @@ try {
   check("friendly: failed + ข้อความดิบ → พับ", fm("failed", "locator.click: Timeout 8000ms exceeded.\nCall log:\n - waiting").detail !== null, true);
   check("friendly: ข้อความสั้นอ่านรู้เรื่อง ไม่พับ", JSON.stringify(fm("failed", "โหลดไม่ครบ")), JSON.stringify({ summary: "โหลดไม่ครบ", detail: null }));
   check("DEFAULT_CAPTIONS round 1", f.DEFAULT_CAPTIONS[1], "สินค้า พื้นหลังขาว");
+
+  // B2: งานค้าง running_r3 ตอนเปิดบอท — กดสร้างคลิปไปแล้ว (มีแถว generate_video หลัง startedAt) = คลิปอยู่ใน Flow แล้ว ห้าม failed
+  {
+    const started = new Date("2026-10-02T10:00:00Z");
+    const after = new Date("2026-10-02T10:03:00Z");
+    const before = new Date("2026-10-02T09:00:00Z");
+    check("กดสร้างแล้วหลังเริ่มงาน → review", f.staleRenderRecovery(started, [after]), "review");
+    check("กดสร้างตรงเวลาเริ่มพอดี → review", f.staleRenderRecovery(started, [started]), "review");
+    check("ยังไม่ได้กดสร้าง → failed (หยุดคิวเหมือนเดิม)", f.staleRenderRecovery(started, []), "failed");
+    check("generate_video ของ attempt ก่อน (ก่อน startedAt) ไม่นับ → failed", f.staleRenderRecovery(started, [before]), "failed");
+    check("ไม่มี startedAt → failed (ไม่เดา)", f.staleRenderRecovery(null, [after]), "failed");
+    check("ข้อความบอกว่าคลิปน่าจะอยู่ใน Flow และเรนเดอร์ใหม่เสีย 15 เครดิต",
+      f.STALE_RENDER_MESSAGE.includes("คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว") && f.STALE_RENDER_MESSAGE.includes("15 เครดิต"), true);
+    check("ข้อความนี้โชว์ตรงๆ ในหน้า /flow (ไม่ถูกพับเป็นข้อความเทคนิค)", f.friendlyJobMessage("review_r3", f.STALE_RENDER_MESSAGE).detail, null);
+  }
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
