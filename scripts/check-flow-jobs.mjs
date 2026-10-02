@@ -2,7 +2,7 @@
  * ตรวจตรรกะ pure ของ lib/flow-jobs.ts — รัน: node scripts/check-flow-jobs.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -55,6 +55,7 @@ try {
   check("prompt round 2", f.buildFlowPrompt(2, "ที่ลับเล็บแมว"), 'ขอภาพสินค้าตอนใช้งาน สินค้าคือ "ที่ลับเล็บแมว"');
   check("prompt + ข้อความเพิ่มเติม ต่อท้ายด้วยช่องว่างเดียว", f.buildFlowPrompt(1, "ที่ลับเล็บแมว", "เอาแค่แผ่นเดียว"), 'ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "ที่ลับเล็บแมว" เอาแค่แผ่นเดียว');
   check("ข้อความเพิ่มเติมว่าง = พรอมต์เดิมทุกตัวอักษร", f.buildFlowPrompt(2, "ที่ลับเล็บแมว", ""), 'ขอภาพสินค้าตอนใช้งาน สินค้าคือ "ที่ลับเล็บแมว"');
+  check("prompt รอบ 2 + ข้อความเพิ่มเติม", f.buildFlowPrompt(2, "ที่ลับเล็บแมว", "วางบนโซฟา"), 'ขอภาพสินค้าตอนใช้งาน สินค้าคือ "ที่ลับเล็บแมว" วางบนโซฟา');
   check("normalize ยุบขึ้นบรรทัด (Enter ในช่อง Flow = ส่ง)", f.normalizeExtraPrompt("  เอาแค่\nแผ่นเดียว  "), "เอาแค่ แผ่นเดียว");
   check("normalize ตัดความยาว", f.normalizeExtraPrompt("ก".repeat(500)).length, f.EXTRA_PROMPT_MAX);
   check("normalize null = ว่าง", f.normalizeExtraPrompt(null), "");
@@ -91,6 +92,22 @@ try {
   check("flowProjectUrl ปกติ", f.flowProjectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"), "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   check("flowProjectUrl ว่าง = ''", f.flowProjectUrl(""), "");
   check("flowProjectUrl มีอักขระแปลก = ''", f.flowProjectUrl("abc/../x?y"), "");
+  check("flowGoogleProjectUrl (ลิงก์ที่บอทเปิด) ไม่ตรวจ id", f.flowGoogleProjectUrl("abc"), "https://flow.google.com/project/abc?hl=en");
+
+  // พรอมต์รอบรูปและลิงก์โปรเจกต์มีที่เดียวใน lib/flow-jobs.ts — บอทต้อง import ไปใช้ ห้ามมีสำเนาใน worker/
+  {
+    const driver = readFileSync("worker/flow-driver.ts", "utf8");
+    const selectors = readFileSync("worker/flow-selectors.ts", "utf8");
+    check("flow-driver ใช้ buildFlowPrompt จาก lib (ไม่มีสำเนาพรอมต์)", /import \{ buildFlowPrompt \} from "@\/lib\/flow-jobs"/.test(driver) && !driver.includes("ขอภาพสินค้า"), true);
+    check("flow-selectors ไม่มีรูปแบบลิงก์ flow.google.com/project ของตัวเอง", selectors.includes("flow.google.com/project/"), false);
+    // โหลด flow-selectors.ts จริงด้วย tsx แบบเดียวกับที่ npm run flow-worker รัน (ยืนยันว่า alias @/ ใช้ได้ตอนรันบอท)
+    writeFileSync(
+      join(out, "selectors-probe.ts"),
+      'import { SELECTOR_SETS } from "../worker/flow-selectors";\nconsole.log(SELECTOR_SETS.migrated.projectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"));\n',
+    );
+    const probed = execFileSync("npx", ["tsx", join(out, "selectors-probe.ts")], { shell: true, encoding: "utf8" }).trim();
+    check("บอทเปิดลิงก์โปรเจกต์เดิมทุกตัวอักษร (tsx)", probed, "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
+  }
   check("canApproveRender สถานะอื่น → false", f.canApproveRender("review_r2", true), false);
   const v720 = { filename: "r3-a1.mp4", chosen: false };
   check("canRetryUpscale done + 720p + มีโปรเจกต์ → true", f.canRetryUpscale("done", v720, "proj"), true);

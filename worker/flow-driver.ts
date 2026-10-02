@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page, Response } from "playwright";
+import { buildFlowPrompt } from "@/lib/flow-jobs";
 import type { WorkerConfig } from "./config";
 import { FlowStepError, type ErrorKind } from "./errors";
 import { humanClick, humanHover, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
@@ -96,15 +97,6 @@ const JEV_INTENT = {
   upload: "The button inside the media picker dialog that uploads a new image file from the computer.",
   confirmMedia: "The button inside the media picker dialog that adds the selected media to the prompt.",
 } as const;
-
-/** พรอมต์ตายตัว 2 แบบ (spec §3) — ต้องเหมือน buildFlowPrompt ใน lib/flow-jobs.ts ทุกตัวอักษร */
-export function flowPromptFor(round: 1 | 2, productName: string, extra = ""): string {
-  const base =
-    round === 1
-      ? `ขอภาพสินค้าอย่างเดียวเท่านั้น พื้นหลังขาว สินค้าคือ "${productName}"`
-      : `ขอภาพสินค้าตอนใช้งาน สินค้าคือ "${productName}"`;
-  return extra === "" ? base : `${base} ${extra}`;
-}
 
 function isTimeout(e: unknown): boolean {
   return e instanceof Error && (e.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(e.message));
@@ -1066,7 +1058,7 @@ export async function runRound(
       await page.keyboard.press("Control+A");
       await page.keyboard.press("Delete");
       await sleepMs(randInt([300, 700]));
-      await typeHuman(page, flowPromptFor(input.round === 2 ? 2 : 1, input.productName, input.extraPrompt), cfg.typeCharDelayMs);
+      await typeHuman(page, buildFlowPrompt(input.round === 2 ? 2 : 1, input.productName, input.extraPrompt), cfg.typeCharDelayMs);
       await sleepMs(randInt([500, 1200]));
       // ภาพนี้เห็นทั้งรูปที่แนบและพรอมต์ที่พิมพ์ครบแล้ว (รวมข้อความเพิ่มเติม) ก่อนกด Generate
       await checkpoint(3, "prompt");

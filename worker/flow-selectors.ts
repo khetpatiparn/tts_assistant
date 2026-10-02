@@ -10,6 +10,8 @@
  * ไอคอนใช้ ligature name (add_2, upload, crop_16_9, arrow_forward, arrow_drop_down) เพราะ
  * ข้อความบนปุ่มเปลี่ยนตามภาษาโปรไฟล์ Chrome แต่ชื่อไอคอนไม่เปลี่ยน
  */
+import { flowGoogleProjectUrl } from "@/lib/flow-jobs";
+
 export type SelectorSet = {
   name: "labs" | "migrated";
   hosts: string[];
@@ -261,7 +263,8 @@ const MIGRATED: SelectorSet = {
     "button:has-text('New project')",
   ],
   projectUrlFragment: "/project/",
-  projectUrl: (id) => `https://flow.google.com/project/${id}?hl=en`,
+  // รูปแบบลิงก์อยู่ที่เดียวกับลิงก์ที่หน้าเว็บโชว์ (lib/flow-jobs.ts) — ไม่ต้องแก้คู่กันอีก
+  projectUrl: flowGoogleProjectUrl,
   // แก้ 2026-09-23 (รอบ 3 ในวันเดียวกัน — เปลี่ยนกลยุทธ์ทั้งยวงหลังพบว่าโหมด "Agent" (แชท AI)
   // ไม่รับประกันว่าฟังค่า default ที่ตั้งไว้จริง — ยืนยันจริงจากการรัน smoke test เต็มรอบ: ตั้ง
   // count=4 ถูกต้องแล้ว (assertSelected ผ่าน) แต่ Agent chat generate ได้แค่ ~1 ภาพ ไม่ใช่ 4

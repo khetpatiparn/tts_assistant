@@ -100,7 +100,10 @@ export function isOpenStatus(status: string): boolean {
   return status !== FLOW_STATUS.DONE && status !== FLOW_STATUS.SKIPPED;
 }
 
-/** พรอมต์ตายตัว (spec §3) — worker/flow-driver.ts มีสำเนาเดียวกัน ต้องแก้พร้อมกัน */
+/**
+ * พรอมต์ตายตัว (spec §3) — ที่เดียวของพรอมต์รอบรูป: บอทพิมพ์ด้วยฟังก์ชันนี้ (worker/flow-driver.ts) และหน้า /flow
+ * โชว์ตัวอย่างด้วยตัวเดียวกัน จึงตรงกันทุกตัวอักษรเสมอ
+ */
 export function buildFlowPrompt(round: FlowRound, productName: string, extra = ""): string {
   const base =
     round === 1
@@ -136,12 +139,20 @@ export const FINAL_VIDEO_PREFIX = "r3-final";
 export const FINAL_VIDEO_FILENAME = `${FINAL_VIDEO_PREFIX}.mp4`;
 
 /**
+ * รูปแบบลิงก์โปรเจกต์บน flow.google.com — ที่เดียวที่รู้รูปแบบนี้: บอทเปิดโปรเจกต์ด้วยตัวนี้ (`projectUrl` ของชุด
+ * `migrated` ใน worker/flow-selectors.ts) และหน้าเว็บใช้ผ่าน flowProjectUrl · ไม่ตรวจ id (บอทได้ id จาก URL ของ Flow เอง)
+ */
+export function flowGoogleProjectUrl(id: string): string {
+  return `https://flow.google.com/project/${id}?hl=en`;
+}
+
+/**
  * ลิงก์โปรเจกต์ Flow ของงาน — โปรเจกต์อยู่ใน**บัญชีสำรอง**ของบอท เปิดในเบราว์เซอร์ที่ล็อกอินบัญชีหลักไม่ได้
  * (ต้องเปิดในโปรไฟล์ Chrome ที่ล็อกอินบัญชีสำรอง — ห้ามใช้ .flow-profile ของบอทตอนบอทเปิดอยู่) · "" = ยังไม่มีโปรเจกต์
  */
 export function flowProjectUrl(flowProjectId: string): string {
   const id = flowProjectId.trim();
-  return /^[A-Za-z0-9-]+$/.test(id) ? `https://flow.google.com/project/${id}?hl=en` : "";
+  return /^[A-Za-z0-9-]+$/.test(id) ? flowGoogleProjectUrl(id) : "";
 }
 
 /**
