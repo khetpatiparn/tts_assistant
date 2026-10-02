@@ -14,6 +14,7 @@ const rd = (f) =>
 const driver = rd("worker/flow-driver.ts");
 const index = rd("worker/index.ts");
 const watch = rd("worker/generation-watch.ts");
+const capture = rd("worker/clip-capture.ts");
 let failed = 0;
 function must(name, ok) {
   if (!ok) failed++;
@@ -34,8 +35,8 @@ must(
 );
 must("attach-reference → upload หลัง setFiles", within(driver, "async function attachReferences", "\n    }\n", 'kind: "upload"') && /setFiles\(paths\);\s*\n\s*logActivity/.test(driver));
 must("ensure-project → new_project หลังคลิป New project", /humanClick\(page, btn, cfg\);\s*\n\s*logActivity\(\{ kind: "new_project"/.test(driver));
-must("downloadVideoDirect → download via direct หลังเขียนไฟล์", /writeFileSync\(file, buf\);[^]*?via: "direct"/.test(driver) && within(driver, "async function downloadVideoDirect", "async function downloadVideo(", 'via: "direct"'));
-must("downloadVideo (menu) → download via menu หลังเขียนไฟล์ที่ดึงเอง", /Flow ขอไฟล์แล้ว[^]*?writeFileSync\(file, buf\);[^]*?via: "menu"/.test(driver));
+must("downloadVideoDirect → download via direct หลังเขียนไฟล์", /writeFileSync\(file, buf\);[^]*?via: "direct"/.test(capture) && within(capture, "async function downloadVideoDirect", "async function menuRequestFileUrl(", 'via: "direct"'));
+must("downloadVideo (menu) → download via menu หลังเขียนไฟล์ที่ดึงเอง", /Flow ขอไฟล์แล้ว[^]*?writeFileSync\(file, buf\);[^]*?via: "menu"/.test(capture));
 must("assertPageUsable bot_signal มี jobId/round", (driver.match(/kind: "bot_signal", jobId, round,/g) ?? []).length >= 2);
 must("download-4 → download files:4", within(driver, 'step("download-4"', "return written;", "files: 4"));
 must("onResponse → http_warn on 429/403/5xx", within(driver, "const onResponse", "};", 'kind: "http_warn"') && within(driver, "const onResponse", "};", "res.status() === 429 || res.status() === 403 || res.status() >= 500"));
@@ -56,7 +57,7 @@ must("index import logActivity", index.includes('import { logActivity } from "./
 must("session_start with config หลังเปิด Flow", within(index, "เปิด Flow แล้ว", "let longBreakTarget", 'kind: "session_start"') && within(index, 'kind: "session_start"', "});", "longBreakMs: cfg.longBreakMs"));
 must("break why:long ก่อน sleepUntil ของพักยาว", within(index, "พักยาว ${", "longBreakTarget = pickLongBreakTarget", 'why: "long"'));
 must("break why:between ก่อน sleepUntil ต่อสินค้า", within(index, "const pause = randInt(", "await sleepUntil(Date.now() + pause)", 'why: "between"'));
-must("ห้าม await logActivity (fire-and-forget)", !/await logActivity\(/.test(driver) && !/await logActivity\(/.test(index));
+must("ห้าม await logActivity (fire-and-forget)", [driver, index, capture].every((src) => !/await logActivity\(/.test(src)));
 
 console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 process.exit(failed === 0 ? 0 : 1);

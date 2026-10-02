@@ -344,11 +344,19 @@ try {
 }
 
 // รอบ 4: findTileIndex ต้องตัดสินด้วย knownTileIndex (ไม่มีทางลัด "ช่องเดียวใช้เลย") และโหลด 1080p ต้องเช็ก id ของไฟล์
+// การดึงไฟล์คลิปทั้งหมดอยู่ worker/clip-capture.ts (ADR 0003) — สถานะ (foundTiles / lastDirectVideoUuid) เป็นของ instance
 {
-  const src = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
-  check("flow-driver ไม่มีทางลัดโปรเจกต์ช่องเดียว (ids.length === 1)", /ids\.length === 1/.test(src), false);
-  check("findTileIndex ใช้ knownTileIndex", /knownTileIndex\(/.test(src), true);
-  check("downloadVideo เช็ก id ของไฟล์ด้วย fileUrlIsMedia", /fileUrlIsMedia\(/.test(src), true);
+  const src = readFileSync("worker/clip-capture.ts", "utf8").replace(/\r\n/g, "\n");
+  const driver = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
+  check("clip-capture ไม่มีทางลัดโปรเจกต์ช่องเดียว (ids.length === 1)", /ids\.length === 1/.test(src), false);
+  check("findTileIndex ใช้ knownTileIndex", /async function findTileIndex[^]*?knownTileIndex\(/.test(src), true);
+  check("downloadVideo เช็ก id ของไฟล์ด้วย fileUrlIsMedia เมื่อ verifyId", /if \(verifyId && !fileUrlIsMedia\(url, mediaId\)\)/.test(src), true);
+  check("captureFinal (1080p) เปิด verifyId", /async captureFinal[^]*?downloadVideo\("download-final", mediaId, [^\n]*finalQuality, filename, true\)/.test(src), true);
+  const factory = src.indexOf("export function clipCapture(");
+  const firstFn = src.indexOf("function videoSel(", factory);
+  const stateAt = [src.indexOf("let lastDirectVideoUuid", factory), src.indexOf("const foundTiles", factory)];
+  check("สถานะของ clipCapture ประกาศก่อนฟังก์ชันภายในทุกตัว (กัน TDZ)", stateAt.every((i) => i > factory && i < firstFn), true);
+  check("flow-driver ไม่ถือสถานะของการโหลดคลิปเองแล้ว", /foundTiles|lastDirectVideoUuid/.test(driver), false);
 }
 
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
