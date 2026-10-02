@@ -135,7 +135,6 @@ export function videoFilename(attempt: number): string {
 export const FINAL_VIDEO_PREFIX = "r3-final";
 export const FINAL_VIDEO_FILENAME = `${FINAL_VIDEO_PREFIX}.mp4`;
 
-/** ชื่อไฟล์ตอนกด "ดาวน์โหลดคลิป" — ชื่อสินค้าเป็นภาษาไทยได้ แต่ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก */
 /**
  * ลิงก์โปรเจกต์ Flow ของงาน — โปรเจกต์อยู่ใน**บัญชีสำรอง**ของบอท เปิดในเบราว์เซอร์ที่ล็อกอินบัญชีหลักไม่ได้
  * (ต้องเปิดในโปรไฟล์ Chrome ที่ล็อกอินบัญชีสำรอง — ห้ามใช้ .flow-profile ของบอทตอนบอทเปิดอยู่) · "" = ยังไม่มีโปรเจกต์
@@ -167,6 +166,7 @@ export function acceptShortName(candidate: string, fullTitle: string): string {
   return t;
 }
 
+/** ชื่อไฟล์ตอนกด "ดาวน์โหลดคลิป" — ชื่อสินค้าเป็นภาษาไทยได้ แต่ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก */
 export function videoDownloadName(productName: string): string {
   const safe = productName.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
   return `${safe === "" ? "clip" : safe}.mp4`;

@@ -43,7 +43,10 @@ try {
   check("เจอ ดีที่สุด (ban) ในเสียงพากย์", hits.some((h) => h.word === "ดีที่สุด" && h.level === "ban" && h.where === "voiceover"), true);
   check("เจอ ทนทาน (check) ในเสียงพากย์", hits.some((h) => h.word === "ทนทาน" && h.level === "check" && h.where === "voiceover"), true);
   check("ไม่จับ 100% จาก Negative Prompt (ในเสียงพากย์ไม่มี 100%)", hits.filter((h) => h.where === "voiceover" && h.word === "100%").length, 0);
-  check("เจอ 100% (ban) ในแคปชัน", hits.some((h) => h.word === "100%" && h.where === "caption"), true);
+  check("เจอ ของแท้ 100% (ban) ในแคปชัน — คำยาวชนะ 100% เดี่ยว", hits.filter((h) => h.where === "caption" && h.level === "ban").map((h) => h.word), ["ของแท้ 100%"]);
+  check("ของแท้100% (ไม่เว้นวรรค) ก็ ban", c.checkClaims({ tenPart: "", caption: "ของแท้100%", hashtags: "" }).map((h) => h.word), ["ของแท้100%"]);
+  check("ของแท้ เฉยๆ ไม่ใช่คำต้องห้าม", c.checkClaims({ tenPart: "", caption: "ของแท้จากร้าน", hashtags: "" }), []);
+  check("100% เดี่ยวยัง ban", c.checkClaims({ tenPart: "", caption: "ผ้าฝ้าย 100%", hashtags: "" }).map((h) => h.word), ["100%"]);
   check("เจอ ปลอดภัย (check) ในแคปชัน", hits.some((h) => h.word === "ปลอดภัย" && h.level === "check" && h.where === "caption"), true);
   check("เจอ ขายดี (check) ในแฮชแท็ก", hits.some((h) => h.word === "ขายดี" && h.where === "hashtags"), true);
   check("ข้อความสะอาด = ไม่มี hit", c.checkClaims({ tenPart: "เสียงพากย์: “แขวนเสื้อได้เยอะ ประหยัดพื้นที่”", caption: "จัดระเบียบหลังประตู", hashtags: "#ตะขอ" }), []);

@@ -32,12 +32,6 @@ export function blockKindForStatus(status: number): ErrorKind | null {
 }
 
 /**
- * Flow รับคำสั่งเจนแล้วหรือยัง — ถ้ากด Generate แล้วคลิกไม่ติด เดิมบอทนั่งรอเต็ม generationTimeoutMs
- * (5 นาที) แล้วรายงานว่า "ช้า" · หลักฐานจาก DOM จริง (uploads/_flow-failures/cmumqwrz5…-1790690647902):
- * ทันทีที่รับคำสั่ง Flow เพิ่ม <flow-grid-tile-container> ตามจำนวนที่ขอ เป็น <flow-pending-tile> ระหว่างวาด
- * แล้วกลายเป็นรูป/การ์ด error และช่องพิมพ์พรอมต์ถูกล้างว่าง
- */
-/**
  * เกณฑ์รับคำตอบของ Jev ตอนใช้หาปุ่มแทน selector ที่พัง (dom-heuristics.ts findByJev) — ทดสอบย้อนหลังกับ
  * page.html ของหลักฐานจริง 9 หน้า (2026-09-29): ส่งชื่อ class ไปด้วย + ความมั่นใจ ≥ 0.9 ถูก 31/31 ครั้ง
  * ตัด class ทิ้ง (จำลอง Flow เปลี่ยนหน้า) ≥ 0.9 ผิด 3/32 ที่ 0.90-0.91 ทั้งหมด (หยิบปุ่มตั้งค่าของโหมด Agent)
@@ -92,6 +86,12 @@ export function pickNewThumbnail(before: string[], now: string[]): string | null
   return now.find((id) => id !== "" && !before.includes(id)) ?? null;
 }
 
+/**
+ * Flow รับคำสั่งเจนแล้วหรือยัง — ถ้ากด Generate แล้วคลิกไม่ติด เดิมบอทนั่งรอเต็ม generationTimeoutMs
+ * (5 นาที) แล้วรายงานว่า "ช้า" · หลักฐานจาก DOM จริง (uploads/_flow-failures/cmumqwrz5…-1790690647902):
+ * ทันทีที่รับคำสั่ง Flow เพิ่ม <flow-grid-tile-container> ตามจำนวนที่ขอ เป็น <flow-pending-tile> ระหว่างวาด
+ * แล้วกลายเป็นรูป/การ์ด error และช่องพิมพ์พรอมต์ถูกล้างว่าง
+ */
 export function generateAccepted(s: {
   tilesBefore: number;
   tilesNow: number;
@@ -155,18 +155,4 @@ export function renderOutcome(
 /** เหตุผลที่ขั้นหลัง Render พังก่อนเริ่มโหลด → ข้อความใน downloadFailed (ไม่ทำให้งาน failed — ดู renderOutcome) */
 export function postRenderFailReason(step: string, reason: string): string {
   return `${step} พังก่อนเริ่มโหลด: ${reason}`;
-}
-
-/**
- * เมนู Download ของ Flow: หลัง hover "Download" + ArrowRight โฟกัสอยู่ที่รายการแรกของเมนูย่อย — คืนจำนวน ArrowDown
- * ที่ต้องกดจนถึงรายการที่ต้องการ · เมนูย่อย = รายการที่มีคำว่า Animated GIF / Original size / Upscaled (สำรวจสด 2026-09-30)
- * null = ไม่เจอ หรือรายการนั้น [disabled] (เช่น 4K ที่ต้องอัปเกรด) ให้ผู้เรียกพังเป็น selector_drift
- */
-export function submenuArrowDowns(menuTexts: string[], quality: RegExp[]): number | null {
-  const sub = menuTexts.filter((t) => /Animated GIF|Original size|Upscaled/.test(t));
-  if (sub.length === 0) return null;
-  const pos = sub.findIndex((t) => quality.every((q) => q.test(t)));
-  if (pos < 0 || /\[disabled\]/.test(sub[pos])) return null;
-  // FocusKeyManager ข้ามรายการ [disabled] — นับเฉพาะที่กดได้ก่อนถึงเป้า
-  return sub.slice(0, pos).filter((t) => !/\[disabled\]/.test(t)).length;
 }

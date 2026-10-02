@@ -302,7 +302,7 @@ export function FlowJobDetail({
               <div className="flex flex-col gap-2 rounded-md border-l-4 border-status-warning bg-surface-2 p-3 leading-relaxed lg:max-w-90">
                 <p className="text-sm font-medium text-foreground">คลิปเสร็จแล้วใน Flow แต่โหลดมาไม่ได้</p>
                 <JobMessage status={job.status} message={job.errorMessage} />
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   เปิดโปรเจกต์ในบัญชีสำรองแล้วโหลดเอง (⋯ → Download → 1080p) แล้วกดปิดงาน · หรือกด &quot;เรนเดอร์ใหม่&quot; ซึ่งจะสร้างคลิปใหม่อีกตัวและเสีย 15 เครดิต
                 </p>
                 {job.flowProjectId && (
@@ -427,7 +427,7 @@ export function FlowJobDetail({
               <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" />
             )}
             {job.failureDir && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 หลักฐาน:{" "}
                 <a className="underline" href={`/api/${job.failureDir}/screenshot.png`} target="_blank" rel="noreferrer">screenshot</a>
                 {" · "}
@@ -469,7 +469,7 @@ export function FlowJobDetail({
                     <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
                       <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
                     </Button>
-                    <span className="text-xs text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
+                    <span className="text-xs leading-relaxed text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
                   </div>
                 )}
                 <UsedImages job={job} />
@@ -500,12 +500,12 @@ export function FlowJobDetail({
                   <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => retryFlowUpscale(job.id))}>
                     <RotateCcw data-icon="inline-start" /> ลองโหลด 1080p อีกครั้ง
                   </Button>
-                  <span className="text-xs text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">ไม่เสียเครดิต ไม่เรนเดอร์ใหม่ — บอทไปโหลดคลิปเดิมจาก Flow</span>
                 </div>
               )}
               {(job.chosenRound1 || job.chosenRound2) && (
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-xs text-muted-foreground">รูปที่ใช้ทำคลิป</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">รูปที่ใช้ทำคลิป</span>
                   <div className="flex gap-2">
                     {[job.chosenRound1, job.chosenRound2].map((c, i) =>
                       c ? (
@@ -548,7 +548,7 @@ export function FlowJobDetail({
                     loading="lazy"
                     className="aspect-video w-full rounded-md border border-border object-cover object-bottom"
                   />
-                  <span className="text-xs text-muted-foreground">{c.label}</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">{c.label}</span>
                 </a>
               ))}
             </div>

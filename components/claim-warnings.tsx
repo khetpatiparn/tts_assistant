@@ -26,7 +26,7 @@ export function ClaimWarnings({ tenPart, caption, hashtags }: { tenPart: string;
           </li>
         ))}
       </ul>
-      <p className="text-xs text-muted-foreground">เป็นคำเตือน ไม่ได้แก้ข้อความให้</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">เป็นคำเตือน ไม่ได้แก้ข้อความให้</p>
     </div>
   );
 }

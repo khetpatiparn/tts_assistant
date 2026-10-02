@@ -98,7 +98,7 @@ function FlowJobListItem({
             />
             <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
             {job.exportedPath !== null && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1 text-xs leading-relaxed text-muted-foreground">
                 <FolderCheck aria-hidden="true" className="size-4" /> ส่ง TTS แล้ว
               </span>
             )}

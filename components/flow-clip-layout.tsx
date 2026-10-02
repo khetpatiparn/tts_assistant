@@ -141,7 +141,7 @@ export function UsedImages({ job }: { job: FlowJobRow }) {
   if (!items.some((i) => i.row)) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs text-muted-foreground">รูปที่ใช้ทำคลิป</span>
+      <span className="text-xs leading-relaxed text-muted-foreground">รูปที่ใช้ทำคลิป</span>
       <div className="flex gap-3">
         {items.map((i) =>
           i.row ? (
@@ -153,7 +153,7 @@ export function UsedImages({ job }: { job: FlowJobRow }) {
                 height={533}
                 className="aspect-[3/4] w-16 rounded-md border border-border object-cover"
               />
-              <figcaption className="text-xs text-muted-foreground">{i.label}</figcaption>
+              <figcaption className="text-xs leading-relaxed text-muted-foreground">{i.label}</figcaption>
             </figure>
           ) : null
         )}
@@ -168,7 +168,7 @@ export function BotSteps({ checkpoints }: { checkpoints: FlowCheckpoint[] }) {
   if (checkpoints.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs text-muted-foreground">ขั้นตอนที่บอททำ ({checkpoints.length} ภาพ) — กดที่ภาพเพื่อขยาย</span>
+      <span className="text-xs leading-relaxed text-muted-foreground">ขั้นตอนที่บอททำ ({checkpoints.length} ภาพ) — กดที่ภาพเพื่อขยาย</span>
       <ul className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(checkpoints.length, 5)}, minmax(0, 1fr))` }}>
         {checkpoints.map((c, i) => (
           <li key={c.path} className="min-w-0">
@@ -185,7 +185,7 @@ export function BotSteps({ checkpoints }: { checkpoints: FlowCheckpoint[] }) {
                 loading="lazy"
                 className="aspect-video w-full rounded-md border border-border-interactive object-cover object-bottom"
               />
-              <span className="text-xs text-muted-foreground">{c.label}</span>
+              <span className="text-xs leading-relaxed text-muted-foreground">{c.label}</span>
             </button>
           </li>
         ))}
@@ -256,7 +256,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       <Button type="button" variant="outline" size="sm" disabled={text === ""} aria-label={`คัดลอก${label}`} onClick={copy}>
         {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />} คัดลอก
       </Button>
-      <span role="status" className="text-xs text-muted-foreground">
+      <span role="status" className="text-xs leading-relaxed text-muted-foreground">
         {copied ? "คัดลอกแล้ว" : failed ? "คัดลอกไม่ได้ — เลือกข้อความแล้วกด Ctrl+C" : ""}
       </span>
     </div>
@@ -333,7 +333,7 @@ export function PromptCard({ job, usedExtra }: { job: FlowJobRow; usedExtra: str
           />
         </>
       )}
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         {usedExtra === "" ? "ไม่มีข้อความเพิ่มเติมต่อท้าย" : `ข้อความเพิ่มเติมที่ต่อท้าย: “${usedExtra}”`}
       </p>
     </section>

@@ -241,7 +241,6 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         checkpointDir,
         renderPrompt,
         mediaId: approvedVideo?.flowMediaId,
-        previewPath: approvedVideo ? path.join(outDir, approvedVideo.filename) : undefined,
       },
       cfg,
       sel,

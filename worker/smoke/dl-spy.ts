@@ -2,6 +2,8 @@
  * DL-SPY: สอดแนมว่ากด "1080p Upscaled" ในเมนูโหลดของ Flow แล้วเกิดอะไรขึ้นจริง (ไม่เสียเครดิต)
  * เปิดโปรเจกต์เดิม → hover ช่องคลิป → เมนู ⋯ → ชี้ Download → เลื่อนเมาส์เส้นตรงเข้าเมนูย่อย → คลิกตัวเลือก
  * แล้วบันทึกทุกอย่าง 3 นาที: ทุก response (URL/status/ชนิด/ขนาด), event download, ช่องใหม่ในกริด, screenshot ทุก 10 วิ
+ * ค่าเริ่มต้นทำแบบเดียวกับบอท: ดัก fetch ไฟล์ของหน้าเว็บแล้ว**ยกเลิก** จากนั้นดึงเองด้วย page.request (ไฟล์ self-*.mp4)
+ * DL_SPY_SAVEAS=1 = ปล่อยให้หน้าเว็บดาวน์โหลด blob เองแล้ว saveAs — **Chrome ของบอท crash ทางนี้** (2026-10-01) ใช้เฉพาะตอนต้องดูพฤติกรรมเดิม
  * รัน (ต้องปิดบอทก่อน — โปรไฟล์ Chrome เปิดได้ทีละตัว): npm run flow-smoke:dl -- <projectId> [tileIndex] [qualityRegex...]
  * ผลลัพธ์: worker/smoke/out/dl-spy/ (report.json · responses.jsonl · submenu.html · *.jpg · ไฟล์ที่โหลดได้)
  */
@@ -15,6 +17,8 @@ import { humanHover, humanClick, sleepMs, randInt } from "../humanize";
 import { pickDirectVideoUrl } from "../flow-signals";
 
 const OBSERVE_MS = 180_000;
+/** ทางเดิมที่ทำ Chrome crash — ต้องขอเองเท่านั้น */
+const SAVE_AS = process.env.DL_SPY_SAVEAS === "1";
 const SHOT_EVERY_MS = 10_000;
 
 async function main() {
@@ -63,6 +67,10 @@ async function main() {
       const rec = { at: Date.now() - t0, url: d.url().slice(0, 300), suggested: d.suggestedFilename(), saved: null as string | null, failure: null as string | null };
       downloads.push(rec);
       note(`DOWNLOAD event: ${rec.suggested} ${rec.url}`);
+      if (!SAVE_AS) {
+        rec.failure = "ไม่ saveAs (ตั้ง DL_SPY_SAVEAS=1 ถ้าต้องการ)";
+        return;
+      }
       const file = path.join(out, `dl-${downloads.length}-${rec.suggested || "file"}`);
       d.saveAs(file).then(() => { rec.saved = file; note(`saved ${file}`); }).catch((e: unknown) => { rec.failure = String(e); note(`saveAs failed ${String(e)}`); });
     });
@@ -124,8 +132,8 @@ async function main() {
     await sleepMs(400);
     await shot("3-hover-target", page);
     note(`target visible=${String(await target.isVisible())} text="${((await target.textContent()) ?? "").trim()}"`);
-    // DL_SPY_ABORT=1 = ทดสอบวิธีของบอท: ยกเลิก fetch ไฟล์ฝั่งหน้าเว็บ (กัน Chrome crash ตอนเริ่มดาวน์โหลด) แล้วดึงเอง
-    if (process.env.DL_SPY_ABORT === "1") {
+    // ค่าเริ่มต้น = วิธีของบอท: ยกเลิก fetch ไฟล์ฝั่งหน้าเว็บ (กัน Chrome crash ตอนเริ่มดาวน์โหลด) แล้วดึงเอง
+    if (!SAVE_AS) {
       const wantUp = quality.some((re) => re.test("Upscaled"));
       await page.route((u) => pickDirectVideoUrl([u.toString()]) !== null, (route) => {
         const u = route.request().url();

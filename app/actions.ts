@@ -1094,10 +1094,6 @@ export async function deleteCandidateBatch(batchId: string): Promise<void> {
 }
 
 /**
- * สร้าง PromptEntry จากสินค้าที่เลือก แล้วผูกกลับมาที่ candidate
- * ทำตามแบบ createEntryFromOrder — สร้าง entry ขั้นต่ำแล้วให้ผู้ใช้ไปกรอกต่อในหน้า entry
- */
-/**
  * ชื่อสินค้าที่จะใช้สร้าง entry จากชื่อร้าน (Showcase/หาสินค้า) — ย่อด้วย Gemini ให้เหลือ 2–5 คำ เหมือนเส้นทางแคปเอง
  * เพราะบอทพิมพ์ productName ลงพรอมต์วาดรูปของ Flow ทันที ชื่อ SEO ยาวที่มีคุณสมบัติทำให้รูปมีตัวหนังสือ (เจอจริง 2026-10-02)
  * ชื่อเต็มเก็บไว้ใน productInfo ให้ 10-part prompt ยังเห็นข้อมูลครบ · ล้มเหลวทุกแบบ = ใช้ชื่อเต็มเหมือนเดิม ห้ามทำให้สร้างงานพัง
@@ -1112,6 +1108,10 @@ async function shortNameForEntry(fullTitle: string): Promise<{ productName: stri
   return { productName: name, productInfo: name === fullTitle ? "" : `${FULL_TITLE_PREFIX}${fullTitle}` };
 }
 
+/**
+ * สร้าง PromptEntry จากสินค้าที่เลือก แล้วผูกกลับมาที่ candidate
+ * ทำตามแบบ createEntryFromOrder — สร้าง entry ขั้นต่ำแล้วให้ผู้ใช้ไปกรอกต่อในหน้า entry
+ */
 export async function createEntryFromCandidate(id: string): Promise<string> {
   const candidate = await prisma.productCandidate.findUnique({ where: { id } });
   if (!candidate) {
@@ -1627,11 +1627,6 @@ async function dirExists(p: string): Promise<boolean> {
 }
 
 /**
- * "ส่งเข้าโฟลเดอร์ TTS" — ก๊อปคลิป + รูปที่เลือก + เสียงพากย์ + ข้อความโพสต์ของงานไปที่
- * <root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น>\ (root = CLIP_EXPORT_ROOT หรือ Desktop\TTS) · เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้
- * กดซ้ำได้ปลอดภัย: ส่งแล้ว (มีแถว user_export_clip และโฟลเดอร์ยังอยู่) = ไม่ก๊อปใหม่ แค่เปิดโฟลเดอร์เดิม
- */
-/**
  * เปิดโปรเจกต์ Flow ของงานในโปรไฟล์ Brave ของบัญชีสำรอง (Brave ของผู้ใช้ล็อกอินบัญชีหลักไว้ ลิงก์ธรรมดาจึงเปิดไม่ได้)
  * เซิร์ฟเวอร์รันบนเครื่องเดียวกัน จึงสั่ง brave.exe --profile-directory=<โปรไฟล์> ได้ตรงๆ
  * · ตั้งเองได้ด้วย FLOW_BACKUP_BROWSER_PROFILE (เช่น "Profile 3") / FLOW_BACKUP_BROWSER_EXE
@@ -1661,6 +1656,11 @@ export async function openFlowProjectInBackupProfile(jobId: string): Promise<voi
   spawn(exe, [`--profile-directory=${profile}`, url], { detached: true, stdio: "ignore" }).unref();
 }
 
+/**
+ * "ส่งเข้าโฟลเดอร์ TTS" — ก๊อปคลิป + รูปที่เลือก + เสียงพากย์ + ข้อความโพสต์ของงานไปที่
+ * <root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น>\ (root = CLIP_EXPORT_ROOT หรือ Desktop\TTS) · เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้
+ * กดซ้ำได้ปลอดภัย: ส่งแล้ว (มีแถว user_export_clip และโฟลเดอร์ยังอยู่) = ไม่ก๊อปใหม่ แค่เปิดโฟลเดอร์เดิม
+ */
 export async function exportClipToFolder(jobId: string): Promise<{ path: string; alreadyExported: boolean; files: string[] }> {
   const job = await prisma.flowJob.findUnique({
     where: { id: jobId },

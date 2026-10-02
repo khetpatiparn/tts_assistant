@@ -38,8 +38,6 @@ export type RoundInput = {
   renderPrompt?: string;
   /** รอบ 4: id ของคลิปที่ผ่าน (FlowJobImage.flowMediaId ที่รอบ 3 เก็บไว้) */
   mediaId?: string;
-  /** รอบ 4: ไฟล์ตัวอย่าง 720p ที่โหลดไว้ — ใช้เทียบเนื้อไฟล์หาช่องคลิปเมื่อโปรเจกต์มีหลายคลิปและ id ไม่ตรง */
-  previewPath?: string;
 };
 
 /** mediaId = id ของคลิปใน Flow (รอบ 3-4) ให้ worker เก็บไว้หาช่องเดิมตอนโหลด 1080p */
@@ -451,7 +449,7 @@ export async function runRound(
     // (เคยวางไว้ใต้ฟังก์ชันแล้วรอบ 4 พังด้วย "Cannot access 'foundTiles' before initialization" 2026-10-01)
     /** id ถาวรของคลิปที่ลิงก์ตรงล่าสุดโหลดมา — รอบ 3 เก็บค่านี้แทน id จาก thumbnail (ดู videoUuidFromUrl) */
     let lastDirectVideoUuid = "";
-    /** ช่องคลิปที่หาเจอแล้ว — find-video กับ download-final ถามซ้ำ ไม่ต้อง hover/โหลดไฟล์มาเทียบอีกรอบ */
+    /** ช่องคลิปที่หาเจอแล้ว (mediaId → ลำดับช่อง) — find-video กับ download-final ถามซ้ำ ไม่ต้องเปิดเมนูส่อง id ทุกช่องอีกรอบ */
     const foundTiles = new Map<string, number>();
 
     // รอบ 3-4 แยกทางตรงนี้ — ใช้ step/checkpoint/openSettings/closeSettings/attachReferences ร่วมกับรอบรูป
@@ -617,13 +615,12 @@ export async function runRound(
     }
 
     /**
-     * หาช่องของคลิป (-1 = ไม่เจอ) · id ที่เก็บไว้อาจเป็น id จาก thumbnail (ใช้ได้เฉพาะในหน้าที่เพิ่งเรนเดอร์) หรือ uuid
-     * จากลิงก์ตรง · ลำดับ: thumbnail → hover อ่าน <video src> ทีละช่อง → ถ้าโปรเจกต์มีคลิปช่องเดียว ใช้ช่องนั้น
-     * (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id — เจอจริง 2026-10-01 ทำรอบ 4 พังทั้งที่มีคลิปช่องเดียว)
+     * หาช่องของคลิป (-1 = ไม่เจอ) · id ที่เก็บไว้ = uuid ของคลิป (จากลิงก์ตรง หรือ id จาก thumbnail ตอนเรนเดอร์ — ค่าเดียวกัน)
+     * ลำดับ: id จาก thumbnail → ช่องที่จำไว้ (foundTiles) → โปรเจกต์มีคลิปช่องเดียวใช้ช่องนั้น → เปิดเมนูโหลด 720p
+     * ของทีละช่องแล้วอ่าน id จากคำขอ `/video/<id>` ที่ถูกยกเลิก (เปิดโปรเจกต์ใหม่แล้ว thumbnail เป็น /asb/<ลายเซ็น> ไม่มี id)
      */
     async function tileIndexOf(name: FlowStep, mediaId: string): Promise<number> {
       const found = await findTileIndex(name, mediaId);
-      // จำช่องที่เจอแล้ว — find-video กับ download-final ถามซ้ำ ไม่ต้อง hover/โหลดไฟล์มาเทียบอีกรอบ
       if (found >= 0) foundTiles.set(mediaId, found);
       return found;
     }
@@ -638,8 +635,8 @@ export async function runRound(
         log.log(name, `ไม่เจอ id ${mediaId} แต่โปรเจกต์มีคลิปช่องเดียว — ใช้ช่องนั้น`);
         return 0;
       }
-      // หลายคลิป: หลังเปิดโปรเจกต์ใหม่ทั้ง thumbnail และ <video src> เป็น /asb/<ลายเซ็น> ไม่มี id (เจอจริง 2026-10-01
-      // ทั้ง hover 10 วิ/ช่อง ก็ไม่ได้ลิงก์ที่มี id) → เปิดเมนูโหลด 720p ของแต่ละช่อง ดัก URL ที่หน้าเว็บขอ
+      // หลายคลิป: หลังเปิดโปรเจกต์ใหม่ทั้ง thumbnail และ <video src> เป็น /asb/<ลายเซ็น> ไม่มี id (เจอจริง 2026-10-01)
+      // → เปิดเมนูโหลด 720p ของแต่ละช่อง ดัก URL ที่หน้าเว็บขอ
       // (`/video/<id>`) แล้วยกเลิกทันที ไม่โหลดจริง ไม่เสียเครดิต · id ใน URL = id เดียวกับที่รอบ 3 เก็บ
       // (ยืนยันแล้ว: `_upsampled` ของกล่องพลาสติกใสใช้ id เดียวกับ thumbnail ตอนเรนเดอร์)
       const previewQuality = videoSel(name).previewQuality;
@@ -703,11 +700,6 @@ export async function runRound(
     }
 
     /**
-     * โหลดคลิปของช่องที่มี id นี้ด้วยเมนู More options → Download → ขนาดที่ต้องการ — ปุ่มโผล่เฉพาะตอนเอาเมาส์
-     * วางบน <flow-video-tile> จริง (ยืนยันสด 2026-09-30) · Flow ยิงเป็น blob download จึงจับด้วย event "download"
-     * แล้ว saveAs · ตรวจหัวไฟล์ว่าเป็น MP4 จริงก่อนคืน
-     */
-    /**
      * เปิดเมนู More options → Download → ขนาดที่ต้องการ ของช่องที่ idx แล้วคืน URL ไฟล์ที่หน้าเว็บขอ — **ยกเลิก**
      * คำขอนั้นทุกครั้ง (ไม่มี blob = ไม่มีดาวน์โหลด = Chrome ไม่ crash) ผู้เรียกดึงเองหรือแค่อ่าน id จาก URL
      */
@@ -761,8 +753,7 @@ export async function runRound(
       log.log(name, `คลิก "${picked}" ในเมนูย่อย`);
       // สอดแนมจริง 2026-10-01 (worker/smoke/dl-spy.ts): กด "1080p Upscaled" → Flow ขึ้น toast "Upscaling your video…"
       // → ~40 วิต่อมาหน้าเว็บ fetch `https://flow-content.google/video/<mediaId>_upsampled?Expires…` (video/mp4) เอง
-      // แล้วค่อยยิงเป็น blob download · เราดัก response ตัวนั้นแล้วอ่าน body ตรงๆ — ไม่พึ่ง event download/saveAs
-      // ที่พังได้ ("Target page… closed" ตอนสอดแนม) · 720p "Original size" ก็ fetch `/video/<id>` แบบเดียวกัน
+      // แล้วค่อยยิงเป็น blob download · 720p "Original size" ก็ fetch `/video/<id>` แบบเดียวกัน
       const wantUpsampled = quality.some((re) => re.test("Upscaled"));
       // **Chrome ของบอท crash ตอนเบราว์เซอร์เริ่ม "ดาวน์โหลด" blob** (crash dump ใน .flow-profile/Crashpad ตรงเวลาเป๊ะ
       // 2 ครั้ง 2026-10-01: ตอนสอดแนมและตอนบอทคลิก) — จึงดัก request ของไฟล์ที่หน้าเว็บ fetch เอง: จด URL แล้ว **ยกเลิก**
@@ -1043,7 +1034,7 @@ export async function runRound(
         while (Date.now() < deadline) {
           ids = await videoTileIds("find-video");
           if (ids.includes(mediaId)) return;
-          // thumbnail โหลดครบแล้ว (ไม่มีช่องว่าง) แต่ id ไม่ตรง → ลองหาแบบ hover / ช่องเดียว ไม่ต้องรอจนหมดเวลา
+          // thumbnail โหลดครบแล้ว (ไม่มีช่องว่าง) แต่ id ไม่ตรง → หาด้วย tileIndexOf (ช่องที่จำไว้ / ส่องเมนู) ไม่ต้องรอจนหมดเวลา
           if (ids.length > 0 && !ids.includes("")) {
             if ((await tileIndexOf("find-video", mediaId)) >= 0) return;
             break;
