@@ -120,7 +120,7 @@ export function FlowJobDetail({
     setError(null);
     startTransition(async () => {
       try {
-        await chooseFlowCandidate(job.id, imageId, isRound2Completion ? undefined : extra);
+        await chooseFlowCandidate(job.id, imageId);
         if (isRound2Completion) onRound2Chosen(job.entryId);
       } catch (e) {
         setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
@@ -233,7 +233,7 @@ export function FlowJobDetail({
               </p>
               <ExtraPromptField
                 id={`extra-${job.id}`}
-                label="ข้อความเพิ่มเติมถึง Flow (ใช้กับครั้งถัดไป — วาดใหม่ หรือรอบ 2)"
+                label="ข้อความเพิ่มเติมถึง Flow (ใช้กับ &quot;วาดใหม่&quot; ของรอบนี้เท่านั้น — รอบถัดไปเริ่มจากพรอมต์ตั้งต้นเสมอ)"
                 placeholder="เช่น เอาแค่แผ่นเดียว"
                 value={extra}
                 onChange={setExtra}

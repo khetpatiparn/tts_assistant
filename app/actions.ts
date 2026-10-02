@@ -20,6 +20,7 @@ import {
   extractCandidateRows,
   suggestAngleOptions,
   isGeminiModelId,
+  shortenProductName,
 } from "@/lib/gemini";
 import {
   collectFamily,
@@ -49,6 +50,8 @@ import {
   WORKER_STATE_ID,
   afterApproveRender,
   canRetryUpscale,
+  acceptShortName,
+  FULL_TITLE_PREFIX,
   flowProjectUrl,
   pickBackupBrowserProfile,
   afterChoose,
@@ -1094,6 +1097,21 @@ export async function deleteCandidateBatch(batchId: string): Promise<void> {
  * สร้าง PromptEntry จากสินค้าที่เลือก แล้วผูกกลับมาที่ candidate
  * ทำตามแบบ createEntryFromOrder — สร้าง entry ขั้นต่ำแล้วให้ผู้ใช้ไปกรอกต่อในหน้า entry
  */
+/**
+ * ชื่อสินค้าที่จะใช้สร้าง entry จากชื่อร้าน (Showcase/หาสินค้า) — ย่อด้วย Gemini ให้เหลือ 2–5 คำ เหมือนเส้นทางแคปเอง
+ * เพราะบอทพิมพ์ productName ลงพรอมต์วาดรูปของ Flow ทันที ชื่อ SEO ยาวที่มีคุณสมบัติทำให้รูปมีตัวหนังสือ (เจอจริง 2026-10-02)
+ * ชื่อเต็มเก็บไว้ใน productInfo ให้ 10-part prompt ยังเห็นข้อมูลครบ · ล้มเหลวทุกแบบ = ใช้ชื่อเต็มเหมือนเดิม ห้ามทำให้สร้างงานพัง
+ */
+async function shortNameForEntry(fullTitle: string): Promise<{ productName: string; productInfo: string }> {
+  let name = fullTitle;
+  try {
+    name = acceptShortName(await shortenProductName(fullTitle), fullTitle);
+  } catch (e) {
+    console.error("ย่อชื่อสินค้าไม่สำเร็จ ใช้ชื่อเต็ม:", e instanceof Error ? e.message : e);
+  }
+  return { productName: name, productInfo: name === fullTitle ? "" : `${FULL_TITLE_PREFIX}${fullTitle}` };
+}
+
 export async function createEntryFromCandidate(id: string): Promise<string> {
   const candidate = await prisma.productCandidate.findUnique({ where: { id } });
   if (!candidate) {
@@ -1107,8 +1125,7 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
 
   const created = await prisma.promptEntry.create({
     data: {
-      productName: candidate.name,
-      productInfo: "",
+      ...(await shortNameForEntry(candidate.name)),
       riskModule: "",
       extraNotes: "",
       images: "[]",
@@ -1154,8 +1171,7 @@ export async function startShowcaseProduct(
 
   const created = await prisma.promptEntry.create({
     data: {
-      productName: candidate.name,
-      productInfo: "",
+      ...(await shortNameForEntry(candidate.name)),
       riskModule: "",
       extraNotes: "",
       images: "[]",
@@ -1480,7 +1496,9 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
           status: next.status,
           round: 2,
           attempt: 1,
-          ...(extraPrompt === undefined ? {} : { extraPrompt: normalizeExtraPrompt(extraPrompt) }),
+          // รอบ 2 เริ่มด้วยพรอมต์ตั้งต้นเสมอ — ข้อความเพิ่มเติมของรอบ 1 มักสั่งเฉพาะภาพพื้นหลังขาว พอติดไปรอบ 2
+          // ภาพ "ตอนใช้งาน" ออกมาเหมือนรอบ 1 (ผู้ใช้เจอจริง 2026-10-02) · อยากสั่งรอบ 2 ให้พิมพ์แล้วกด "วาดใหม่" ในรอบ 2
+          extraPrompt: "",
         },
       });
       return;

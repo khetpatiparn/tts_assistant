@@ -83,6 +83,11 @@ try {
   check("backup profile: เจอชื่อมี Flow สำรอง", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 3": { name: "Flow สำรอง" } }), "Profile 3");
   check("backup profile: ไม่เจอ = null", f.pickBackupBrowserProfile({ Default: { name: "Person 1" }, "Profile 2": { name: "test triple bot" } }), null);
   check("backup profile: เจอสองอัน = null (ไม่เดา)", f.pickBackupBrowserProfile({ a: { name: "flow 1" }, b: { name: "backup" } }), null);
+  check("ชื่อสั้นปกติ", f.acceptShortName("  ผ้าเช็ดตัวสัตว์เลี้ยง ", "Jaotoob ผ้าเช็ดตัวสัตว์เลี้ยง สำหรับสุนัขและแมว หนานุ่มพิเศษ"), "ผ้าเช็ดตัวสัตว์เลี้ยง");
+  check("ชื่อสั้นว่าง → ชื่อเต็ม", f.acceptShortName("", "ชื่อเต็มยาวๆ"), "ชื่อเต็มยาวๆ");
+  check("ชื่อสั้นเกิน 60 → ชื่อเต็ม", f.acceptShortName("ก".repeat(61), "ข".repeat(80)), "ข".repeat(80));
+  check("ชื่อสั้นหลายบรรทัด → ชื่อเต็ม", f.acceptShortName("ผ้า\nเช็ดตัว", "ผ้าเช็ดตัวสัตว์เลี้ยงหนานุ่ม"), "ผ้าเช็ดตัวสัตว์เลี้ยงหนานุ่ม");
+  check("ชื่อสั้นยาวพอๆ ชื่อเต็ม → ชื่อเต็ม (ไม่ได้ย่อจริง)", f.acceptShortName("ตะขอแขวน", "ตะขอแขวน"), "ตะขอแขวน");
   check("flowProjectUrl ปกติ", f.flowProjectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"), "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   check("flowProjectUrl ว่าง = ''", f.flowProjectUrl(""), "");
   check("flowProjectUrl มีอักขระแปลก = ''", f.flowProjectUrl("abc/../x?y"), "");

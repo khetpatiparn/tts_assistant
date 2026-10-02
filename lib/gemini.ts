@@ -365,3 +365,31 @@ export async function extractCandidateRows(args: {
   }
   return text;
 }
+
+const SHORT_NAME_INSTRUCTION = `ย่อชื่อสินค้า TikTok Shop ให้เหลือชื่อเรียกสั้น 2–5 คำ ที่บอกแค่ว่าสินค้าคืออะไร เช่น "ผ้าเช็ดตัวสัตว์เลี้ยง" "ตะขอแขวนหลังประตู" "กล่องพลาสติกใสมีฝา"
+ตัดทิ้งทั้งหมด: ชื่อแบรนด์ คุณสมบัติ/สรรพคุณ (หนานุ่ม ซึมซับดี แห้งไว เกรดอาหาร) คำโฆษณา (ดีที่สุด ขายดี) กลุ่มลูกค้า/สถานที่ (สำหรับสุนัขและแมว เหมาะหอพัก) วงเล็บ ตัวเลขรุ่น ราคา
+ตอบเป็น JSON ตาม schema เท่านั้น`;
+
+/**
+ * ย่อชื่อ SEO ยาวของร้านเป็นชื่อเรียกสั้น (ผู้เรียกต้องผ่าน acceptShortName และ catch error เอง — ล้มเหลวให้ใช้ชื่อเต็ม)
+ * ล็อกที่ EXTRACT_MODEL เหตุผลเดียวกับ extractProductFields (งานข้อความล้วน)
+ */
+export async function shortenProductName(fullTitle: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  const client = new GoogleGenAI({ apiKey });
+  const response = await client.interactions.create({
+    model: EXTRACT_MODEL,
+    // snake_case ทั้งหมด — camelCase ถูกเมินเงียบๆ (ดู generateTenPartPrompt)
+    system_instruction: SHORT_NAME_INSTRUCTION,
+    generation_config: { temperature: 0 },
+    response_format: {
+      type: "text",
+      mime_type: "application/json",
+      schema: { type: "object", properties: { shortName: { type: "string" } }, required: ["shortName"] },
+    },
+    input: [{ type: "text", text: fullTitle }],
+  });
+  const parsed = JSON.parse(response.output_text ?? "{}") as { shortName?: unknown };
+  return typeof parsed.shortName === "string" ? parsed.shortName : "";
+}

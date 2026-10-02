@@ -154,6 +154,19 @@ export function pickBackupBrowserProfile(infoCache: Record<string, { name?: unkn
   return hits.length === 1 ? hits[0][0] : null;
 }
 
+/** คำนำหน้าชื่อเต็มของร้านที่เก็บไว้ใน productInfo เมื่อ productName ถูกย่อ */
+export const FULL_TITLE_PREFIX = "ชื่อเต็มจากร้าน: ";
+
+/**
+ * รับชื่อสั้นที่ Gemini ย่อมาเฉพาะเมื่อดูสมเหตุสมผล (1–60 ตัว บรรทัดเดียว ไม่ยาวเท่าชื่อเต็ม) ไม่งั้นใช้ชื่อเต็ม
+ * ชื่อ SEO ยาวของร้าน (มีคุณสมบัติ/คำโฆษณา) ทำให้ Flow ใส่ตัวหนังสือลงในรูป — เจอจริง 2026-10-02
+ */
+export function acceptShortName(candidate: string, fullTitle: string): string {
+  const t = candidate.replace(/\s+/g, " ").trim();
+  if (t === "" || t.length > 60 || /[\r\n]/.test(candidate.trim()) || t.length >= fullTitle.trim().length) return fullTitle;
+  return t;
+}
+
 export function videoDownloadName(productName: string): string {
   const safe = productName.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
   return `${safe === "" ? "clip" : safe}.mp4`;
