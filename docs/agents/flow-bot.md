@@ -98,10 +98,10 @@ spec/แผนรอบแรก: `docs/superpowers/specs/2026-09-06-flow-image-
 
 ## ปุ่ม "ส่งเข้าโฟลเดอร์ TTS"
 
-- `exportClipToFolder` (`app/actions.ts`) + helper pure `lib/clip-export.ts` (ตรวจด้วย `scripts/check-clip-export.mjs`) — ก๊อปคลิป (`คลิป-1080p.mp4`/`คลิป-720p.mp4`) + รูปที่เลือกรอบ 1/2 + `เสียงพากย์.txt` + `โพสต์.txt` ไปที่ `<root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น≤30>\` (ปี พ.ศ. 2 หลัก, ไม่เติม 0, `n` = เลขสูงสุดของโฟลเดอร์ย่อยในวันนั้น +1) แล้วเปิด Explorer
+- **งานดิสก์ทั้งชุดอยู่ `exportClip` ใน `lib/clip-export-fs.ts` ที่เดียว** (ตัดสินส่งซ้ำ/เลขช่อง/เช็กคลิปก่อนสร้างโฟลเดอร์/ก๊อป/ลบคลิปอีกขนาด/rollback · ฝั่งเซิร์ฟเวอร์เท่านั้น ตรวจกับโฟลเดอร์ชั่วคราวจริงด้วย `scripts/check-clip-export-fs.mjs`) · server action `exportClipToFolder` (`app/actions.ts`) เหลือแค่หางาน อ่านแถว `user_export_clip` ล่าสุดส่งเป็น `prev` บันทึก `record` ที่คืนมา (เมื่อ outcome ไม่ใช่ `already`) และเปิด Explorer · helper pure `lib/clip-export.ts` (ตรวจด้วย `scripts/check-clip-export.mjs`) client import ได้ ห้ามมี `node:*` — ก๊อปคลิป (`คลิป-1080p.mp4`/`คลิป-720p.mp4`) + รูปที่เลือกรอบ 1/2 + `เสียงพากย์.txt` + `โพสต์.txt` ไปที่ `<root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น≤30>\` (ปี พ.ศ. 2 หลัก, ไม่เติม 0, `n` = เลขสูงสุดของโฟลเดอร์ย่อยในวันนั้น +1) แล้วเปิด Explorer
 - root = `CLIP_EXPORT_ROOT` (ไม่ตั้ง = `Desktop\TTS`) · `CLIP_EXPORT_NO_OPEN=1` ไม่เปิด Explorer · **ตอนทดสอบตั้ง `CLIP_EXPORT_ROOT` ชี้ scratch เสมอ** — `Desktop\TTS` คือโฟลเดอร์งานจริงของผู้ใช้
 - กดซ้ำปลอดภัย: ทุกครั้งที่ส่งบันทึก `FlowActivity` kind `user_export_clip` (`detail: { path, video }` — video = ชื่อไฟล์คลิปตอนส่ง) แล้ว `exportAction` ตัดสินจากแถวล่าสุด: คลิปเดิม + โฟลเดอร์ยังอยู่ = ไม่ก๊อป คืน path เดิม (`alreadyExported`) · คลิปเปลี่ยน (720p → 1080p / เรนเดอร์ใหม่) หรือแถวเก่าที่ไม่มี `video` = เขียนทับในโฟลเดอร์เดิมและลบคลิปอีกขนาดทิ้ง (`updated`) · โฟลเดอร์ถูกลบ = ช่องใหม่ของวันนี้ · หน้า `/flow` ชวนกดอัปเดตเมื่อคลิปที่ส่งไว้ไม่ใช่คลิปปัจจุบัน (`exportStaleHint`)
-- สร้างโฟลเดอร์หลังเช็กว่ามีไฟล์คลิปแล้วเท่านั้น และลบทิ้งถ้าก๊อปล้มกลางทาง
+- สร้างโฟลเดอร์หลังเช็กว่ามีไฟล์คลิปแล้วเท่านั้น และลบทิ้งถ้าก๊อปล้มกลางทาง (ลบเฉพาะโฟลเดอร์ที่ `mkdir` สำเร็จเอง) · อัปเดตโฟลเดอร์เดิมแล้วล้ม = ไม่ลบ
 
 ## ทดสอบ
 

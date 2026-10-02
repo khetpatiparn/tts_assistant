@@ -1,14 +1,11 @@
 "use server";
 
-import { mkdir, readFile, writeFile, unlink, copyFile, readdir, stat, rm } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink, copyFile, stat } from "node:fs/promises";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import {
-  buildPostText, exportAction, exportClipName, exportDateParts, nextSlotNumber, otherExportClipName, parseExportDetail, shortFolderName,
-  slotFolderName,
-} from "@/lib/clip-export";
-import { extractVoiceoverScript } from "@/lib/claim-check";
+import { parseExportDetail } from "@/lib/clip-export";
+import { clipExportRoot, exportClip } from "@/lib/clip-export-fs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
@@ -48,7 +45,6 @@ import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
 import {
   DEFAULT_CAPTIONS,
-  FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
   acceptShortName,
   SHORT_NAME_TIMEOUT_MS,
@@ -1583,14 +1579,6 @@ function openInExplorer(dir: string): void {
   }
 }
 
-async function dirExists(p: string): Promise<boolean> {
-  try {
-    return (await stat(p)).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /**
  * เปิดโปรเจกต์ Flow ของงานในโปรไฟล์ Brave ของบัญชีสำรอง (Brave ของผู้ใช้ล็อกอินบัญชีหลักไว้ ลิงก์ธรรมดาจึงเปิดไม่ได้)
  * เซิร์ฟเวอร์รันบนเครื่องเดียวกัน จึงสั่ง brave.exe --profile-directory=<โปรไฟล์> ได้ตรงๆ
@@ -1622,11 +1610,9 @@ export async function openFlowProjectInBackupProfile(jobId: string): Promise<voi
 }
 
 /**
- * "ส่งเข้าโฟลเดอร์ TTS" — ก๊อปคลิป + รูปที่เลือก + เสียงพากย์ + ข้อความโพสต์ของงานไปที่
- * <root>\<Month>\<d-m-yy>\<n>_<ชื่อสั้น>\ (root = CLIP_EXPORT_ROOT หรือ Desktop\TTS) · เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้
- * กดซ้ำได้ปลอดภัย (ตัดสินด้วย exportAction ใน lib/clip-export.ts จากแถว user_export_clip ล่าสุด):
- * คลิปเดิม + โฟลเดอร์ยังอยู่ = เปิดโฟลเดอร์เดิม · คลิปของงานเปลี่ยน (720p → 1080p / เรนเดอร์ใหม่) = เขียนทับในโฟลเดอร์เดิม
- * · โฟลเดอร์ถูกลบ = ส่งใหม่เป็นช่องถัดไปของวันนี้
+ * "ส่งเข้าโฟลเดอร์ TTS" — งานดิสก์ทั้งชุด (ตัดสินส่งซ้ำ/เลขช่อง/ก๊อป/ลบคลิปอีกขนาด/rollback) อยู่ exportClip ใน
+ * lib/clip-export-fs.ts · ที่นี่แค่หางาน อ่านแถว user_export_clip ล่าสุด บันทึกแถวใหม่ และเปิด Explorer
+ * (เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้) · already = เปิดโฟลเดอร์เดิม ไม่บันทึกแถวใหม่
  */
 export async function exportClipToFolder(
   jobId: string
@@ -1640,96 +1626,18 @@ export async function exportClipToFolder(
   });
   if (!job) throw new Error("ไม่พบงาน Flow");
 
-  const video = job.images.find((i) => i.kind === "video");
-  if (!video) throw new Error("งานนี้ยังไม่มีไฟล์คลิป");
-  const flowDir = joinPath(UPLOAD_ROOT, job.entryId, "flow");
-  const videoSrc = joinPath(flowDir, video.filename);
-  if (!(await stat(videoSrc).then((s) => s.isFile(), () => false))) throw new Error("หาไฟล์คลิปในเครื่องไม่เจอ");
-
   const latest = await prisma.flowActivity.findFirst({ where: { kind: "user_export_clip", jobId }, orderBy: { at: "desc" } });
-  const prev = latest === null ? null : parseExportDetail(latest.detail);
-  const action = exportAction(prev, prev !== null && (await dirExists(prev.path)), video.filename);
-  if (action === "already" && prev !== null) {
-    const files = await readdir(prev.path).catch(() => [] as string[]);
-    openInExplorer(prev.path);
-    return { path: prev.path, alreadyExported: true, updated: false, files };
+  const result = await exportClip({
+    root: clipExportRoot(),
+    now: new Date(),
+    job: { ...job.entry, flowDir: joinPath(UPLOAD_ROOT, job.entryId, "flow"), images: job.images },
+    prev: latest === null ? null : parseExportDetail(latest.detail),
+  });
+  if (result.outcome !== "already") {
+    await logUserActivity({ kind: "user_export_clip", jobId, round: job.round, detail: result.record });
   }
-
-  const isFinal = video.filename === FINAL_VIDEO_FILENAME;
-  const { images, entry } = job;
-  /** เขียนของทั้งชุดลง dir — ใช้ทั้งส่งใหม่และอัปเดตโฟลเดอร์เดิม (ไฟล์ชื่อเดิมถูกเขียนทับ) */
-  async function writeContents(dir: string): Promise<string[]> {
-    const files: string[] = [];
-    const clipName = exportClipName(isFinal);
-    await copyFile(videoSrc, path.join(dir, clipName));
-    files.push(clipName);
-    // อัปเดต 720p → 1080p: ห้ามเหลือคลิปอีกขนาดค้างไว้ให้หยิบผิดตัวไปโพสต์
-    await rm(path.join(dir, otherExportClipName(isFinal)), { force: true });
-
-    const chosen = (round: number) => images.find((i) => i.kind === "candidate" && i.round === round && i.chosen);
-    for (const [row, label] of [[chosen(1), "รูป-พื้นหลังขาว"], [chosen(2), "รูป-ตอนใช้งาน"]] as const) {
-      if (!row) continue;
-      const src = joinPath(flowDir, row.filename);
-      if (!(await stat(src).then((s) => s.isFile(), () => false))) continue;
-      const name = `${label}${path.extname(row.filename)}`;
-      await copyFile(src, path.join(dir, name));
-      files.push(name);
-    }
-
-    // ข้อความว่างตอนนี้ = ลบไฟล์เก่า (ตอนอัปเดต) ไม่ปล่อยข้อความของคลิปก่อนค้างไว้
-    const texts: [string, string][] = [
-      ["เสียงพากย์.txt", extractVoiceoverScript(entry.chatgptOutput).trim()],
-      ["โพสต์.txt", buildPostText({ productName: entry.productName, caption: entry.caption, hashtags: entry.hashtags })],
-    ];
-    for (const [name, text] of texts) {
-      if (text === "") {
-        await rm(path.join(dir, name), { force: true });
-        continue;
-      }
-      await writeFile(path.join(dir, name), text + "\n", "utf8");
-      files.push(name);
-    }
-    return files;
-  }
-  function friendlyError(err: unknown): Error {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "EACCES" || code === "EPERM") return new Error("ไม่มีสิทธิ์เขียนในโฟลเดอร์ TTS");
-    return new Error("ส่งเข้าโฟลเดอร์ TTS ไม่สำเร็จ ลองอีกครั้ง");
-  }
-
-  if (action === "update" && prev !== null) {
-    let files: string[];
-    try {
-      files = await writeContents(prev.path);
-    } catch (err) {
-      // โฟลเดอร์นี้เป็นของที่ผู้ใช้ส่งไว้แล้ว — ห้ามลบทิ้งตอนอัปเดตพัง
-      throw friendlyError(err);
-    }
-    await logUserActivity({ kind: "user_export_clip", jobId, round: job.round, detail: { path: prev.path, video: video.filename } });
-    openInExplorer(prev.path);
-    return { path: prev.path, alreadyExported: false, updated: true, files };
-  }
-
-  const root = process.env.CLIP_EXPORT_ROOT ?? path.join(os.homedir(), "Desktop", "TTS");
-  const { month, day } = exportDateParts(new Date());
-  const dayDir = path.join(root, month, day);
-  let dir = "";
-  let files: string[];
-  try {
-    await mkdir(dayDir, { recursive: true });
-    const entries = await readdir(dayDir, { withFileTypes: true });
-    const n = nextSlotNumber(entries.filter((e) => e.isDirectory()).map((e) => e.name));
-    dir = path.join(dayDir, slotFolderName(n, shortFolderName(job.entry.productName)));
-    await mkdir(dir);
-    files = await writeContents(dir);
-  } catch (err) {
-    if (dir !== "") await rm(dir, { recursive: true, force: true }).catch(() => {});
-    throw friendlyError(err);
-  }
-
-  await logUserActivity({ kind: "user_export_clip", jobId, round: job.round, detail: { path: dir, video: video.filename } });
-  openInExplorer(dir);
-  return { path: dir, alreadyExported: false, updated: false, files };
+  openInExplorer(result.path);
+  return { path: result.path, alreadyExported: result.outcome === "already", updated: result.outcome === "updated", files: result.files };
 }
 
 /**

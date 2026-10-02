@@ -1,6 +1,6 @@
 /**
  * ตรรกะ pure ของปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ห้าม import node:* (ทดสอบด้วย scripts/check-clip-export.mjs)
- * ส่วนที่แตะดิสก์อยู่ใน exportClipToFolder (app/actions.ts)
+ * ส่วนที่แตะดิสก์อยู่ใน lib/clip-export-fs.ts (exportClip) — server action exportClipToFolder แค่เรียกแล้วเปิด Explorer
  */
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
