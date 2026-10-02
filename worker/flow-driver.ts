@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Locator, Page, Response } from "playwright";
 import { buildFlowPrompt } from "@/lib/flow-jobs";
 import type { WorkerConfig } from "./config";
-import { FlowStepError, type ErrorKind } from "./errors";
+import { FlowStepError } from "./errors";
 import { humanClick, humanHover, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
 import { findByIntent, findByJev } from "./dom-heuristics";
 import type { SelectorSet } from "./flow-selectors";
@@ -11,9 +11,9 @@ import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import {
-  blockKindForStatus, errorKindForTileTexts, fileUrlIsMedia, flowMediaIdFromSrc, generateAccepted, isMp4Header, knownTileIndex, pickDirectVideoUrl,
-  pickNewThumbnail, postRenderFailReason, renderSettingsLabelOk, videoUuidFromUrl,
+  fileUrlIsMedia, flowMediaIdFromSrc, isMp4Header, knownTileIndex, pickDirectVideoUrl, postRenderFailReason, renderSettingsLabelOk, videoUuidFromUrl,
 } from "./flow-signals";
+import { armImageWatch, armRenderWatch } from "./generation-watch";
 
 export type RoundInput = {
   /** สำหรับ FlowActivity เท่านั้น */
@@ -76,8 +76,6 @@ export type FlowStep = (typeof FLOW_STEPS)[number];
 
 const ASPECT = "3:4";
 const COUNT = 4;
-/** Flow ขึ้นช่อง "กำลังวาด" ทันทีที่รับคำสั่ง — เผื่อเน็ตช้า 45 วิก่อนสรุปว่าคลิก Generate ไม่ติด */
-const GENERATE_ACCEPT_MS = 45_000;
 /** Render: 9:16 ตามสูตรที่ผู้ใช้ทำมือ · ตัวเลือกข้อความล้วนที่ต้องเลือก (ค่าเริ่มต้นของโปรเจกต์ใหม่คือ 8s ต้องกด 10s) */
 const RENDER_ASPECT = "9:16";
 const RENDER_TEXT_OPTIONS = ["720p", "10s", "x1"] as const;
@@ -219,30 +217,6 @@ function extractProjectId(url: string, fragment: string): string {
   return after.split("?")[0].split("/")[0];
 }
 
-/** เดิน JSON ทั้งก้อน เก็บ URL รูปที่ host อยู่ใน allowlist — ไม่พึ่งชื่อ field (fifeUrl ฯลฯ) */
-export function collectImageUrls(body: unknown, hosts: string[], out: Set<string> = new Set()): string[] {
-  if (typeof body === "string") {
-    if (/^https:\/\//.test(body)) {
-      try {
-        const h = new URL(body).host;
-        if (hosts.some((allowed) => h === allowed || h.endsWith("." + allowed))) out.add(body);
-      } catch {
-        // ไม่ใช่ URL
-      }
-    }
-  } else if (Array.isArray(body)) {
-    for (const v of body) collectImageUrls(v, hosts, out);
-  } else if (body && typeof body === "object") {
-    for (const v of Object.values(body as Record<string, unknown>)) collectImageUrls(v, hosts, out);
-  }
-  return [...out];
-}
-
-/** โฮสต์ network strategy อ่าน response ของ RPC เจนรูปตรงๆ — รหัสบล็อก (401/403/429) ใช้กฎเดียวกับ blockKindForStatus ที่เหลือ ≥400 = flow_error */
-function kindForStatus(status: number): ErrorKind | null {
-  return blockKindForStatus(status) ?? (status >= 400 ? "flow_error" : null);
-}
-
 /**
  * ทำ 1 รอบ — ทุกขั้นตั้งชื่อไว้ใน FLOW_STEPS · ทุก error ที่หลุดออกไปเป็น FlowStepError
  * รอบ 1-2 วาดรูป 4 รูป (12 ขั้น) · รอบ 3 Render คลิป 1 ตัวแล้วโหลดตัวอย่าง 720p · รอบ 4 กลับไปโปรเจกต์เดิม
@@ -260,6 +234,10 @@ export async function runRound(
   let projectId = input.projectId;
   const responses: { status: number; body: unknown; at: number }[] = [];
   let submitAt = 0;
+  /** ตัวเฝ้าหลังกด Generate (generation-watch.ts) เจอ captcha/login → ลง FlowActivity ก่อน throw */
+  const onBotSignal = (signal: string): void => {
+    logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal } });
+  };
 
   const onResponse = async (res: Response) => {
     if (!res.url().includes(sel.results.responseUrlPart)) return;
@@ -589,13 +567,13 @@ export async function runRound(
     }
 
     /** selector ของ Render — โฮสต์ที่ไม่ประกาศ (labs) Render ไม่ได้ */
-    function videoSel(name: FlowStep): NonNullable<SelectorSet["video"]> {
+    function videoSel(name: string): NonNullable<SelectorSet["video"]> {
       if (!sel.video) throw new FlowStepError(name, "host_unsupported", `โฮสต์ชุด ${sel.name} ยังไม่รองรับการทำคลิป`);
       return sel.video;
     }
 
     /** id ของทุกช่องวิดีโอในกริดตามลำดับ DOM ("" = ช่องที่ยังไม่มี thumbnail เช่นกำลังทำ) */
-    async function videoTileIds(name: FlowStep): Promise<string[]> {
+    async function videoTileIds(name: string): Promise<string[]> {
       const v = videoSel(name);
       const srcs = await page
         .locator(v.tileContainer)
@@ -890,9 +868,8 @@ export async function runRound(
         await checkpoint(3, "prompt");
       });
 
-      const beforeErrorTiles = sel.errorTile ? await page.locator(sel.errorTile).count() : 0;
-      const beforeTiles = sel.resultTile ? await page.locator(sel.resultTile).count() : 0;
-      const beforeVideoIds = await videoTileIds("click-generate");
+      // นับสภาพหน้าก่อนกด (การ์ด error / ช่องในกริด / id ของช่องวิดีโอ) — ช่องคลิปเก่าของรอบเรนเดอร์ก่อนอยู่ในโปรเจกต์เดียวกัน
+      const watch = await armRenderWatch(page, sel, (s) => videoTileIds(s));
 
       await step("click-generate", async () => {
         const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
@@ -901,72 +878,9 @@ export async function runRound(
         await humanClick(page, btn, cfg);
       });
 
-      const mediaId = await step("wait-render", async () => {
-        const deadline = Date.now() + cfg.renderTimeoutMs;
-        const acceptBy = submitAt + GENERATE_ACCEPT_MS;
-        let accepted = !sel.resultTile;
-        while (Date.now() < deadline) {
-          for (const c of sel.captchaSignals) {
-            if ((await page.locator(c).count()) > 0) {
-              logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
-              throw new FlowStepError("wait-render", "captcha", `เจอสัญญาณ captcha ระหว่างรอคลิป: ${c}`);
-            }
-          }
-          for (const r of responses.filter((x) => x.at >= submitAt)) {
-            const kind = blockKindForStatus(r.status);
-            if (kind !== null) {
-              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
-              throw new FlowStepError("wait-render", kind, `Flow ตอบ HTTP ${r.status} หลังกดสร้างคลิป`);
-            }
-          }
-          // การ์ดพังของวิดีโอ — สันนิษฐานว่าเป็น <flow-error-tile> เหมือนรูป (ยังไม่เคยเห็นวิดีโอพังจริง ดู spec)
-          let freshFailed = 0;
-          if (sel.errorTile) {
-            const tiles = page.locator(sel.errorTile);
-            freshFailed = (await tiles.count()) - beforeErrorTiles;
-            if (freshFailed > 0) {
-              const kind = errorKindForTileTexts(await tiles.allInnerTexts());
-              if (kind === "captcha") {
-                logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
-                throw new FlowStepError("wait-render", "captcha", "Flow แจ้ง unusual activity (โดนจับว่าเป็นบอท) — พักก่อน");
-              }
-              throw new FlowStepError("wait-render", "flow_error", "Flow ทำคลิปไม่สำเร็จ (การ์ด error ในกริด)");
-            }
-          }
-          const pendingNow = sel.pendingTile ? await page.locator(sel.pendingTile).count() : 0;
-          const fresh = pickNewThumbnail(beforeVideoIds, await videoTileIds("wait-render"));
-          if (!accepted && sel.resultTile) {
-            accepted = generateAccepted({
-              tilesBefore: beforeTiles,
-              tilesNow: await page.locator(sel.resultTile).count(),
-              pendingNow,
-              freshErrorTiles: freshFailed,
-              goodCount: fresh === null ? 0 : 1,
-            });
-            if (!accepted && Date.now() > acceptBy) {
-              throw new FlowStepError(
-                "wait-render",
-                "selector_drift",
-                `กดสร้างคลิปแล้วแต่ Flow ไม่เริ่มทำภายใน ${String(GENERATE_ACCEPT_MS / 1000)} วิ (คลิกไม่ติด หรือปุ่มเปลี่ยน)`,
-              );
-            }
-          }
-          // เสร็จ = มีช่องวิดีโอใหม่ที่มี thumbnail แล้ว และไม่เหลือช่องที่กำลังทำ (ช่องที่เสร็จมีแค่ thumbnail ไม่มี <video>)
-          if (fresh !== null && pendingNow === 0) {
-            await sleepMs(2500);
-            return fresh;
-          }
-          const alert = page.locator("[role='alert'], [aria-live='assertive']");
-          if ((await alert.count()) > 0) {
-            const text = (await alert.allInnerTexts()).join(" ").trim();
-            if (/policy|can't create|violat|not able to generate|error/i.test(text)) {
-              throw new FlowStepError("wait-render", "flow_error", `Flow แจ้ง: ${text.slice(0, 200)}`);
-            }
-          }
-          await sleepMs(2000);
-        }
-        throw new FlowStepError("wait-render", "generation_timeout", `รอคลิปเกิน ${String(cfg.renderTimeoutMs)} ms`);
-      });
+      const mediaId = await step("wait-render", () =>
+        watch.wait({ submitAt, responses, timeoutMs: cfg.renderTimeoutMs, onBotSignal }),
+      );
 
       const dwell = await softStep("dwell", async () => {
         await sleepRange(cfg.dwellAfterResultsMs);
@@ -1064,11 +978,8 @@ export async function runRound(
       await checkpoint(3, "prompt");
     });
 
-    const beforeImgs = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
-    // ต้องนับ "ก่อนกด" เพราะ ensure-project ใช้โปรเจกต์เดิมซ้ำได้ (รอบ retry) — การ์ด Failed เก่า
-    // จากความพยายามก่อนหน้ายังค้างอยู่ในหน้า ถ้าไม่หักออกจะเข้าใจผิดว่ารอบนี้พังทันทีตั้งแต่ยังไม่ทันวาด
-    const beforeErrorTiles = sel.errorTile ? await page.locator(sel.errorTile).count() : 0;
-    const beforeTiles = sel.resultTile ? await page.locator(sel.resultTile).count() : 0;
+    // นับสภาพหน้าก่อนกด (รูป / การ์ด error / ช่องในกริด) — ดู armImageWatch
+    const watch = await armImageWatch(page, sel, COUNT);
 
     await step("click-generate", async () => {
       const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
@@ -1077,106 +988,9 @@ export async function runRound(
       await humanClick(page, btn, cfg);
     });
 
-    const urls = await step("wait-results", async () => {
-      const deadline = Date.now() + cfg.generationTimeoutMs;
-      // ยืนยันภายในเวลานี้ว่า Flow รับคำสั่งแล้ว — ไม่งั้นแปลว่าคลิก Generate ไม่ติด (ห้ามกดซ้ำเอง: AI4Next
-      // พบว่ากดซ้ำได้งานเจนซ้อน 2 ชุด) · ไม่มี resultTile = โฮสต์ที่ยังไม่ยืนยัน DOM ข้ามการเช็กนี้
-      const acceptBy = submitAt + GENERATE_ACCEPT_MS;
-      let accepted = !sel.resultTile;
-      while (Date.now() < deadline) {
-        let goodCount = 0;
-        // สัญญาณบอทก่อนอย่างอื่น — ถ้าหน้าเปลี่ยนเป็นหน้าบล็อกระหว่างรอ เดิมเช็กแค่ก่อนเริ่มแต่ละขั้น
-        for (const c of sel.captchaSignals) {
-          if ((await page.locator(c).count()) > 0) {
-            logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
-            throw new FlowStepError("wait-results", "captcha", `เจอสัญญาณ captcha ระหว่างรอผล: ${c}`);
-          }
-        }
-        if (sel.results.strategy === "network") {
-          const fresh = responses.filter((r) => r.at >= submitAt);
-          for (const r of fresh) {
-            const kind = kindForStatus(r.status);
-            if (kind !== null) {
-              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
-              const snippet = typeof r.body === "string" ? r.body.slice(0, 300) : JSON.stringify(r.body).slice(0, 300);
-              throw new FlowStepError("wait-results", kind, `Flow ตอบ HTTP ${r.status}: ${snippet}`);
-            }
-          }
-          const found = collectImageUrls(fresh.map((r) => r.body), sel.results.imageUrlHosts);
-          goodCount = found.length;
-          if (found.length >= COUNT) {
-            await sleepMs(2500); // เผื่อ response ที่มาช้า (straggler)
-            return collectImageUrls(responses.filter((r) => r.at >= submitAt).map((r) => r.body), sel.results.imageUrlHosts);
-          }
-        } else {
-          // เดิมโฮสต์นี้ไม่เช็ก HTTP status เลย (เช็กแต่ฝั่ง network strategy) — โดน 403/429 แล้วบอทไม่รู้ตัว
-          for (const r of responses.filter((x) => x.at >= submitAt)) {
-            const kind = blockKindForStatus(r.status);
-            if (kind !== null) {
-              if (kind === "captcha" || kind === "login_required") logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: `http ${r.status}` } });
-              throw new FlowStepError("wait-results", kind, `Flow ตอบ HTTP ${r.status} หลังกด Generate`);
-            }
-          }
-          const now = await page.locator("img").evaluateAll((els) => els.map((e) => (e as HTMLImageElement).src));
-          const fresh = now.filter((s) => !beforeImgs.includes(s));
-          const good = collectImageUrls(fresh, sel.results.imageUrlHosts);
-          goodCount = good.length;
-          if (good.length >= COUNT) {
-            await sleepMs(2500);
-            return good;
-          }
-        }
-        // การ์ด "Failed — Sorry, this image failed to generate" ของ Flow เอง (ไม่เสียเครดิต) —
-        // ไม่มี role=alert จึงไม่ถูกจับด้วยเช็ก alert ด้านล่าง ถ้าทุกช่องที่ขอ (COUNT) จบแล้วแต่ไม่ครบ
-        // เป็นรูปดี ต้องหยุดทันที ไม่ใช่นั่งรอจน generationTimeoutMs แล้วรายงานผิดว่า "ช้า"
-        let freshFailed = 0;
-        if (sel.errorTile) {
-          const tiles = page.locator(sel.errorTile);
-          freshFailed = (await tiles.count()) - beforeErrorTiles;
-          if (freshFailed > 0) {
-            // อ่านข้อความของการ์ด error เท่านั้น (ไม่ใช่ทั้งหน้า — พรอมต์เราอยู่ในหน้าด้วย) — element เดียวกัน
-            // ใช้ทั้งตอน "วาดไม่สำเร็จ" และตอนโดนบล็อก ต้องแยกให้ออก ห้ามรอให้ครบทุกช่องถ้าเป็นการบล็อก
-            const kind = errorKindForTileTexts(await tiles.allInnerTexts());
-            if (kind === "captcha") {
-              logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal: "wait-loop" } });
-              throw new FlowStepError("wait-results", "captcha", "Flow แจ้ง unusual activity (โดนจับว่าเป็นบอท) — พักก่อน");
-            }
-            if (freshFailed + goodCount >= COUNT) {
-              throw new FlowStepError(
-                "wait-results",
-                "flow_error",
-                `Flow วาดไม่สำเร็จ ${String(freshFailed)}/${String(COUNT)} รูป (failed to generate — ไม่เสียเครดิต)`,
-              );
-            }
-          }
-        }
-        if (!accepted && sel.resultTile) {
-          accepted = generateAccepted({
-            tilesBefore: beforeTiles,
-            tilesNow: await page.locator(sel.resultTile).count(),
-            pendingNow: sel.pendingTile ? await page.locator(sel.pendingTile).count() : 0,
-            freshErrorTiles: freshFailed,
-            goodCount,
-          });
-          if (!accepted && Date.now() > acceptBy) {
-            throw new FlowStepError(
-              "wait-results",
-              "selector_drift",
-              `กด Generate แล้วแต่ Flow ไม่เริ่มวาดภายใน ${String(GENERATE_ACCEPT_MS / 1000)} วิ (คลิกไม่ติด หรือปุ่มเปลี่ยน)`,
-            );
-          }
-        }
-        const alert = page.locator("[role='alert'], [aria-live='assertive']");
-        if ((await alert.count()) > 0) {
-          const text = (await alert.allInnerTexts()).join(" ").trim();
-          if (/policy|can't create|violat|not able to generate|error/i.test(text)) {
-            throw new FlowStepError("wait-results", "flow_error", `Flow แจ้ง: ${text.slice(0, 200)}`);
-          }
-        }
-        await sleepMs(2000);
-      }
-      throw new FlowStepError("wait-results", "generation_timeout", `รอผลเกิน ${cfg.generationTimeoutMs} ms`);
-    });
+    const urls = await step("wait-results", () =>
+      watch.wait({ submitAt, responses, timeoutMs: cfg.generationTimeoutMs, onBotSignal }),
+    );
 
     await step("dwell", async () => {
       await sleepRange(cfg.dwellAfterResultsMs);

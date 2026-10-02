@@ -3,7 +3,7 @@
  * รัน: node scripts/check-flow-worker-pure.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -28,11 +28,16 @@ function checkThrows(name, fn, includes) {
 try {
   execFileSync(
     "npx",
-    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts", "worker/jev.ts",
+    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts", "worker/jev.ts", "worker/generation-watch.ts",
      "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler",
      "--esModuleInterop", "--skipLibCheck"],
     { stdio: "inherit", shell: true }
   );
+  // tsc คง import แบบไม่มีนามสกุล ("./errors") ซึ่ง Node ESM หาไม่เจอ — เติม .js ให้ไฟล์ที่คอมไพล์แล้ว
+  for (const f of readdirSync(out).filter((n) => n.endsWith(".js"))) {
+    const file = join(out, f);
+    writeFileSync(file, readFileSync(file, "utf8").replace(/(from\s+["'])(\.\/[^"']+?)(["'])/g, (m, a, spec, b) => (spec.endsWith(".js") ? m : `${a}${spec}.js${b}`)));
+  }
 
   // ---------- config ----------
   const cfg = await import(pathToFileURL(join(out, "config.js")).href);
@@ -192,6 +197,128 @@ try {
 
   // สิ่งที่เขียนลง DB หลัง Render (เดิม renderOutcome ที่นี่) ย้ายไป previewReady ใน lib/flow-lifecycle.ts — ตรวจใน check-flow-lifecycle.mjs
   check("ขั้นหลัง Render พัง → เหตุผลระบุชื่อขั้น", fs2.postRenderFailReason("dwell", "เจอสัญญาณ captcha: x"), "dwell พังก่อนเริ่มโหลด: เจอสัญญาณ captcha: x");
+
+  // ---------- generation-watch (ลูปเฝ้าหน้าหลังกด Generate — ที่เดียวของรอบรูปและรอบ Render) ----------
+  const gw = await import(pathToFileURL(join(out, "generation-watch.js")).href);
+  {
+    const IMG_DOM = gw.imageWatchPolicy("dom", 4);
+    const IMG_NET = gw.imageWatchPolicy("network", 4);
+    const VID = gw.RENDER_WATCH;
+    const tick = (o = {}) => ({
+      captchaHit: null, responses: [], goodCount: 0, value: null, freshErrorTiles: 0, errorTileTexts: [],
+      tilesBefore: 5, tilesNow: null, pendingNow: 0, alertText: null, ...o,
+    });
+    const st = (o = {}) => ({ accepted: true, acceptBy: 45_000, now: 1_000, ...o });
+    const v = (t, p, s = st()) => gw.judgeTick(tick(t), s, p);
+    const sig = (r) => `${r.kind}|${r.errorKind ?? ""}|${r.botSignal ?? ""}`;
+
+    for (const [name, p] of [["รูป", IMG_DOM], ["รูป network", IMG_NET], ["คลิป", VID]]) {
+      check(`[${name}] captcha selector → captcha + bot_signal wait-loop`, sig(v({ captchaHit: "iframe[src*=recaptcha]" }, p)), "fail|captcha|wait-loop");
+      check(`[${name}] HTTP 403 → captcha + bot_signal http 403`, sig(v({ responses: [{ status: 403, body: null }] }, p)), "fail|captcha|http 403");
+      check(`[${name}] HTTP 429 → captcha (พักยาว) + bot_signal`, sig(v({ responses: [{ status: 429, body: null }] }, p)), "fail|captcha|http 429");
+      check(`[${name}] HTTP 401 → login_required + bot_signal`, sig(v({ responses: [{ status: 401, body: null }] }, p)), "fail|login_required|http 401");
+      check(`[${name}] การ์ด unusual activity → captcha + bot_signal ไม่รอให้ครบช่อง`,
+        sig(v({ freshErrorTiles: 1, errorTileTexts: ["Failed We noticed some unusual activity."] }, p)), "fail|captcha|wait-loop");
+      check(`[${name}] captcha selector ชนะ HTTP บล็อก`,
+        gw.judgeTick(tick({ captchaHit: "x", responses: [{ status: 403, body: null }] }), st(), p).message.includes("captcha ระหว่างรอ"), true);
+      check(`[${name}] alert policy → flow_error`, sig(v({ alertText: "This violates our policy" }, p)), "fail|flow_error|");
+      check(`[${name}] alert อื่น → รอต่อ`, v({ alertText: "Saved" }, p).kind, "wait");
+      check(`[${name}] ไม่รับคำสั่งเกิน 45 วิ → selector_drift (ไม่กดซ้ำ)`,
+        sig(v({ tilesNow: 5 }, p, st({ accepted: false, now: 46_000 }))), "fail|selector_drift|");
+      check(`[${name}] ไม่รับคำสั่งแต่ยังไม่ถึง 45 วิ → รอ`, v({ tilesNow: 5 }, p, st({ accepted: false, now: 44_000 })).kind, "wait");
+      check(`[${name}] มีช่องกำลังวาด → รับคำสั่งแล้ว`, v({ tilesNow: 5, pendingNow: 1 }, p, st({ accepted: false, now: 46_000 })).accepted, true);
+      check(`[${name}] โฮสต์ไม่มี resultTile (tilesNow null) → ไม่เช็กการรับคำสั่ง`, v({ tilesNow: null }, p, st({ accepted: false, now: 99_000 })).kind, "wait");
+    }
+    check("ข้อความ HTTP คงเดิม: รูป dom", v({ responses: [{ status: 403, body: null }] }, IMG_DOM).message, "Flow ตอบ HTTP 403 หลังกด Generate");
+    check("ข้อความ HTTP คงเดิม: คลิป", v({ responses: [{ status: 403, body: null }] }, VID).message, "Flow ตอบ HTTP 403 หลังกดสร้างคลิป");
+    check("ข้อความ captcha คงเดิม: คลิป", v({ captchaHit: "x" }, VID).message, "เจอสัญญาณ captcha ระหว่างรอคลิป: x");
+    check("ข้อความไม่รับคำสั่ง คงเดิม: รูป", v({ tilesNow: 5 }, IMG_DOM, st({ accepted: false, now: 46_000 })).message,
+      "กด Generate แล้วแต่ Flow ไม่เริ่มวาดภายใน 45 วิ (คลิกไม่ติด หรือปุ่มเปลี่ยน)");
+    check("network: HTTP 500 ของ RPC เจนรูป → flow_error ไม่ลง bot_signal", sig(v({ responses: [{ status: 500, body: "oops" }] }, IMG_NET)), "fail|flow_error|");
+    check("network: ข้อความแนบ body", v({ responses: [{ status: 500, body: "oops" }] }, IMG_NET).message, "Flow ตอบ HTTP 500: oops");
+    check("dom: HTTP 500 ของ RPC อื่นใน batchexecute → ไม่หยุด", v({ responses: [{ status: 500, body: null }] }, IMG_DOM).kind, "wait");
+    check("คลิป: HTTP 404 → ไม่หยุด", v({ responses: [{ status: 404, body: null }] }, VID).kind, "wait");
+    check("รูป: ได้ครบ 4 → เสร็จ", v({ goodCount: 4 }, IMG_DOM).kind, "done");
+    check("รูป: การ์ดพัง 2 + รูปดี 2 = ครบทุกช่อง → flow_error ทันที",
+      v({ goodCount: 2, freshErrorTiles: 2, errorTileTexts: ["Failed Sorry, this image failed to generate"] }, IMG_DOM).message,
+      "Flow วาดไม่สำเร็จ 2/4 รูป (failed to generate — ไม่เสียเครดิต)");
+    check("รูป: การ์ดพัง 1 + รูปดี 1 → ยังรอช่องที่เหลือ", v({ goodCount: 1, freshErrorTiles: 1, errorTileTexts: ["failed to generate"] }, IMG_DOM).kind, "wait");
+    check("คลิป: การ์ดพัง 1 → flow_error ทันที", v({ freshErrorTiles: 1, errorTileTexts: ["failed"] }, VID).message, "Flow ทำคลิปไม่สำเร็จ (การ์ด error ในกริด)");
+    check("คลิป: มีคลิปใหม่แต่ยังมีช่องกำลังทำ → รอ", v({ goodCount: 1, pendingNow: 1 }, VID).kind, "wait");
+    check("คลิป: มีคลิปใหม่และไม่เหลือช่องกำลังทำ → เสร็จ", v({ goodCount: 1, pendingNow: 0 }, VID).kind, "done");
+    // ลำดับเดิมของแต่ละรอบ (คงไว้): รูปเช็กผลครบก่อนการ์ด · คลิปเช็กการ์ดก่อนผล
+    check("รูป: ได้ครบแล้วชนะการ์ด error (ลำดับเดิม)", v({ goodCount: 4, freshErrorTiles: 1, errorTileTexts: ["unusual activity"] }, IMG_DOM).kind, "done");
+    check("คลิป: การ์ด error ชนะคลิปใหม่ (ลำดับเดิม)", v({ goodCount: 1, freshErrorTiles: 1, errorTileTexts: ["failed"] }, VID).kind, "fail");
+    check("ข้อความหมดเวลา: รูป", IMG_DOM.text.timeout(300000), "รอผลเกิน 300000 ms");
+    check("ข้อความหมดเวลา: คลิป", VID.text.timeout(480000), "รอคลิปเกิน 480000 ms");
+
+    // ลูปจริงกับหน้าปลอม + นาฬิกาปลอม (ไม่มี browser)
+    const fakeClock = () => { let t = 0; return { now: () => t, sleep: async (ms) => { t += ms; }, at: () => t }; };
+    const source = (ticks) => {
+      let i = 0;
+      const seen = [];
+      return {
+        seen, canConfirmAccept: true,
+        async observe(accepted) { seen.push(accepted); return tick(ticks[Math.min(i++, ticks.length - 1)]); },
+        settle: (t) => t.value,
+      };
+    };
+    const run = async (p, src, clock, timeoutMs = 600_000) => {
+      const signals = [];
+      try {
+        const value = await gw.runWatch(src, p, { submitAt: 0, timeoutMs, onBotSignal: (s) => signals.push(s) }, clock);
+        return { value, signals };
+      } catch (e) {
+        return { step: e.step, kind: e.kind, message: e.message, signals };
+      }
+    };
+    {
+      const c = fakeClock();
+      const r = await run(IMG_DOM, source([{ tilesNow: 9 }, { goodCount: 2 }, { goodCount: 4, value: ["a", "b", "c", "d"] }]), c);
+      check("runWatch: ได้รูปครบ → คืนค่า", JSON.stringify(r.value), '["a","b","c","d"]');
+      check("runWatch: ดูหน้าทุก 2 วิ แล้วรอ straggler 2.5 วิก่อนคืน", c.at(), 2 * gw.TICK_MS + gw.SETTLE_MS);
+    }
+    {
+      const src = source([{ tilesNow: 9 }, {}]);
+      await run(IMG_DOM, src, fakeClock(), 10_000);
+      check("runWatch: รับคำสั่งแล้วไม่นับช่องในกริดอีก (accepted ส่งต่อ)", JSON.stringify(src.seen.slice(0, 2)), "[false,true]");
+    }
+    {
+      const r = await run(VID, source([{}, { captchaHit: "text=unusual traffic" }]), fakeClock());
+      check("runWatch: captcha → FlowStepError ชื่อขั้น wait-render", `${r.step}|${r.kind}`, "wait-render|captcha");
+      check("runWatch: เรียก onBotSignal ครั้งเดียวก่อน throw", JSON.stringify(r.signals), '["wait-loop"]');
+    }
+    {
+      const r = await run(IMG_DOM, source([{ responses: [{ status: 403, body: null }] }]), fakeClock());
+      check("runWatch: HTTP 403 → captcha ชื่อขั้น wait-results + bot_signal http 403", `${r.step}|${r.kind}|${r.signals.join()}`, "wait-results|captcha|http 403");
+    }
+    {
+      const r = await run(IMG_DOM, source([{ freshErrorTiles: 4, errorTileTexts: ["failed to generate"] }]), fakeClock());
+      check("runWatch: Flow วาดพังเอง → flow_error ไม่ลง bot_signal", `${r.kind}|${r.signals.length}`, "flow_error|0");
+    }
+    {
+      const r = await run(VID, source([{}]), fakeClock(), 10_000);
+      check("runWatch: ครบเวลา → generation_timeout", `${r.step}|${r.kind}|${r.message}`, "wait-render|generation_timeout|รอคลิปเกิน 10000 ms");
+    }
+    {
+      const src = { ...source([{ tilesNow: 5 }]), canConfirmAccept: false };
+      const r = await run(IMG_DOM, src, fakeClock(), 120_000);
+      check("runWatch: โฮสต์ยืนยันการรับคำสั่งไม่ได้ → ไม่พังด้วยคลิกไม่ติด", r.kind, "generation_timeout");
+    }
+    {
+      const r = await run(IMG_DOM, source([{ tilesNow: 5 }]), fakeClock(), 120_000);
+      check("runWatch: กดแล้วกริดไม่ขยับเกิน 45 วิ → selector_drift (ไม่กดซ้ำ)", `${r.kind}|${r.step}`, "selector_drift|wait-results");
+    }
+    check("collectImageUrls: เดิน JSON เก็บเฉพาะ host ที่อนุญาต",
+      JSON.stringify(gw.collectImageUrls({ a: ["https://x.googleusercontent.com/i.png", "https://evil.example/i.png"], b: { c: "https://flow.google.com/asb/1" } }, ["googleusercontent.com", "flow.google.com"])),
+      '["https://x.googleusercontent.com/i.png","https://flow.google.com/asb/1"]');
+  }
+  // ตัวเฝ้าอ่านหน้าอย่างเดียว — ไม่มีทางกด Generate ซ้ำ
+  {
+    const src = readFileSync("worker/generation-watch.ts", "utf8");
+    check("generation-watch ไม่คลิก/กดอะไรเลย (ไม่มี humanClick / .click( / mouse / keyboard / sel.submit)",
+      /humanClick|\.click\(|\.mouse\.|\.keyboard\.|\.submit\b/.test(src), false);
+  }
 
   check("default renderTimeoutMs = 8 นาที", good.renderTimeoutMs, 480000);
   check("default renderDownloadTimeoutMs = 10 นาที", good.renderDownloadTimeoutMs, 600000);
