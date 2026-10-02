@@ -6,7 +6,8 @@ import Link from "next/link";
 import { Check, Copy, Download, FolderInput, X } from "lucide-react";
 
 import { exportClipToFolder } from "@/app/actions";
-import { videoDownloadName } from "@/lib/flow-jobs";
+import { FINAL_VIDEO_FILENAME, videoDownloadName } from "@/lib/flow-jobs";
+import { exportStaleHint } from "@/lib/clip-export";
 import type { FlowCheckpoint, FlowJobRow } from "@/lib/flow-queries";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -85,7 +86,12 @@ export function ClipLayout({
         >
           <Download data-icon="inline-start" /> ดาวน์โหลดคลิป
         </a>
-        <ExportToFolder jobId={job.id} exportedPath={job.exportedPath} />
+        <ExportToFolder
+          jobId={job.id}
+          exportedPath={job.exportedPath}
+          exportedVideo={job.exportedVideo}
+          currentVideo={job.video?.filename ?? null}
+        />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-4 min-[1400px]:h-full min-[1400px]:flex-row min-[1400px]:gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-4 leading-relaxed">{middle}</div>
@@ -95,12 +101,27 @@ export function ClipLayout({
   );
 }
 
-/** ปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ให้เซิร์ฟเวอร์ก๊อปคลิป+รูป+ข้อความเข้าโฟลเดอร์ของวันนี้แล้วเปิดให้ */
-function ExportToFolder({ jobId, exportedPath }: { jobId: string; exportedPath: string | null }) {
+/**
+ * ปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ให้เซิร์ฟเวอร์ก๊อปคลิป+รูป+ข้อความเข้าโฟลเดอร์ของวันนี้แล้วเปิดให้
+ * คลิปของงานเปลี่ยนหลังส่ง (720p → 1080p / เรนเดอร์ใหม่) = ชวนกดอีกครั้งเพื่ออัปเดตโฟลเดอร์เดิม
+ */
+function ExportToFolder({
+  jobId,
+  exportedPath,
+  exportedVideo,
+  currentVideo,
+}: {
+  jobId: string;
+  exportedPath: string | null;
+  exportedVideo: string | null;
+  currentVideo: string | null;
+}) {
   const [pending, startTransition] = useTransition();
-  // เคยส่งแล้ว (อ่านจาก log ตอนโหลดหน้า) = โชว์ทันทีโดยไม่ต้องกดซ้ำ
-  const [result, setResult] = useState<{ path: string; already: boolean } | null>(
-    exportedPath === null ? null : { path: exportedPath, already: true },
+  // เคยส่งแล้ว (อ่านจาก log ตอนโหลดหน้า) = โชว์ทันทีโดยไม่ต้องกดซ้ำ · stale = คลิปที่ส่งไว้ไม่ใช่คลิปปัจจุบัน
+  const [result, setResult] = useState<{ path: string; already: boolean; updated: boolean; stale: string | null } | null>(
+    exportedPath === null
+      ? null
+      : { path: exportedPath, already: true, updated: false, stale: exportStaleHint(exportedVideo, currentVideo, FINAL_VIDEO_FILENAME) },
   );
   const [error, setError] = useState("");
   function run() {
@@ -108,7 +129,7 @@ function ExportToFolder({ jobId, exportedPath }: { jobId: string; exportedPath: 
     startTransition(async () => {
       try {
         const r = await exportClipToFolder(jobId);
-        setResult({ path: r.path, already: r.alreadyExported });
+        setResult({ path: r.path, already: r.alreadyExported, updated: r.updated, stale: null });
       } catch (e) {
         setResult(null);
         setError(e instanceof Error ? e.message : "ส่งเข้าโฟลเดอร์ TTS ไม่สำเร็จ");
@@ -123,9 +144,10 @@ function ExportToFolder({ jobId, exportedPath }: { jobId: string; exportedPath: 
       <div role="status" className="text-xs leading-relaxed text-muted-foreground">
         {result !== null && (
           <p className="break-all">
-            {result.already ? "ส่งเข้าโฟลเดอร์ TTS แล้ว" : "ส่งแล้ว"} → {result.path}
+            {result.updated ? "อัปเดตคลิปในโฟลเดอร์เดิมแล้ว" : result.already ? "ส่งเข้าโฟลเดอร์ TTS แล้ว" : "ส่งแล้ว"} → {result.path}
           </p>
         )}
+        {result?.stale && <p className="font-medium text-foreground">{result.stale}</p>}
         {error !== "" && <p className="text-destructive">{error}</p>}
       </div>
     </div>

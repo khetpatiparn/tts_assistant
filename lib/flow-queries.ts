@@ -4,6 +4,7 @@ import { UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { loadWorkerConfig } from "@/worker/config";
 import { summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
+import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
 
 export type FlowImageRow = {
   id: string;
@@ -24,6 +25,8 @@ export type FlowJobRow = {
   id: string;
   /** โฟลเดอร์ใน TTS ที่ส่งคลิปไปแล้ว (จาก FlowActivity user_export_clip ล่าสุด) · null = ยังไม่เคยส่ง */
   exportedPath: string | null;
+  /** ชื่อไฟล์คลิปของงานตอนส่งครั้งล่าสุด (เทียบกับ video.filename เพื่อชวนอัปเดต) · null = ไม่เคยส่ง/แถวเก่าที่ไม่ได้เก็บ */
+  exportedVideo: string | null;
   entryId: string;
   productName: string;
   /** 10-part prompt ของ Entry — ใช้ในแผง "ทำคลิปเองใน Flow" ("" = ยังไม่ได้สร้าง) */
@@ -159,6 +162,7 @@ export async function getFlowQueueData(): Promise<{
       return {
         id: j.id,
         exportedPath: null as string | null,
+        exportedVideo: null as string | null,
         entryId: j.entryId,
         productName: j.entry.productName,
         prompt: j.entry.chatgptOutput,
@@ -194,17 +198,17 @@ export async function getFlowQueueData(): Promise<{
     orderBy: { at: "desc" },
     select: { jobId: true, detail: true },
   }).catch(() => [] as { jobId: string | null; detail: string }[]);
-  const exported = new Map<string, string>();
+  // แถวล่าสุดต่องานเท่านั้น (เรียง desc) — ตรงกับที่ exportClipToFolder ใช้ตัดสิน · detail เสีย = ถือว่ายังไม่ส่ง
+  const exported = new Map<string, ExportRecord | null>();
   for (const r of exportRows) {
     if (r.jobId === null || exported.has(r.jobId)) continue;
-    try {
-      const path = (JSON.parse(r.detail) as { path?: unknown }).path;
-      if (typeof path === "string" && path !== "") exported.set(r.jobId, path);
-    } catch {
-      // detail เสีย = ข้าม
-    }
+    exported.set(r.jobId, parseExportDetail(r.detail));
   }
-  for (const j of jobs) j.exportedPath = exported.get(j.id) ?? null;
+  for (const j of jobs) {
+    const rec = exported.get(j.id) ?? null;
+    j.exportedPath = rec?.path ?? null;
+    j.exportedVideo = rec?.video ?? null;
+  }
 
   // อ่านโฟลเดอร์ภาพจุดเช็กพร้อมกันทุกงาน (งานที่โชว์มีไม่กี่สิบงาน — ไม่ใช่ภาระ)
   const withCheckpoints = await Promise.all(

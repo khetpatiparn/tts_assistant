@@ -49,3 +49,47 @@ export function buildPostText(args: { productName: string; caption: string; hash
     .filter((s) => s !== "")
     .join("\n\n");
 }
+
+/** สิ่งที่จำไว้จากแถว FlowActivity `user_export_clip` — video = ชื่อไฟล์คลิปของงานตอนส่ง (null = แถวก่อนเก็บค่านี้) */
+export type ExportRecord = { path: string; video: string | null };
+
+/** อ่าน detail ของแถว `user_export_clip` · เสีย/ไม่มี path = null */
+export function parseExportDetail(detail: string): ExportRecord | null {
+  try {
+    const d = JSON.parse(detail) as { path?: unknown; video?: unknown };
+    if (typeof d.path !== "string" || d.path === "") return null;
+    return { path: d.path, video: typeof d.video === "string" && d.video !== "" ? d.video : null };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * กด "ส่งเข้าโฟลเดอร์ TTS" แล้วทำอะไร (prev = แถวล่าสุดของงานนี้):
+ * already = คลิปเดิมและโฟลเดอร์ยังอยู่ (เปิดของเดิม) · update = โฟลเดอร์ยังอยู่แต่คลิปของงานเปลี่ยน (720p → 1080p
+ * หรือเรนเดอร์ใหม่) หรือแถวเก่าไม่รู้ว่าส่งคลิปไหน → เขียนทับในโฟลเดอร์เดิม · new = ยังไม่เคยส่ง/โฟลเดอร์ถูกลบ
+ */
+export function exportAction(prev: ExportRecord | null, folderExists: boolean, currentVideo: string): "already" | "update" | "new" {
+  if (prev === null || !folderExists) return "new";
+  return prev.video === currentVideo ? "already" : "update";
+}
+
+const CLIP_1080 = "คลิป-1080p.mp4";
+const CLIP_720 = "คลิป-720p.mp4";
+
+/** ชื่อไฟล์คลิปในโฟลเดอร์ TTS · isFinal = ไฟล์ 1080p (FINAL_VIDEO_FILENAME) */
+export function exportClipName(isFinal: boolean): string {
+  return isFinal ? CLIP_1080 : CLIP_720;
+}
+
+/** คลิปอีกขนาดที่ต้องลบออกจากโฟลเดอร์ตอนอัปเดต — กันมีทั้ง 720p และ 1080p ค้างคู่กัน */
+export function otherExportClipName(isFinal: boolean): string {
+  return isFinal ? CLIP_720 : CLIP_1080;
+}
+
+/** ข้อความชวนกดอัปเดตเมื่อคลิปที่ส่งไว้ไม่ใช่คลิปปัจจุบัน · ไม่รู้ว่าส่งอะไรไว้ (แถวเก่า) หรือไม่มีคลิปตอนนี้ = null */
+export function exportStaleHint(exportedVideo: string | null, currentVideo: string | null, finalVideoFilename: string): string | null {
+  if (exportedVideo === null || currentVideo === null || exportedVideo === currentVideo) return null;
+  if (currentVideo === finalVideoFilename && exportedVideo !== finalVideoFilename) return "ส่งไว้เป็น 720p — กดเพื่ออัปเดตเป็น 1080p";
+  return "มีคลิปใหม่กว่า — กดเพื่ออัปเดต";
+}
