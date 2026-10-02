@@ -54,6 +54,8 @@ import {
   afterApproveRender,
   canRetryUpscale,
   acceptShortName,
+  SHORT_NAME_TIMEOUT_MS,
+  withTimeout,
   FULL_TITLE_PREFIX,
   flowProjectUrl,
   pickBackupBrowserProfile,
@@ -1099,12 +1101,13 @@ export async function deleteCandidateBatch(batchId: string): Promise<void> {
 /**
  * ชื่อสินค้าที่จะใช้สร้าง entry จากชื่อร้าน (Showcase/หาสินค้า) — ย่อด้วย Gemini ให้เหลือ 2–5 คำ เหมือนเส้นทางแคปเอง
  * เพราะบอทพิมพ์ productName ลงพรอมต์วาดรูปของ Flow ทันที ชื่อ SEO ยาวที่มีคุณสมบัติทำให้รูปมีตัวหนังสือ (เจอจริง 2026-10-02)
- * ชื่อเต็มเก็บไว้ใน productInfo ให้ 10-part prompt ยังเห็นข้อมูลครบ · ล้มเหลวทุกแบบ = ใช้ชื่อเต็มเหมือนเดิม ห้ามทำให้สร้างงานพัง
+ * ชื่อเต็มเก็บไว้ใน productInfo ให้ 10-part prompt ยังเห็นข้อมูลครบ · ล้มเหลวทุกแบบ (รวมเกิน SHORT_NAME_TIMEOUT_MS) = ใช้ชื่อเต็มเหมือนเดิม
+ * ห้ามทำให้สร้างงานพัง · ผู้เรียกที่มีเช็กกันสร้างซ้ำต้องเรียกก่อนเช็กนั้น (ดู startShowcaseProduct)
  */
 async function shortNameForEntry(fullTitle: string): Promise<{ productName: string; productInfo: string }> {
   let name = fullTitle;
   try {
-    name = acceptShortName(await shortenProductName(fullTitle), fullTitle);
+    name = acceptShortName(await withTimeout(shortenProductName(fullTitle), SHORT_NAME_TIMEOUT_MS, "ย่อชื่อสินค้า"), fullTitle);
   } catch (e) {
     console.error("ย่อชื่อสินค้าไม่สำเร็จ ใช้ชื่อเต็ม:", e instanceof Error ? e.message : e);
   }
@@ -1164,6 +1167,9 @@ export async function startShowcaseProduct(
 
   const candidate = await prisma.productCandidate.findUnique({ where: { id: candidateId } });
   if (!candidate || candidate.sourceProductId === null) throw new Error("ไม่พบสินค้าที่เลือก");
+  // ย่อชื่อ (เรียก Gemini สูงสุด SHORT_NAME_TIMEOUT_MS) ก่อนเช็กกันซ้ำ — ช่วงระหว่าง guard กับ create ต้องสั้นที่สุด
+  // ไม่งั้นกดซ้ำ/สองแท็บระหว่างรอ Gemini จะผ่าน guard ทั้งคู่แล้วได้งานซ้ำ
+  const naming = await shortNameForEntry(candidate.name);
   // กดซ้ำ/เปิดสองแท็บ — ห้ามสร้างงานซ้ำให้สินค้าตัวเดียว
   if (candidate.linkedEntryId !== null) {
     const existing = await prisma.promptEntry.findUnique({ where: { id: candidate.linkedEntryId }, select: { id: true } });
@@ -1174,7 +1180,7 @@ export async function startShowcaseProduct(
 
   const created = await prisma.promptEntry.create({
     data: {
-      ...(await shortNameForEntry(candidate.name)),
+      ...naming,
       riskModule: "",
       extraNotes: "",
       images: "[]",

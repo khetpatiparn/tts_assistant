@@ -2,7 +2,7 @@
  * ตรวจตรรกะ pure ของ lib/flow-jobs.ts — รัน: node scripts/check-flow-jobs.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -165,6 +165,35 @@ try {
     check("ข้อความบอกว่าคลิปน่าจะอยู่ใน Flow และเรนเดอร์ใหม่เสีย 15 เครดิต",
       f.STALE_RENDER_MESSAGE.includes("คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว") && f.STALE_RENDER_MESSAGE.includes("15 เครดิต"), true);
     check("ข้อความนี้โชว์ตรงๆ ในหน้า /flow (ไม่ถูกพับเป็นข้อความเทคนิค)", f.friendlyJobMessage("review_r3", f.STALE_RENDER_MESSAGE).detail, null);
+  }
+
+  // B4: ย่อชื่อด้วย Gemini ต้องมีเพดานเวลา และต้องเรียกก่อนเช็กกันสร้างงานซ้ำ (ช่อง guard→create สั้นเหมือนเดิม)
+  {
+    check("SHORT_NAME_TIMEOUT_MS = 8 วิ", f.SHORT_NAME_TIMEOUT_MS, 8000);
+    const fast = await f.withTimeout(new Promise((r) => setTimeout(() => r("ok"), 10)), 500, "ย่อชื่อ");
+    check("เสร็จก่อนหมดเวลา → ได้ค่า", fast, "ok");
+    let msg = null;
+    const t0 = Date.now();
+    try { await f.withTimeout(new Promise((r) => setTimeout(() => r("late"), 2000)), 50, "ย่อชื่อ"); } catch (e) { msg = e instanceof Error ? e.message : String(e); }
+    check("ช้าเกิน → โยน error ที่บอกชื่องาน", msg !== null && msg.includes("ย่อชื่อ"), true);
+    check("ไม่รอจนงานช้าเสร็จ", Date.now() - t0 < 1000, true);
+    let rej = null;
+    try { await f.withTimeout(Promise.reject(new Error("api ล้ม")), 500, "ย่อชื่อ"); } catch (e) { rej = e instanceof Error ? e.message : String(e); }
+    check("งานล้มเอง → error เดิมส่งต่อ", rej, "api ล้ม");
+
+    const src = readFileSync("app/actions.ts", "utf8").replace(/\r\n/g, "\n");
+    const body = (name) => {
+      const at = src.indexOf(`export async function ${name}(`);
+      const end = src.indexOf("\nexport async function ", at + 1);
+      return at < 0 ? "" : src.slice(at, end < 0 ? undefined : end);
+    };
+    const showcase = body("startShowcaseProduct");
+    const nameAt = showcase.indexOf("shortNameForEntry(");
+    const guardAt = showcase.indexOf("linkedEntryId !== null");
+    check("startShowcaseProduct ย่อชื่อก่อนเช็กกันสร้างซ้ำ", nameAt >= 0 && guardAt >= 0 && nameAt < guardAt, true);
+    check("startShowcaseProduct ไม่เรียก Gemini ระหว่าง guard กับ create", showcase.slice(guardAt, showcase.indexOf("promptEntry.create")).includes("shortNameForEntry("), false);
+    const helperAt = src.indexOf("async function shortNameForEntry(");
+    check("shortNameForEntry ครอบ Gemini ด้วย withTimeout", src.slice(helperAt, src.indexOf("\n}\n", helperAt)).includes("withTimeout("), true);
   }
 } finally {
   rmSync(out, { recursive: true, force: true });

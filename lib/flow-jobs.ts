@@ -166,6 +166,18 @@ export function acceptShortName(candidate: string, fullTitle: string): string {
   return t;
 }
 
+/** เพดานเวลาย่อชื่อสินค้าด้วย Gemini ตอนสร้าง entry — เกินนี้ใช้ชื่อเต็ม (ผู้ใช้กดปุ่มรออยู่) */
+export const SHORT_NAME_TIMEOUT_MS = 8000;
+
+/** รอ promise ไม่เกิน ms — เกินแล้วโยน Error ที่มี label (ไม่ยกเลิกงานเดิม แค่เลิกรอ) · งานล้มเองส่ง error เดิมต่อ */
+export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} เกิน ${String(ms / 1000)} วิ`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
 /** ชื่อไฟล์ตอนกด "ดาวน์โหลดคลิป" — ชื่อสินค้าเป็นภาษาไทยได้ แต่ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก */
 export function videoDownloadName(productName: string): string {
   const safe = productName.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
