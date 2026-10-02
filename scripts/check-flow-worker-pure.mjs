@@ -313,6 +313,108 @@ try {
       JSON.stringify(gw.collectImageUrls({ a: ["https://x.googleusercontent.com/i.png", "https://evil.example/i.png"], b: { c: "https://flow.google.com/asb/1" } }, ["googleusercontent.com", "flow.google.com"])),
       '["https://x.googleusercontent.com/i.png","https://flow.google.com/asb/1"]');
   }
+  // adapter หน้าจริงกับหน้าปลอม — อ่านเฉพาะที่โค้ดเดิมอ่าน (หยุดอ่านเมื่อได้คำตัดสิน) และได้ผลเดียวกัน
+  {
+    const SEL = {
+      captchaSignals: ["iframe[src*='recaptcha']"], errorTile: "flow-error-tile", resultTile: "flow-grid-tile-container",
+      pendingTile: "flow-pending-tile", results: { strategy: "dom", imageUrlHosts: ["flow.google.com"] },
+    };
+    const fakePage = (st) => {
+      const reads = [];
+      return {
+        reads, st,
+        locator: (q) => ({
+          count: async () => { reads.push(`count ${q}`); return st.counts[q] ?? 0; },
+          allInnerTexts: async () => { reads.push(`texts ${q}`); return st.texts[q] ?? []; },
+          evaluateAll: async () => { reads.push(`eval ${q}`); return st.evals[q] ?? []; },
+        }),
+      };
+    };
+    const clock = () => { let t = 0; return { now: () => t, sleep: async (ms) => { t += ms; } }; };
+    const runArgs = (responses = []) => ({ submitAt: 0, responses, timeoutMs: 600_000, onBotSignal: () => {} });
+    const settle = async (p) => { try { return { value: await p }; } catch (e) { return { step: e.step, kind: e.kind, message: e.message }; } };
+
+    {
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: { img: ["https://flow.google.com/asb/old"] } });
+      const w = await gw.armImageWatch(page, SEL, 4);
+      check("armImageWatch นับก่อนกด: รูป → การ์ด error → ช่องในกริด", page.reads.join(" / "), "eval img / count flow-error-tile / count flow-grid-tile-container");
+      page.reads.length = 0;
+      page.st.evals.img = ["https://flow.google.com/asb/old", ...[1, 2, 3, 4].map((i) => `https://flow.google.com/asb/n${i}`)];
+      const r = await settle(w.wait(runArgs(), clock()));
+      check("รอบรูป dom: ได้รูปใหม่ 4 รูป (ไม่นับรูปเก่า)", JSON.stringify(r.value), JSON.stringify([1, 2, 3, 4].map((i) => `https://flow.google.com/asb/n${i}`)));
+      check("รอบรูป: ได้ครบแล้วไม่อ่านการ์ด error/alert ต่อ (เหมือนเดิม)", page.reads.join(" / "), "count iframe[src*='recaptcha'] / eval img");
+    }
+    {
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: {} });
+      const w = await gw.armImageWatch(page, { ...SEL, results: { strategy: "network", imageUrlHosts: ["googleusercontent.com"] } }, 4);
+      const responses = [{ status: 200, body: { u: [1, 2, 3, 4].map((i) => `https://x.googleusercontent.com/${i}`) }, at: 10 }];
+      const r = await settle(w.wait(runArgs(responses), clock()));
+      check("รอบรูป network: URL จาก response หลังกด", r.value?.length, 4);
+    }
+    {
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: {} });
+      const w = await gw.armImageWatch(page, SEL, 4);
+      page.st.counts["iframe[src*='recaptcha']"] = 1;
+      const r = await settle(w.wait(runArgs(), clock()));
+      check("รอบรูป: captcha ระหว่างรอ → หยุดอ่านทันที", `${r.kind}|${page.reads.slice(3).join(" / ")}`, "captcha|count iframe[src*='recaptcha']");
+    }
+    {
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: { img: [] } });
+      const w = await gw.armImageWatch(page, SEL, 4);
+      page.reads.length = 0;
+      page.st.counts["flow-error-tile"] = 4;
+      page.st.texts["flow-error-tile"] = ["Failed Sorry, this image failed to generate"];
+      const r = await settle(w.wait(runArgs(), clock()));
+      check("รอบรูป: การ์ดพังครบ 4 → flow_error และไม่อ่านกริด/alert ต่อ (เหมือนเดิม)", `${r.kind}|${page.reads.join(" / ")}`,
+        "flow_error|count iframe[src*='recaptcha'] / eval img / count flow-error-tile / texts flow-error-tile");
+    }
+    {
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: { img: [] } });
+      const w = await gw.armImageWatch(page, SEL, 4);
+      page.reads.length = 0;
+      page.st.counts["flow-error-tile"] = 1;
+      page.st.texts["flow-error-tile"] = ["failed to generate"];
+      const r = await settle(w.wait({ ...runArgs(), timeoutMs: 1 }, clock()));
+      check("รอบรูป: การ์ดพัง 1 ใบยังไม่ครบ → อ่านต่อ (กริด → ช่องกำลังวาด → alert) แล้วรอ", `${r.kind}|${page.reads.slice(4).join(" / ")}`,
+        "generation_timeout|count flow-grid-tile-container / count flow-pending-tile / count [role='alert'], [aria-live='assertive']");
+    }
+    {
+      const ids = [];
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: {} });
+      const readIds = async (step) => { page.reads.push(`ids ${step}`); return ids.slice(); };
+      ids.push("old");
+      const w = await gw.armRenderWatch(page, SEL, readIds);
+      check("armRenderWatch นับก่อนกด: การ์ด error → ช่องในกริด → id ช่องวิดีโอ (ขั้น click-generate)",
+        page.reads.join(" / "), "count flow-error-tile / count flow-grid-tile-container / ids click-generate");
+      page.reads.length = 0;
+      page.st.counts["flow-error-tile"] = 1;
+      page.st.texts["flow-error-tile"] = ["Failed"];
+      const r = await settle(w.wait(runArgs(), clock()));
+      check("รอบคลิป: การ์ด error ใหม่ → flow_error ชื่อขั้น wait-render", `${r.step}|${r.kind}`, "wait-render|flow_error");
+      check("รอบคลิป: เจอการ์ดแล้วไม่อ่านช่องกำลังทำ/id/alert ต่อ (เหมือนเดิม)",
+        page.reads.join(" / "), "count iframe[src*='recaptcha'] / count flow-error-tile / texts flow-error-tile");
+    }
+    {
+      const ids = ["old"];
+      const page = fakePage({ counts: { "flow-grid-tile-container": 5 }, texts: {}, evals: {} });
+      const w = await gw.armRenderWatch(page, SEL, async (step) => { page.reads.push(`ids ${step}`); return ids.slice(); });
+      page.reads.length = 0;
+      ids.unshift("new");
+      page.st.counts["flow-grid-tile-container"] = 6;
+      page.st.counts["flow-pending-tile"] = 1;
+      const c = clock();
+      let ticks = 0;
+      const sleep = c.sleep;
+      c.sleep = async (ms) => { ticks++; if (ticks === 1) page.st.counts["flow-pending-tile"] = 0; await sleep(ms); };
+      const r = await settle(w.wait(runArgs(), c));
+      check("รอบคลิป: ช่องใหม่มี thumbnail + ไม่เหลือช่องกำลังทำ → id ใหม่", r.value, "new");
+      check("รอบคลิป: ยังมีช่องกำลังทำ → อ่านครบทุกอย่างแล้วรอ (การ์ด → ช่องกำลังทำ → id → กริด → alert)",
+        page.reads.slice(0, 6).join(" / "),
+        "count iframe[src*='recaptcha'] / count flow-error-tile / count flow-pending-tile / ids wait-render / count flow-grid-tile-container / count [role='alert'], [aria-live='assertive']");
+      check("รอบคลิป: รับคำสั่งแล้ว + เสร็จ → ไม่นับกริด ไม่อ่าน alert (เหมือนเดิม)", page.reads.slice(6).join(" / "),
+        "count iframe[src*='recaptcha'] / count flow-error-tile / count flow-pending-tile / ids wait-render");
+    }
+  }
   // ตัวเฝ้าอ่านหน้าอย่างเดียว — ไม่มีทางกด Generate ซ้ำ
   {
     const src = readFileSync("worker/generation-watch.ts", "utf8");

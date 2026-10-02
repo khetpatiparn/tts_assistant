@@ -110,7 +110,7 @@ export const RENDER_WATCH: WatchPolicy = {
   },
 };
 
-/** สิ่งที่เห็นในหน้า 1 ครั้ง · field ที่ไม่ได้อ่าน (หยุดอ่านเพราะเจอ captcha/HTTP บล็อกแล้ว) เป็นค่าว่าง */
+/** สิ่งที่เห็นในหน้า 1 ครั้ง · field ที่ไม่ได้อ่าน (adapter หยุดอ่านเพราะได้คำตัดสินแล้ว — ลำดับเดียวกับโค้ดเดิม) เป็นค่าว่าง */
 export type WatchTick<T> = {
   /** captcha selector ตัวแรกที่เจอ · null = ไม่เจอ */
   captchaHit: string | null;
@@ -153,6 +153,14 @@ function fail(errorKind: ErrorKind, message: string, botSignal: string | null): 
   return { kind: "fail", errorKind, message, botSignal };
 }
 
+/** การ์ด error ใหม่ตัดสินแล้วหรือยัง — บล็อก = captcha ทันที · ทุกช่องที่ขอจบแล้ว (พัง + ดี ≥ ที่ขอ) = flow_error · ไม่งั้น null (รอช่องที่เหลือ) */
+export function errorTileVerdict(freshErrorTiles: number, texts: string[], goodCount: number, p: WatchPolicy): WatchVerdict | null {
+  if (freshErrorTiles <= 0) return null;
+  if (errorKindForTileTexts(texts) === "captcha") return fail("captcha", TILE_BOT_BLOCK_MESSAGE, "wait-loop");
+  if (freshErrorTiles + goodCount >= p.expected) return fail("flow_error", p.text.tilesFailed(freshErrorTiles), null);
+  return null;
+}
+
 /**
  * ตัดสินจากสิ่งที่เห็น 1 ครั้ง (pure) — ลำดับคือลำดับความสำคัญ:
  * captcha selector → HTTP บล็อก → [รอบรูป: ได้ผลครบ] → การ์ด error (บล็อก = captcha · ครบทุกช่องแล้ว = flow_error)
@@ -171,10 +179,8 @@ export function judgeTick<T>(tick: WatchTick<T>, s: { accepted: boolean; acceptB
   // การ์ด "Failed — Sorry, this image failed to generate" ของ Flow เอง (ไม่เสียเครดิต) — ไม่มี role=alert
   // จึงไม่ถูกจับด้วยเช็ก alert ด้านล่าง ถ้าทุกช่องที่ขอจบแล้วแต่ไม่ครบเป็นผลดี ต้องหยุดทันที ไม่ใช่นั่งรอจนหมดเวลา
   // แล้วรายงานผิดว่า "ช้า" · element เดียวกันใช้ทั้งตอน "วาดไม่สำเร็จ" และตอนโดนบล็อก — บล็อกไม่ต้องรอให้ครบทุกช่อง
-  if (tick.freshErrorTiles > 0) {
-    if (errorKindForTileTexts(tick.errorTileTexts) === "captcha") return fail("captcha", TILE_BOT_BLOCK_MESSAGE, "wait-loop");
-    if (tick.freshErrorTiles + tick.goodCount >= p.expected) return fail("flow_error", p.text.tilesFailed(tick.freshErrorTiles), null);
-  }
+  const tilesVerdict = errorTileVerdict(tick.freshErrorTiles, tick.errorTileTexts, tick.goodCount, p);
+  if (tilesVerdict !== null) return tilesVerdict;
   // ยืนยันภายใน 45 วิว่า Flow รับคำสั่งแล้ว — ไม่งั้นแปลว่าคลิก Generate ไม่ติด (ห้ามกดซ้ำเอง: AI4Next
   // พบว่ากดซ้ำได้งานเจนซ้อน 2 ชุด) · tilesNow null = รับแล้ว หรือโฮสต์ที่ยังไม่ยืนยัน DOM (ไม่มี resultTile) ข้ามการเช็กนี้
   let accepted = s.accepted;
@@ -266,7 +272,8 @@ export function collectImageUrls(body: unknown, hosts: string[], out: Set<string
 // ---------------------------------------------------------------------------------------------
 // adapter หน้า Flow จริง — อ่านอย่างเดียว ไม่คลิก
 
-export type GenerationWatch<T> = { wait(run: WatchRun): Promise<T> };
+/** clock ใส่ได้เฉพาะในเทสต์ (หน้าปลอม) — บอทใช้เวลาจริงเสมอ */
+export type GenerationWatch<T> = { wait(run: WatchRun, clock?: WatchClock): Promise<T> };
 
 function responsesSince(responses: readonly ObservedResponse[], submitAt: number): ObservedResponse[] {
   return responses.filter((r) => r.at >= submitAt);
@@ -317,7 +324,7 @@ export async function armImageWatch(page: Page, sel: WatchSelectors, count: numb
   const policy = imageWatchPolicy(sel.results.strategy, count);
   const hosts = sel.results.imageUrlHosts;
   return {
-    wait: (run) => {
+    wait: (run, clock) => {
       const source: TickSource<string[]> = {
         canConfirmAccept: !!sel.resultTile,
         async observe(accepted) {
@@ -332,7 +339,13 @@ export async function armImageWatch(page: Page, sel: WatchSelectors, count: numb
             const now = await readImgSrcs(page);
             good = collectImageUrls(now.filter((s) => !beforeImgs.includes(s)), hosts);
           }
+          // ได้ครบแล้ว = เสร็จ (รอบรูปเช็กผลก่อนการ์ด error) — ไม่อ่านหน้าต่อ เหมือนโค้ดเดิมที่คืนผลทันที
+          if (good.length >= count) return { ...blankTick<string[]>(null, fresh, beforeTiles), goodCount: good.length, value: good };
           const tiles = await readErrorTiles(page, sel, beforeErrorTiles);
+          // การ์ด error ตัดสินแล้ว (บล็อก / ครบทุกช่อง) — ไม่อ่านหน้าต่อ เหมือนโค้ดเดิมที่ throw ตรงนั้น
+          if (errorTileVerdict(tiles.fresh, tiles.texts, good.length, policy) !== null) {
+            return { ...blankTick<string[]>(null, fresh, beforeTiles), goodCount: good.length, value: good, freshErrorTiles: tiles.fresh, errorTileTexts: tiles.texts };
+          }
           const needAccept = !accepted && !!sel.resultTile;
           const tilesNow = needAccept && sel.resultTile ? await page.locator(sel.resultTile).count() : null;
           const pendingNow = needAccept && sel.pendingTile ? await page.locator(sel.pendingTile).count() : 0;
@@ -349,7 +362,7 @@ export async function armImageWatch(page: Page, sel: WatchSelectors, count: numb
             : (tick.value ?? []);
         },
       };
-      return runWatch(source, policy, run);
+      return runWatch(source, policy, run, clock);
     },
   };
 }
@@ -368,7 +381,7 @@ export async function armRenderWatch(
   const beforeTiles = sel.resultTile ? await page.locator(sel.resultTile).count() : 0;
   const beforeVideoIds = await readVideoIds("click-generate");
   return {
-    wait: (run) => {
+    wait: (run, clock) => {
       const source: TickSource<string> = {
         canConfirmAccept: !!sel.resultTile,
         async observe(accepted) {
@@ -377,10 +390,13 @@ export async function armRenderWatch(
           const fresh = responsesSince(run.responses, run.submitAt);
           if (blockingResponse(fresh, RENDER_WATCH) !== null) return blankTick(null, fresh, beforeTiles);
           const tiles = await readErrorTiles(page, sel, beforeErrorTiles);
+          // การ์ด error ตัดสินแล้ว (คลิปขอ 1 ช่อง — ใบเดียวก็ตัดสิน) — ไม่อ่านหน้าต่อ เหมือนโค้ดเดิมที่ throw ตรงนั้น
+          if (errorTileVerdict(tiles.fresh, tiles.texts, 0, RENDER_WATCH) !== null) return { ...blankTick<string>(null, fresh, beforeTiles), freshErrorTiles: tiles.fresh, errorTileTexts: tiles.texts };
           const pendingNow = sel.pendingTile ? await page.locator(sel.pendingTile).count() : 0;
           const newId = pickNewThumbnail(beforeVideoIds, await readVideoIds("wait-render"));
           const tilesNow = !accepted && sel.resultTile ? await page.locator(sel.resultTile).count() : null;
-          const alertText = await readAlert(page);
+          // มีคลิปใหม่และไม่เหลือช่องกำลังทำ = เสร็จ (เช็กก่อน alert) — ไม่อ่าน alert เหมือนโค้ดเดิม
+          const alertText = newId !== null && pendingNow === 0 ? null : await readAlert(page);
           return {
             captchaHit: null, responses: fresh, goodCount: newId === null ? 0 : 1, value: newId,
             freshErrorTiles: tiles.fresh, errorTileTexts: tiles.texts, tilesBefore: beforeTiles, tilesNow, pendingNow, alertText,
@@ -390,7 +406,7 @@ export async function armRenderWatch(
           return tick.value ?? "";
         },
       };
-      return runWatch(source, RENDER_WATCH, run);
+      return runWatch(source, RENDER_WATCH, run, clock);
     },
   };
 }
