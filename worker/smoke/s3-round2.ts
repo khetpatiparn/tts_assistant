@@ -2,13 +2,14 @@
  * S3: รอบ 2 ("ตอนใช้งาน") โดยอัปโหลดรูปที่ Flow วาดในรอบ 1 กลับเข้าไปเป็นรูปอ้างอิง
  * รัน: npm run flow-smoke:s3 -- worker/smoke/out/s2/r1-a1-0.png "<ชื่อสินค้า>" [projectId]
  * ถ้าใส่ projectId (จากบรรทัด PROJECT_ID= ของ S2) จะใช้ project เดิม ไม่งั้นสร้างใหม่
+ * ตัวเลือก: FLOW_FORCE_FAIL_STEP=<step> เหมือน S2
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadWorkerConfig } from "../config";
 import { launchFlowBrowser, openFlowAndSettle } from "../browser";
 import { selectorSetForHost } from "../flow-selectors";
-import { runRound } from "../flow-driver";
+import { drawImages } from "../flow-driver";
 import { StepLog, captureFailure } from "../failure";
 import { isFlowStepError } from "../errors";
 
@@ -27,13 +28,11 @@ async function main() {
   try {
     const { host } = await openFlowAndSettle(page, cfg);
     const sel = selectorSetForHost(host);
-    const result = await runRound(
-      page,
-      { jobId: "smoke", round: 2, productName, referencePaths: [path.resolve(refPath)], outDir, filePrefix: "r2-a1", projectId: projectId ?? null, extraPrompt: "", checkpointDir: null },
-      cfg,
-      sel,
-      log
+    const result = await drawImages(
+      { page, cfg, sel, log, jobId: "smoke", forceFailStep: process.env.FLOW_FORCE_FAIL_STEP },
+      { round: 2, productName, reference: path.resolve(refPath), extraPrompt: "", projectId: projectId ?? null, out: { dir: outDir, prefix: "r2-a1", checkpointDir: null } },
     );
+    console.log(`PROJECT_ID=${result.projectId}`);
     writeFileSync(path.join(outDir, "s3-response.json"), JSON.stringify(result.responseBody, null, 2), "utf8");
     for (const f of result.files) console.log(`FILE=${f}`);
     console.log("S3 OK");

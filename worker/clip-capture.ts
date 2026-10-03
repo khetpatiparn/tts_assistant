@@ -10,8 +10,9 @@
  * - `findClip(mediaId)` — ขั้น find-video: ยืนยันว่าเจอช่องของคลิปนี้ (throw selector_drift ถ้าไม่เจอ)
  * - `captureFinal(mediaId, filename)` — ขั้น download-final: 1080p Upscaled ผ่านเมนู ไฟล์ต้องเป็นของ mediaId จริง · **ไม่ throw**
  *
- * สถานะภายใน (ช่องที่หาเจอแล้ว / uuid จากลิงก์ตรง) เป็นของ instance เอง — สร้างใหม่ทุกรอบ ไม่มีตัวแปรร่วมกับ runRound
- * (เดิมเป็น let/const ใน runRound ที่ต้องประกาศก่อนบรรทัดแยกรอบ — ประกาศผิดที่แล้วรอบ 4 พังด้วย TDZ, 75387b4)
+ * สถานะภายใน (ช่องที่หาเจอแล้ว / uuid จากลิงก์ตรง) เป็นของ instance เอง — สูตรใน flow-driver.ts (renderClip / fetchFinalClip)
+ * สร้างใหม่ทุกครั้งผ่าน FlowSession.clipCapture() (เดิมเป็น let/const ใน runRound ตัวเก่าที่ต้องประกาศก่อนบรรทัดแยกรอบ —
+ * ประกาศผิดที่แล้วรอบ 4 พังด้วย TDZ, 75387b4)
  *
  * ชื่อขั้น (download-preview / find-video / download-final) อยู่ในข้อความ error และ steps.log ตามเดิม
  */
@@ -48,7 +49,7 @@ export type ClipSession = {
   /** สำหรับ FlowActivity */
   jobId: string;
   round: number;
-  /** ภาพจุดเช็ก (runRound) — เมนูที่เปิด `5-menu` / เมนูย่อย `6-submenu` */
+  /** ภาพจุดเช็ก (FlowSession.checkpoint) — เมนูที่เปิด `5-menu` / เมนูย่อย `6-submenu` */
   checkpoint: (n: number, name: string) => Promise<void>;
 };
 

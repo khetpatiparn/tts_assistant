@@ -41,7 +41,7 @@ export type WatchSelectors = {
   results: { strategy: "network" | "dom"; imageUrlHosts: string[] };
 };
 
-/** response ของ RPC เจนที่ runRound ดักไว้ (onResponse) — array เดียวกันที่ยังโตอยู่ระหว่างรอ */
+/** response ของ RPC เจนที่ Flow session ดักไว้ (onResponse ใน flow-session.ts) — array เดียวกันที่ยังโตอยู่ระหว่างรอ */
 export type ObservedResponse = { status: number; body: unknown; at: number };
 
 /** สิ่งที่ต่างกันระหว่างรอบรูปกับรอบ Render — นอกนั้นใช้กฎชุดเดียวกัน */

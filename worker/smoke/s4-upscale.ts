@@ -1,5 +1,5 @@
 /**
- * S4: รันรอบ 4 (หาคลิปที่ผ่าน + โหลด 1080p) ด้วยโค้ดจริงของบอท โดยไม่แตะ DB
+ * S4: รันรอบ 4 (หาคลิปที่ผ่าน + โหลด 1080p) ด้วยโค้ดจริงของบอท (fetchFinalClip) โดยไม่แตะ DB · ไม่เสียเครดิต
  * รัน (ต้องปิดบอทก่อน — โปรไฟล์ Chrome เปิดได้ทีละตัว): npx tsx worker/smoke/s4-upscale.ts <projectId> <mediaId>
  * ผลลัพธ์: worker/smoke/out/s4/r3-final.mp4 · steps ใน console · ถ้าพัง worker/smoke/out/s4-failure/
  */
@@ -8,7 +8,7 @@ import path from "node:path";
 import { loadWorkerConfig } from "../config";
 import { launchFlowBrowser, openFlowAndSettle } from "../browser";
 import { selectorSetForHost } from "../flow-selectors";
-import { runRound } from "../flow-driver";
+import { fetchFinalClip } from "../flow-driver";
 import { StepLog, captureFailure } from "../failure";
 import { isFlowStepError } from "../errors";
 
@@ -30,15 +30,12 @@ async function main() {
   try {
     const { host } = await openFlowAndSettle(page, cfg);
     const sel = selectorSetForHost(host);
-    const result = await runRound(
-      page,
-      {
-        jobId: "smoke-s4", round: 4, productName: "smoke", referencePaths: [], outDir,
-        filePrefix: "r3-final", projectId, extraPrompt: "", checkpointDir: path.join(outDir, "checkpoints"), mediaId,
-      },
-      cfg, sel, log, {},
+    const result = await fetchFinalClip(
+      { page, cfg, sel, log, jobId: "smoke-s4", forceFailStep: process.env.FLOW_FORCE_FAIL_STEP },
+      { projectId, mediaId, out: { dir: outDir, prefix: "r3-final", checkpointDir: path.join(outDir, "checkpoints") } },
     );
-    console.log("RESULT", JSON.stringify({ files: result.files, downloadFailed: result.downloadFailed }));
+    console.log("RESULT", JSON.stringify(result));
+    if (result.file === null) process.exitCode = 1;
   } catch (e) {
     const step = isFlowStepError(e) ? e.step : "unknown";
     const kind = isFlowStepError(e) ? e.kind : "worker_crash";

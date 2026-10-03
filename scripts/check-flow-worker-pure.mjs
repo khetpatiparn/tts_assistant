@@ -434,15 +434,31 @@ try {
   rmSync(out, { recursive: true, force: true });
 }
 
-// runRound: ตัวแปร let/const ที่ฟังก์ชันรอบ 3-4 ใช้ต้องอยู่ก่อนบรรทัดแยกทาง — ฟังก์ชัน hoist แต่ตัวแปรไม่ hoist
-// (2026-10-01: foundTiles อยู่ใต้ฟังก์ชัน รอบ 4 พังทุกครั้งด้วย "Cannot access ... before initialization")
+// สูตรของบอท (flow-driver.ts) แยกต่อรอบบน Flow session (flow-session.ts) — ไม่มีฟังก์ชันเดียวที่ถือทุกรอบแล้วออกกลางทาง
+// (เดิม runRound ถือรอบ 1-4 · ตัวแปรที่ประกาศใต้บรรทัดแยกทางทำรอบ 4 พังด้วย TDZ ทุกครั้ง 2026-10-01)
+// ตอนนี้ closure ร่วมอยู่ใน withFlowSession — สถานะของ session ต้องประกาศก่อนฟังก์ชันภายในทุกตัว (กัน TDZ แบบเดียวกัน)
 {
-  const src = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
-  const dispatch = src.indexOf("if (input.round === 4) return await upscaleRound();");
-  const renderStart = src.indexOf("async function renderRound()");
-  const between = dispatch >= 0 && renderStart > dispatch ? src.slice(dispatch, renderStart) : null;
-  const late = between === null ? ["หาบรรทัดแยกทาง/renderRound ไม่เจอ"] : between.split("\n").filter((l) => /^ {4}(let|const) /.test(l));
-  check("ไม่มี let/const ระดับ runRound ระหว่างบรรทัดแยกทางรอบ 3-4 กับ renderRound", late.join(" | "), "");
+  const session = readFileSync("worker/flow-session.ts", "utf8").replace(/\r\n/g, "\n");
+  const driver = readFileSync("worker/flow-driver.ts", "utf8").replace(/\r\n/g, "\n");
+  const factory = session.indexOf("export async function withFlowSession");
+  const body = factory >= 0 ? session.slice(factory) : "";
+  const firstFn = body.search(/\n {2}(async )?function /);
+  const state = body.slice(0, firstFn < 0 ? 0 : firstFn).split("\n").filter((l) => /^ {2}(let|const) /.test(l));
+  const late = (firstFn < 0 ? "" : body.slice(firstFn)).split("\n").filter((l) => /^ {2}let /.test(l));
+  check("withFlowSession: สถานะ (responses) ประกาศก่อนฟังก์ชันภายในตัวแรก", state.some((l) => l.includes("const responses")), true);
+  check("withFlowSession: ไม่มี let ระดับ session หลังฟังก์ชันภายในตัวแรก", late.join(" | "), "");
+  check("flow-driver ไม่แยกทางตามรอบกลางสูตร (ไม่มี round === 3/4)", /round === [34]/.test(driver), false);
+  check("flow-driver มีสูตรครบ 3 ตัว", ["drawImages", "renderClip", "fetchFinalClip"].every((n) => driver.includes(`export async function ${n}(`)), true);
+  check("ทุกสูตรเดินบน withFlowSession (ติด/ถอด listener ของ response ที่เดียว)", (driver.match(/return withFlowSession\(ctx, /g) ?? []).length, 3);
+  check("page.on/off(\"response\") อยู่ flow-session ที่เดียว", /page\.(on|off)\("response"/.test(driver), false);
+  // ด่านกันเสียเครดิตกับคลิปที่ไม่มีพรอมต์อยู่ที่สูตรที่จ่ายเครดิต (ก่อนแตะหน้า) ที่เดียว · ด่านข้อมูลคลิปที่ผ่านอยู่ที่ processJob ที่เดียว
+  const index = readFileSync("worker/index.ts", "utf8").replace(/\r\n/g, "\n");
+  const renderAt = driver.indexOf("export async function renderClip(");
+  const guardAt = driver.indexOf('throw new FlowStepError("paste-prompt", "worker_crash", "entry นี้ยังไม่มี 10-part prompt');
+  check("renderClip ตรวจ 10-part prompt ว่างก่อน withFlowSession", guardAt > renderAt && guardAt < driver.indexOf("return withFlowSession(ctx, 3,", renderAt), true);
+  check("processJob ไม่ตรวจ 10-part prompt ซ้ำ", /chatgptOutput\.trim\(\)/.test(index), false);
+  check("ด่าน media id ของ Final clip มีที่เดียว (processJob)", (index + driver).split("ไม่มีข้อมูลคลิปที่ผ่าน (media id / project)").length - 1, 1);
+  check("flow-driver ไม่มีด่าน media id ซ้ำ", /mediaId === ""/.test(driver), false);
 }
 
 // รอบ 4: findTileIndex ต้องตัดสินด้วย knownTileIndex (ไม่มีทางลัด "ช่องเดียวใช้เลย") และโหลด 1080p ต้องเช็ก id ของไฟล์
@@ -458,7 +474,8 @@ try {
   const firstFn = src.indexOf("function videoSel(", factory);
   const stateAt = [src.indexOf("let lastDirectVideoUuid", factory), src.indexOf("const foundTiles", factory)];
   check("สถานะของ clipCapture ประกาศก่อนฟังก์ชันภายในทุกตัว (กัน TDZ)", stateAt.every((i) => i > factory && i < firstFn), true);
-  check("flow-driver ไม่ถือสถานะของการโหลดคลิปเองแล้ว", /foundTiles|lastDirectVideoUuid/.test(driver), false);
+  const session = readFileSync("worker/flow-session.ts", "utf8");
+  check("flow-driver / flow-session ไม่ถือสถานะของการโหลดคลิปเองแล้ว", /foundTiles|lastDirectVideoUuid/.test(driver + session), false);
 }
 
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }

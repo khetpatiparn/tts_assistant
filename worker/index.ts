@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync, unlinkSync } from
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID, buildRenderPrompt,
+  ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID,
   claimOrder, queuedStatus, toJobRound, type JobRound,
 } from "@/lib/flow-jobs";
 import {
@@ -21,7 +21,7 @@ import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser
 import { notify } from "./notify";
 import { logActivity } from "./activity";
 import { selectorSetForHost, type SelectorSet } from "./flow-selectors";
-import { runRound } from "./flow-driver";
+import { drawImages, fetchFinalClip, renderClip, type FlowContext, type OutputFiles } from "./flow-driver";
 import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
 import { randInt, sleepMs } from "./humanize";
@@ -128,22 +128,19 @@ async function claimNextJob(rounds: JobRound[]) {
 
 type ClaimedJob = NonNullable<Awaited<ReturnType<typeof claimNextJob>>>;
 
-/** รูปที่แนบเข้า Flow: รอบ 1 = รูปแคปแรก · รอบ 2 = รูปที่เลือกรอบ 1 · Render = รูปที่เลือกรอบ 1 + รอบ 2 · รอบ 4 = ไม่มี */
-function referencePathsFor(job: ClaimedJob, round: JobRound): string[] {
-  const dir = path.join(UPLOAD_ROOT, job.entryId, "flow");
-  if (round === 4) return [];
-  if (round === 1) {
-    const src = job.images.filter((i) => i.kind === "source").sort((a, b) => a.index - b.index)[0];
-    if (!src) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง");
-    return [path.join(dir, src.filename)];
-  }
-  const chosen = (r: number) => job.images.find((i) => i.kind === "candidate" && i.round === r && i.chosen);
-  const r1 = chosen(1);
-  if (!r1) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ยังไม่ได้เลือกรูปรอบ 1");
-  if (round === 2) return [path.join(dir, r1.filename)];
-  const r2 = chosen(2);
-  if (!r2) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ยังไม่ได้เลือกรูปรอบ 2");
-  return [path.join(dir, r1.filename), path.join(dir, r2.filename)];
+/** รูปที่ผู้ใช้เลือกในรอบ r (เป็นรูปอ้างอิงของรอบถัดไป) — ยังไม่ได้เลือก = พังที่ open-flow ก่อนแตะหน้า */
+function chosenImagePath(job: ClaimedJob, r: 1 | 2): string {
+  const chosen = job.images.find((i) => i.kind === "candidate" && i.round === r && i.chosen);
+  if (!chosen) throw new FlowStepError("open-flow", "worker_crash", `งานนี้ยังไม่ได้เลือกรูปรอบ ${r}`);
+  return path.join(UPLOAD_ROOT, job.entryId, "flow", chosen.filename);
+}
+
+/** รูปที่แนบเข้า Flow ตอนวาดรูป: รอบ 1 = รูปแคปแรก · รอบ 2 = รูปที่เลือกรอบ 1 */
+function imageReferenceFor(job: ClaimedJob, round: 1 | 2): string {
+  if (round === 2) return chosenImagePath(job, 1);
+  const src = job.images.filter((i) => i.kind === "source").sort((a, b) => a.index - b.index)[0];
+  if (!src) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง");
+  return path.join(UPLOAD_ROOT, job.entryId, "flow", src.filename);
 }
 
 /** แถวคลิปของงาน (มีได้แถวเดียว — ตัวอย่างของ attempt ปัจจุบัน หรือไฟล์ 1080p) */
@@ -207,61 +204,26 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     await upsertState({ currentJobId: job.id, nextWakeAt: null });
     log(`เริ่มงาน ${job.id} (${job.entry.productName}) รอบ ${round} attempt ${job.attempt}`);
 
-    // รอบ 4 ต้องรู้ว่าคลิปที่ผ่านคือช่องไหนใน Flow (รอบ 3 เก็บ id ไว้) และต้องกลับโปรเจกต์เดิม
-    const approvedVideo = round === 4 ? videoRowOf(job) : null;
-    if (round === 4 && (approvedVideo === null || approvedVideo.flowMediaId === "" || job.flowProjectId === "")) {
-      throw new FlowStepError("find-video", "worker_crash", "ไม่มีข้อมูลคลิปที่ผ่าน (media id / project) ให้กลับไปโหลด 1080p");
-    }
-    // พรอมต์ของ Render อ่านตอนเริ่มทำ — ผู้ใช้แก้ 10-part prompt ในหน้า entry ก่อนบอทหยิบงานได้
-    const renderPrompt = round === 3 ? buildRenderPrompt(job.entry.chatgptOutput, job.extraPrompt) : undefined;
-    if (round === 3 && job.entry.chatgptOutput.trim() === "") {
-      throw new FlowStepError("paste-prompt", "worker_crash", "entry นี้ยังไม่มี 10-part prompt — กด สร้างด้วย AI ในหน้างานก่อน");
-    }
-
-    const result = await runRound(
-      page,
-      {
-        jobId: job.id,
-        round,
-        productName: job.entry.productName,
-        referencePaths: referencePathsFor(job, round),
-        outDir,
-        // รูป r<round>-a<n>-<i>.png · ตัวอย่างคลิป r3-a<n>.mp4 (videoFilename) · คลิป 1080p r3-final.mp4
-        filePrefix: round === 4 ? FINAL_VIDEO_PREFIX : `r${round}-a${job.attempt}`,
-        // ถ้า spike (Task 5) พบว่ารอบ 2 เปิด project เดิมไม่ได้ ให้เปลี่ยนบรรทัดนี้เป็น null เสมอ
-        projectId: job.flowProjectId || null,
-        extraPrompt: job.extraPrompt,
-        // รอบ 4 ก็ถ่ายภาพเมนูโหลด (r3-final-5-menu.jpg / -6-submenu.jpg) ไว้ดูตอนโหลด 1080p พัง — ชื่อไม่เข้ารูปแบบ
-        // r<round>-a<n>-… ที่หน้า /flow อ่าน จึงไม่โผล่ใน "ดูขั้นตอนที่บอททำ" (ดูในโฟลเดอร์ checkpoints เอง)
-        checkpointDir,
-        renderPrompt,
-        mediaId: approvedVideo?.flowMediaId,
-      },
-      cfg,
-      sel,
-      stepLog,
+    const flow: FlowContext = {
+      page, cfg, sel, log: stepLog, jobId: job.id,
       // hook ทดสอบ fail-fast (S4) — ไม่ตั้ง env = ไม่มีผล
-      { forceFailStep: process.env.FLOW_FORCE_FAIL_STEP }
-    );
+      forceFailStep: process.env.FLOW_FORCE_FAIL_STEP,
+    };
+    // รูป r<round>-a<n>-<i>.png · ตัวอย่างคลิป r3-a<n>.mp4 (videoFilename) · คลิป 1080p r3-final.mp4 — ภาพจุดเช็กขึ้นต้นเหมือนกัน
+    // (รอบ 4 ถ่ายภาพเมนูโหลด r3-final-5-menu.jpg / -6-submenu.jpg ไว้ดูตอนโหลด 1080p พัง — ชื่อไม่เข้ารูปแบบ
+    // r<round>-a<n>-… ที่หน้า /flow อ่าน จึงไม่โผล่ใน "ดูขั้นตอนที่บอททำ" ดูในโฟลเดอร์ checkpoints เอง)
+    const out = (prefix: string): OutputFiles => ({ dir: outDir, prefix, checkpointDir });
+    // รอบ 2-4 ใช้ project เดิมของรอบ 1 · ว่าง = สร้างใหม่
+    const projectId = job.flowProjectId || null;
 
-    if (round === 3) {
-      const gotFile = result.files.length > 0;
-      const saved = await persistAfterRender(
-        "คลิป",
-        job,
-        () => applyPlan(job.id, previewReady({
-          gotFile, downloadFailed: result.downloadFailed, job, mediaId: result.mediaId ?? "", projectId: result.projectId,
-        })),
-        () => applyPlan(job.id, previewUnsaved()),
-      );
-      if (!saved) return true;
-      log(gotFile ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
-      notify(gotFile ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
-      return true;
-    }
-
-    if (round === 4 && approvedVideo !== null) {
-      if (result.files.length > 0) {
+    if (round === 4) {
+      // ต้องรู้ว่าคลิปที่ผ่านคือช่องไหนใน Flow (รอบ 3 เก็บ id ไว้) และต้องกลับโปรเจกต์เดิม — ไม่มี = ไม่แตะหน้าเลย
+      const approvedVideo = videoRowOf(job);
+      if (approvedVideo === null || approvedVideo.flowMediaId === "" || job.flowProjectId === "") {
+        throw new FlowStepError("find-video", "worker_crash", "ไม่มีข้อมูลคลิปที่ผ่าน (media id / project) ให้กลับไปโหลด 1080p");
+      }
+      const final = await fetchFinalClip(flow, { projectId: job.flowProjectId, mediaId: approvedVideo.flowMediaId, out: out(FINAL_VIDEO_PREFIX) });
+      if (final.file !== null) {
         // แถวเดิมกลายเป็นไฟล์ 1080p (chosen = คลิปที่ผ่านแล้ว) — ไม่มีแถวตัวอย่างค้างให้หน้าเว็บชี้ไปไฟล์ที่ลบแล้ว
         const saved = await persistAfterRender(
           "คลิป 1080p",
@@ -274,17 +236,46 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
         log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
         notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
       } else {
-        await applyPlan(job.id, finalClipMissing(result.downloadFailed, new Date()));
+        await applyPlan(job.id, finalClipMissing(final.failed, new Date()));
         log(`งาน ${job.id} จบด้วย 720p (1080p โหลดไม่ได้)`);
         notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
       }
       return true;
     }
 
-    await applyPlan(
-      job.id,
-      imagesReady(round === 2 ? 2 : 1, job, result.files.map((file) => path.extname(file).slice(1)), result.projectId),
-    );
+    if (round === 3) {
+      // พรอมต์ของ Render อ่านตอนเริ่มทำ — ผู้ใช้แก้ 10-part prompt ในหน้า entry ก่อนบอทหยิบงานได้
+      const clip = await renderClip(flow, {
+        references: [chosenImagePath(job, 1), chosenImagePath(job, 2)],
+        tenPartPrompt: job.entry.chatgptOutput,
+        extraPrompt: job.extraPrompt,
+        projectId,
+        out: out(`r3-a${job.attempt}`),
+      });
+      const gotFile = clip.file !== null;
+      const saved = await persistAfterRender(
+        "คลิป",
+        job,
+        () => applyPlan(job.id, previewReady({
+          gotFile, downloadFailed: clip.failed, job, mediaId: clip.mediaId, projectId: clip.projectId,
+        })),
+        () => applyPlan(job.id, previewUnsaved()),
+      );
+      if (!saved) return true;
+      log(gotFile ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
+      notify(gotFile ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
+      return true;
+    }
+
+    const drawn = await drawImages(flow, {
+      round,
+      productName: job.entry.productName,
+      reference: imageReferenceFor(job, round),
+      extraPrompt: job.extraPrompt,
+      projectId,
+      out: out(`r${round}-a${job.attempt}`),
+    });
+    await applyPlan(job.id, imagesReady(round, job, drawn.files.map((file) => path.extname(file).slice(1)), drawn.projectId));
     log(`งาน ${job.id} รอบ ${round} เสร็จ → รอผู้ใช้เลือก`);
     notify("รูปพร้อมให้เลือก", `${job.entry.productName} · รอบ ${round}`);
     return true;

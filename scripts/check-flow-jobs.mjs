@@ -80,7 +80,7 @@ try {
   {
     const driver = readFileSync("worker/flow-driver.ts", "utf8");
     const selectors = readFileSync("worker/flow-selectors.ts", "utf8");
-    check("flow-driver ใช้ buildFlowPrompt จาก lib (ไม่มีสำเนาพรอมต์)", /import \{ buildFlowPrompt \} from "@\/lib\/flow-jobs"/.test(driver) && !driver.includes("ขอภาพสินค้า"), true);
+    check("flow-driver ใช้ buildFlowPrompt จาก lib (ไม่มีสำเนาพรอมต์)", /import \{[^}]*\bbuildFlowPrompt\b[^}]*\} from "@\/lib\/flow-jobs"/.test(driver) && !driver.includes("ขอภาพสินค้า"), true);
     check("flow-selectors ไม่มีรูปแบบลิงก์ flow.google.com/project ของตัวเอง", selectors.includes("flow.google.com/project/"), false);
     // โหลด flow-selectors.ts จริงด้วย tsx แบบเดียวกับที่ npm run flow-worker รัน (ยืนยันว่า alias @/ ใช้ได้ตอนรันบอท)
     writeFileSync(

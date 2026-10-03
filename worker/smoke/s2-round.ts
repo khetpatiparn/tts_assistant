@@ -1,5 +1,5 @@
 /**
- * S2: ทำรอบ 1 ครบ 12 ขั้นจากรูปจริง 1 รูป → ต้องได้ 4 ไฟล์
+ * S2: ทำรอบ 1 ครบ 12 ขั้นจากรูปจริง 1 รูป → ต้องได้ 4 ไฟล์ (drawImages — สูตรเดียวกับที่บอทเรียก · วาดรูปไม่เสียเครดิต)
  * รัน: npm run flow-smoke:s2 -- <path/to/product-screenshot.png> "<ชื่อสินค้า>"
  * ตัวเลือก: FLOW_FORCE_FAIL_STEP=<step> เพื่อทดสอบ fail-fast (S4)
  * ผลลัพธ์: worker/smoke/out/s2/*.png · s2-response.json · ถ้าพัง worker/smoke/out/s2-failure/
@@ -9,7 +9,7 @@ import path from "node:path";
 import { loadWorkerConfig } from "../config";
 import { launchFlowBrowser, openFlowAndSettle } from "../browser";
 import { selectorSetForHost } from "../flow-selectors";
-import { runRound } from "../flow-driver";
+import { drawImages } from "../flow-driver";
 import { StepLog, captureFailure } from "../failure";
 import { isFlowStepError } from "../errors";
 
@@ -29,13 +29,9 @@ async function main() {
     const { host } = await openFlowAndSettle(page, cfg);
     const sel = selectorSetForHost(host);
     log.log("s2", `host=${host} selectorSet=${sel.name}`);
-    const result = await runRound(
-      page,
-      { jobId: "smoke", round: 1, productName, referencePaths: [path.resolve(refPath)], outDir, filePrefix: "r1-a1", projectId: null, extraPrompt: "", checkpointDir: null },
-      cfg,
-      sel,
-      log,
-      { forceFailStep: process.env.FLOW_FORCE_FAIL_STEP }
+    const result = await drawImages(
+      { page, cfg, sel, log, jobId: "smoke", forceFailStep: process.env.FLOW_FORCE_FAIL_STEP },
+      { round: 1, productName, reference: path.resolve(refPath), extraPrompt: "", projectId: null, out: { dir: outDir, prefix: "r1-a1", checkpointDir: null } },
     );
     writeFileSync(path.join(outDir, "s2-response.json"), JSON.stringify(result.responseBody, null, 2), "utf8");
     console.log(`PROJECT_ID=${result.projectId}`);

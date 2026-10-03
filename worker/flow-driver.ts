@@ -1,77 +1,27 @@
+/**
+ * สูตรของบอทบนหน้า Google Flow — ผู้เรียก (worker/index.ts processJob, smoke) เลือกสูตรตามรอบของงานแล้วเรียกตัวเดียว:
+ *
+ * - `drawImages`  (รอบ 1-2) วาดรูปอ้างอิง 4 รูปจากรูป 1 รูป → ไฟล์รูป + id โปรเจกต์ · ไม่เสียเครดิต
+ * - `renderClip`  (รอบ 3)   Render คลิป 1 ตัวจากรูปที่เลือก 2 รอบ + 10-part prompt → Preview clip 720p (หรือเหตุผลที่โหลดไม่ได้)
+ *                           + id ของคลิป · 15 เครดิต · **หลังกดสร้างแล้วไม่ throw** (เครดิตจ่ายแล้ว คลิปอยู่ในโปรเจกต์)
+ * - `fetchFinalClip` (รอบ 4) กลับโปรเจกต์เดิม โหลดคลิปที่ผ่านแบบ 1080p Upscaled → ไฟล์ หรือเหตุผล · ไม่กดสร้างอะไร ไม่เสียเครดิต
+ *
+ * ทุกสูตรเดินบน Flow session (flow-session.ts: ขั้นที่มีชื่อ / ภาพจุดเช็ก / เปิดโปรเจกต์ / ตั้งค่า / แนบรูป / กด Generate)
+ * error ที่หลุดออกไปเป็น FlowStepError ที่มีชื่อขั้น (FLOW_STEPS) เสมอ · นโยบายพัง/หยุดคิวเป็นของผู้เรียก
+ */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import type { Locator, Page, Response } from "playwright";
-import { buildFlowPrompt } from "@/lib/flow-jobs";
-import type { WorkerConfig } from "./config";
+import type { Locator } from "playwright";
+import { buildFlowPrompt, buildRenderPrompt } from "@/lib/flow-jobs";
 import { FlowStepError } from "./errors";
-import { humanClick, maybeIdleScroll, prepareHumanClick, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
-import { findByIntent, findByJev } from "./dom-heuristics";
-import type { SelectorSet } from "./flow-selectors";
-import type { StepLog } from "./failure";
-import { hasSignInButton } from "./browser";
+import { humanClick, maybeIdleScroll, randInt, sleepMs, sleepRange, typeHuman } from "./humanize";
 import { logActivity } from "./activity";
-import { postRenderFailReason, renderSettingsLabelOk } from "./flow-signals";
-import { clipCapture, videoSelectors } from "./clip-capture";
+import { renderSettingsLabelOk } from "./flow-signals";
+import { videoSelectors, type FinalCapture } from "./clip-capture";
 import { armImageWatch, armRenderWatch } from "./generation-watch";
+import { assertSelected, firstVisible, isChecked, withFlowSession, type FlowContext, type OutputFiles } from "./flow-session";
 
-export type RoundInput = {
-  /** สำหรับ FlowActivity เท่านั้น */
-  jobId: string;
-  /** 1-2 = วาดรูป · 3 = Render คลิป (โหลดตัวอย่าง 720p) · 4 = กลับไปโหลดคลิปที่ผ่านแบบ 1080p */
-  round: 1 | 2 | 3 | 4;
-  productName: string;
-  /**
-   * รอบ 1 = รูปแคปจากผู้ใช้ · รอบ 2 = รูป candidate ที่ผู้ใช้เลือกรอบ 1 · รอบ 3 = รูปที่เลือกรอบ 1 + รอบ 2
-   * (แนบพร้อมกันใน filechooser เดียว) · รอบ 4 = ไม่ใช้ (ว่าง)
-   */
-  referencePaths: string[];
-  outDir: string;
-  /** ชื่อไฟล์ผลลัพธ์ = `${filePrefix}-${index}.png` (รูป) · `${filePrefix}.mp4` (คลิป) */
-  filePrefix: string;
-  /** รอบ 2-4 ใช้ project เดิมของรอบ 1 · null = สร้างใหม่ (รอบ 4 ต้องมีเสมอ) */
-  projectId: string | null;
-  /** ข้อความที่ผู้ใช้พิมพ์ต่อท้ายพรอมต์ตายตัว (FlowJob.extraPrompt, ทำความสะอาดแล้ว) · "" = พรอมต์ตั้งต้น */
-  extraPrompt: string;
-  /** โฟลเดอร์เก็บภาพจุดเช็ก 4 จุดต่อรอบ (ดู checkpoint ใน runRound) · null = ไม่เก็บ (smoke test) */
-  checkpointDir: string | null;
-  /** รอบ 3: พรอมต์ที่วางทั้งก้อน (10-part prompt + ข้อความเพิ่มเติม — buildRenderPrompt ใน lib/flow-jobs.ts) */
-  renderPrompt?: string;
-  /** รอบ 4: id ของคลิปที่ผ่าน (FlowJobImage.flowMediaId ที่รอบ 3 เก็บไว้) */
-  mediaId?: string;
-};
-
-/** mediaId = id ของคลิปใน Flow (รอบ 3-4) ให้ worker เก็บไว้หาช่องเดิมตอนโหลด 1080p */
-export type RoundResult = { files: string[]; projectId: string; responseBody: unknown; mediaId?: string;
-  /** รอบ 3 เท่านั้น: Flow เรนเดอร์เสร็จแล้วแต่โหลดไฟล์มาไม่ได้ทั้งสองทาง — เหตุผลสั้นๆ · null = ได้ไฟล์ */
-  downloadFailed: string | null;
-};
-
-/** ลำดับขั้นตายตัว — ชื่อพวกนี้คือค่าใน FlowJob.failedStep และ UI ใช้แปลเป็นคำอธิบาย (STEP_LABELS) */
-export const FLOW_STEPS = [
-  "open-flow",
-  "ensure-project",
-  "switch-image-mode",
-  "set-model",
-  "set-aspect-3-4",
-  "set-count-4",
-  "attach-reference",
-  "type-prompt",
-  "click-generate",
-  "wait-results",
-  "dwell",
-  "download-4",
-  // Render คลิป (รอบ 3) — ใช้ open-flow/ensure-project/attach-reference/click-generate/dwell ร่วมกับรอบรูป
-  "switch-video-mode",
-  "set-video-settings",
-  "paste-prompt",
-  "wait-render",
-  "download-preview",
-  // โหลดคลิปที่ผ่านแบบ 1080p (รอบ 4) — ใช้ open-flow/ensure-project ร่วม
-  "find-video",
-  "download-final",
-] as const;
-
-export type FlowStep = (typeof FLOW_STEPS)[number];
+export { FLOW_STEPS, type FlowContext, type FlowStep, type OutputFiles } from "./flow-session";
 
 const ASPECT = "3:4";
 const COUNT = 4;
@@ -79,345 +29,39 @@ const COUNT = 4;
 const RENDER_ASPECT = "9:16";
 const RENDER_TEXT_OPTIONS = ["720p", "10s", "x1"] as const;
 
-/**
- * คำอธิบายปุ่มให้ Jev ตอน selector พัง (firstVisible → findByJev) — เฉพาะปุ่มที่กดผิดแล้วไม่เสียของ
- * ข้อความเดียวกับที่ใช้ทดสอบย้อนหลังกับ page.html จริง (ดู JEV_MIN_PROBABILITY) แก้แล้วควรทดสอบซ้ำ
- * **ไม่มี Generate กับช่องพิมพ์พรอมต์โดยตั้งใจ**
- */
-const JEV_INTENT = {
-  newProject: "The button that creates a new project.",
-  settings:
-    "The button that opens the image generation settings panel (where you pick the model, aspect ratio and number of outputs) next to the prompt box.",
-  addMedia: "The button next to the prompt box that adds or attaches a reference image/media (ingredients) to the prompt.",
-  upload: "The button inside the media picker dialog that uploads a new image file from the computer.",
-  confirmMedia: "The button inside the media picker dialog that adds the selected media to the prompt.",
-} as const;
+export type DrawImagesInput = {
+  round: 1 | 2;
+  productName: string;
+  /** รอบ 1 = รูปแคปจากผู้ใช้ · รอบ 2 = รูปที่ผู้ใช้เลือกรอบ 1 */
+  reference: string;
+  /** ข้อความที่ผู้ใช้พิมพ์ต่อท้ายพรอมต์ตายตัว (FlowJob.extraPrompt, ทำความสะอาดแล้ว) · "" = พรอมต์ตั้งต้น */
+  extraPrompt: string;
+  /** รอบ 2 ใช้โปรเจกต์เดิมของรอบ 1 · null = สร้างใหม่ */
+  projectId: string | null;
+  /** รูป `${prefix}-${i}.png|jpg` (i = 0-3) */
+  out: OutputFiles;
+};
 
-function isTimeout(e: unknown): boolean {
-  return e instanceof Error && (e.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(e.message));
-}
-
-/**
- * ลอง selector ตามลำดับ คืนตัวแรกที่ visible · ไม่เจอเลย = selector_drift
- * `intent` (ถ้ามี) คือ fallback ชั้นสุดท้ายหลัง CSS selector ทุกตัวพังหมด — หาแทนด้วยความหมาย
- * ของปุ่ม (ดูคอมเมนต์ที่ findByIntent) ใส่เฉพาะจุดที่มีหลักฐาน DOM dump จริงรองรับแล้วเท่านั้น
- */
-async function firstVisible(
-  page: Page,
-  step: FlowStep,
-  candidates: string[],
-  timeoutMs: number,
-  intent?: { match: RegExp; exclude?: RegExp },
-  jev?: { intent: string; log: StepLog }
-): Promise<Locator> {
-  const perCandidate = Math.max(1000, Math.floor(timeoutMs / candidates.length));
-  for (const sel of candidates) {
-    const loc = page.locator(sel).first();
-    try {
-      await loc.waitFor({ state: "visible", timeout: perCandidate });
-      return loc;
-    } catch {
-      // ลองตัวถัดไป
-    }
-  }
-  if (intent) {
-    const loc = await findByIntent(page, intent.match, intent.exclude);
-    if (loc) return loc;
-  }
-  // ด่านสุดท้าย: ให้ Jev เลือกจากรายการปุ่มในหน้า (ดู findByJev — ใช้เฉพาะปุ่มที่กดผิดแล้วไม่เสียของ)
-  if (jev) {
-    const loc = await findByJev(page, jev.intent, (msg) => jev.log.log(step, msg));
-    if (loc) return loc;
-  }
-  throw new FlowStepError(step, "selector_drift", `หา element ไม่เจอ: ${candidates.join(" | ")}`);
-}
+export type DrawnImages = {
+  /** 4 ไฟล์เสมอ (ได้ไม่ครบ = throw download-4) */
+  files: string[];
+  projectId: string;
+  /** response ของ RPC เจนหลังกด Generate (smoke เขียนลงไฟล์ไว้ดู) */
+  responseBody: unknown;
+};
 
 /**
- * อ่านกลับว่าตัวเลือกที่เพิ่งกดขึ้นสถานะ "ถูกเลือก" จริง — ไม่ใช่กดแล้วเชื่อ
- *
- * จำเป็นเพราะ humanClick กดด้วย mouse.down/up ตามพิกัดของ boundingBox ไม่ผ่านการตรวจ
- * actionability แบบ locator.click() ถ้ามีอะไรบัง (toast / tooltip / แผงที่เพิ่งเรนเดอร์)
- * คลิกจะไปโดนตัวบังแล้วขั้นนี้ "ผ่าน" ทั้งที่เลือกไม่ติด กลายเป็นรูปผิดสัดส่วน/ผิดโหมด
- * ที่ผู้ใช้ต้องมาไล่เองแทนที่จะพังตรงขั้นที่ผิดจริง
- *
- * Radix (labs) ใช้ aria-selected ส่วน Angular Material (migrated) ใช้ aria-checked
- * จึงยอมรับทั้งสองตัว ตัวไหนเป็น "true" ก็ถือว่าผ่าน
+ * รอบ 1-2: วาดรูป 4 รูป (Nano Banana 2 · 3:4 · x4) จากรูปอ้างอิง 1 รูป ด้วยพรอมต์ตายตัว (buildFlowPrompt) + ข้อความเพิ่มเติม
+ * ขั้น: open-flow → ensure-project → switch-image-mode → set-model → set-aspect-3-4 → set-count-4 → attach-reference →
+ * type-prompt → click-generate → wait-results → dwell → download-4
  */
-/**
- * เช็คว่า locator นี้อยู่ในสถานะ "ถูกเลือก" ไหม โดยไม่โยน error — ใช้ทั้งใน assertSelected
- * (ยืนยันหลังคลิก) และเป็น pre-check ก่อนคลิกเพื่อข้ามการคลิก+รอที่ไม่จำเป็น (แก้ 2026-09-23:
- * ค่าตั้งค่า image/aspect/count ยืนยันสดแล้วว่าติดข้ามโปรเจกต์ใหม่จริง — รอบที่ 2 เป็นต้นไปของ
- * worker session เดียวกันจึงมักไม่ต้องคลิกอะไรเลยในขั้นเหล่านี้ ประหยัดเวลาได้จริงไม่ใช่แค่ลด
- * ความหน่วงที่จงใจใส่ไว้ — ต่างจาก actionDelayMs/typeCharDelayMs/dwellAfterResultsMs ที่ลดแล้ว
- * มีผลเรื่องความเสี่ยงโดนตรวจจับบอท อันนี้คือการตัดงานซ้ำที่ไม่จำเป็นล้วนๆ)
- */
-async function isChecked(loc: Locator): Promise<boolean> {
-  const checked = await loc.getAttribute("aria-checked").catch(() => null);
-  const selfSelected = await loc.getAttribute("aria-selected").catch(() => null);
-  const classAttr = await loc.getAttribute("class").catch(() => null);
-  const classChecked = classAttr?.includes("mat-button-toggle-checked") ?? false;
-  return checked === "true" || selfSelected === "true" || classChecked;
-}
+export async function drawImages(ctx: FlowContext, input: DrawImagesInput): Promise<DrawnImages> {
+  return withFlowSession(ctx, input.round, input.out, async (s) => {
+    const { page, cfg, sel } = s;
+    const projectId = await s.openProject(input.projectId, false);
 
-async function assertSelected(loc: Locator, step: FlowStep, what: string): Promise<void> {
-  if (await isChecked(loc)) return;
-  const checked = await loc.getAttribute("aria-checked");
-  const selfSelected = await loc.getAttribute("aria-selected");
-  const classAttr = await loc.getAttribute("class");
-  throw new FlowStepError(
-    step,
-    "selector_drift",
-    `กด ${what} แล้วแต่ไม่ถูกเลือก (aria-checked=${checked ?? "null"} aria-selected=${selfSelected ?? "null"} class=${classAttr ?? "null"})`
-  );
-}
-
-/** สัญญาณอันตรายที่ต้องเช็กก่อนทุกขั้น — login หลุด / captcha / modal ที่กิน pointer events */
-async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cfg: WorkerConfig, log: StepLog, jobId: string, round: number): Promise<void> {
-  const host = new URL(page.url()).host;
-  if (host.includes("accounts.google.com") || (await hasSignInButton(page))) {
-    logActivity({ kind: "bot_signal", jobId, round, detail: { signal: "login_required" } });
-    throw new FlowStepError(step, "login_required", "ถูกส่งไปหน้า login / เจอปุ่ม Sign in");
-  }
-  if (!sel.hosts.includes(host)) {
-    throw new FlowStepError(step, "host_unsupported", `โฮสต์ ${host} ไม่ตรงกับ selector set ${sel.name}`);
-  }
-  for (const c of sel.captchaSignals) {
-    if ((await page.locator(c).count()) > 0) {
-      logActivity({ kind: "bot_signal", jobId, round, detail: { signal: c } });
-      throw new FlowStepError(step, "captcha", `เจอสัญญาณ captcha: ${c}`);
-    }
-  }
-  const blocked = await page.evaluate(() => getComputedStyle(document.body).pointerEvents === "none");
-  if (blocked) {
-    log.log(step, "body มี pointer-events:none — ลองปิด overlay");
-    await dismissOverlays(page, sel, cfg, log);
-    const still = await page.evaluate(() => getComputedStyle(document.body).pointerEvents === "none");
-    if (still) throw new FlowStepError(step, "selector_drift", "มี overlay บังหน้าและปิดไม่ได้");
-  }
-}
-
-async function dismissOverlays(page: Page, sel: SelectorSet, cfg: WorkerConfig, log: StepLog): Promise<void> {
-  for (const s of [...sel.consentButtons, ...sel.overlayCloseButtons]) {
-    const loc = page.locator(s).first();
-    if ((await loc.count()) > 0 && (await loc.isVisible().catch(() => false))) {
-      log.log("open-flow", `ปิด overlay ด้วย ${s}`);
-      await humanClick(page, loc, cfg);
-      await sleepMs(randInt([600, 1400]));
-    }
-  }
-  await page.keyboard.press("Escape");
-  await sleepMs(400);
-}
-
-function extractProjectId(url: string, fragment: string): string {
-  const after = url.split(fragment)[1] ?? "";
-  return after.split("?")[0].split("/")[0];
-}
-
-/**
- * ทำ 1 รอบ — ทุกขั้นตั้งชื่อไว้ใน FLOW_STEPS · ทุก error ที่หลุดออกไปเป็น FlowStepError
- * รอบ 1-2 วาดรูป 4 รูป (12 ขั้น) · รอบ 3 Render คลิป 1 ตัวแล้วโหลดตัวอย่าง 720p · รอบ 4 กลับไปโปรเจกต์เดิม
- * โหลดคลิปที่ผ่านแบบ 1080p Upscaled (ไม่กดสร้างอะไรเลย ไม่เสียเครดิต) — แยกทางกันหลัง ensure-project
- * opts.forceFailStep ใช้ทดสอบ fail-fast (S4): ถึงขั้นนั้นแล้วโยน selector_drift ทันที
- */
-export async function runRound(
-  page: Page,
-  input: RoundInput,
-  cfg: WorkerConfig,
-  sel: SelectorSet,
-  log: StepLog,
-  opts: { forceFailStep?: string } = {}
-): Promise<RoundResult> {
-  let projectId = input.projectId;
-  const responses: { status: number; body: unknown; at: number }[] = [];
-  let submitAt = 0;
-  /** ตัวเฝ้าหลังกด Generate (generation-watch.ts) เจอ captcha/login → ลง FlowActivity ก่อน throw */
-  const onBotSignal = (signal: string): void => {
-    logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal } });
-  };
-
-  const onResponse = async (res: Response) => {
-    if (!res.url().includes(sel.results.responseUrlPart)) return;
-    let body: unknown = null;
-    try {
-      body = await res.json();
-    } catch {
-      try {
-        body = await res.text();
-      } catch {
-        body = null;
-      }
-    }
-    responses.push({ status: res.status(), body, at: Date.now() });
-    // สัญญาณเตือนล่วงหน้า — Google ตอบไม่ปกติแม้งานยังไม่พัง (spec 2026-09-30 §3)
-    if (res.status() === 429 || res.status() === 403 || res.status() >= 500) {
-      logActivity({ kind: "http_warn", jobId: input.jobId, round: input.round, detail: { status: res.status(), url: res.url().slice(0, 120) } });
-    }
-  };
-
-  /**
-   * ภาพจุดเช็กให้ผู้ใช้ย้อนดูว่าบอททำถูกไหม (ตั้งค่า / แนบรูป / พรอมต์ก่อนกด / ผลลัพธ์) — แยกจากหลักฐานตอนพัง
-   * (captureFailure) ซึ่งเก็บเฉพาะงานที่พัง · ถ่ายด้วย CDP ฝั่ง Chrome หน้าเว็บมองไม่เห็น ไม่เพิ่มสัญญาณบอท
-   * ห้ามทำให้งานพังเด็ดขาด — ถ่ายไม่ได้ก็ข้าม · ชื่อไฟล์ `${filePrefix}-${n}-${name}.jpg` (attempt เดียวกันรันซ้ำ = เขียนทับ)
-   * ลบเองหลัง CHECKPOINT_KEEP_DAYS วัน (worker/index.ts)
-   */
-  async function checkpoint(n: number, name: string): Promise<void> {
-    if (input.checkpointDir === null) return;
-    const file = path.join(input.checkpointDir, `${input.filePrefix}-${String(n)}-${name}.jpg`);
-    await page.screenshot({ path: file, type: "jpeg", quality: 55 }).catch(() => {});
-  }
-
-  async function step<T>(name: FlowStep, fn: () => Promise<T>): Promise<T> {
-    if (opts.forceFailStep === name) {
-      throw new FlowStepError(name, "selector_drift", "บังคับพังด้วย FLOW_FORCE_FAIL_STEP");
-    }
-    log.log(name, "เริ่ม");
-    await assertPageUsable(page, name, sel, cfg, log, input.jobId, input.round);
-    try {
-      const out = await fn();
-      log.log(name, "เสร็จ");
-      return out;
-    } catch (e) {
-      if (e instanceof FlowStepError) throw e;
-      if (isTimeout(e)) throw new FlowStepError(name, "selector_drift", `timeout: ${(e as Error).message}`);
-      throw new FlowStepError(name, "worker_crash", e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  /**
-   * ขั้นหลัง Render สำเร็จ: ห้ามทำให้งาน failed/pause (เครดิตจ่ายแล้ว) — assertPageUsable และตัวขั้นเองถูกจับไว้หมด
-   * แล้วคืน {ok:false} ให้ผู้เรียกข้ามการโหลด (ไม่ hover/คลิกหน้าที่โดนธง) · ขั้น pre-render ของงานถัดไปยัง fail-fast
-   * เรื่อง captcha ผ่าน assertPageUsable ตามเดิม · FLOW_FORCE_FAIL_STEP ยัง throw ได้ (hook ทดสอบเท่านั้น)
-   */
-  async function softStep<T>(name: FlowStep, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
-    if (opts.forceFailStep === name) {
-      throw new FlowStepError(name, "selector_drift", "บังคับพังด้วย FLOW_FORCE_FAIL_STEP");
-    }
-    log.log(name, "เริ่ม");
-    try {
-      await assertPageUsable(page, name, sel, cfg, log, input.jobId, input.round);
-      const value = await fn();
-      log.log(name, "เสร็จ");
-      return { ok: true, value };
-    } catch (e) {
-      const reason = postRenderFailReason(name, e instanceof Error ? e.message : String(e));
-      log.log(name, `${reason} — ไม่ทำให้งานพัง คลิปยังอยู่ใน Flow`);
-      return { ok: false, reason };
-    }
-  }
-
-  try {
-    page.on("response", onResponse);
-
-    await step("open-flow", async () => {
-      const url = projectId ? sel.projectUrl(projectId) : cfg.flowUrl;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
-      await sleepMs(randInt([3000, 6000]));
-      await dismissOverlays(page, sel, cfg, log);
-    });
-
-    projectId = await step("ensure-project", async () => {
-      if (page.url().includes(sel.projectUrlFragment)) {
-        return extractProjectId(page.url(), sel.projectUrlFragment);
-      }
-      // รอบ 4 ต้องกลับไปโปรเจกต์เดิมเท่านั้น (คลิปที่ผ่านอยู่ในนั้น) — สร้างใหม่ = โปรเจกต์ว่างที่ไม่มีวันเจอคลิป
-      if (input.round === 4) {
-        throw new FlowStepError("ensure-project", "selector_drift", `เปิดโปรเจกต์เดิม (${input.projectId ?? "ไม่มี id"}) ไม่ได้ — URL ตอนนี้ ${page.url()}`);
-      }
-      const btn = await firstVisible(page, "ensure-project", sel.newProject, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.newProject, log });
-      await humanClick(page, btn, cfg);
-      logActivity({ kind: "new_project", jobId: input.jobId, round: input.round });
-      await page.waitForURL((u) => u.toString().includes(sel.projectUrlFragment), { timeout: 20_000 });
-      await sleepMs(randInt([2000, 4000]));
-      await dismissOverlays(page, sel, cfg, log);
-      return extractProjectId(page.url(), sel.projectUrlFragment);
-    });
-
-    /**
-     * เปิดแผงตั้งค่าแบบ idempotent — เปิดอยู่แล้วไม่ต้องกดซ้ำ (กดซ้ำ = ปิด บนโฮสต์ที่ panel เป็น
-     * .cdk-overlay-pane ลอย — ดู closeSettingsButton ถ้า panel เป็นแบบฝังถาวรที่กด trigger ซ้ำ
-     * ไม่ toggle ปิด) โฮสต์ที่ไม่ได้ประกาศ settingsPanelOpen ยังกด trigger ทุกครั้งเหมือนเดิม
-     *
-     * แก้ 2026-09-23: หลังเปิด/ยืนยันว่าเปิดอยู่แล้ว ถ้าโฮสต์ประกาศ confirmPolicyNever ให้กดเสมอ
-     * (กดซ้ำที่ตัวเลือกที่เลือกอยู่แล้วของ radio button ไม่มีผลข้างเคียง ปลอดภัยที่จะกดทุกครั้ง) —
-     * กันแผงเจนที่ต้องกดยืนยันก่อนทุกครั้งซึ่งบอทไม่รู้จักหน้านั้น
-     */
-    async function openSettings(name: FlowStep): Promise<void> {
-      // ต้องปิด Agent mode ก่อนเสมอ — ตัว modeTrigger (.settings-trigger-button) ถูกซ่อนด้วย
-      // hidden="" ตอน Agent ON (ปุ่มที่โชว์แทนคือ .agent-action-button คนละตัว) ถ้าไม่ปิดก่อน
-      // firstVisible ด้านล่างจะ timeout เจอ element แต่ไม่ visible
-      await ensureAgentModeOff();
-      if (sel.settingsPanelOpen) {
-        const open = await page.locator(sel.settingsPanelOpen).first().isVisible().catch(() => false);
-        if (open) {
-          await ensureConfirmPolicyNever();
-          return;
-        }
-      }
-      const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent, { intent: JEV_INTENT.settings, log });
-      await humanClick(page, trigger, cfg);
-      await sleepMs(randInt([600, 1000]));
-      await ensureConfirmPolicyNever();
-    }
-
-    /**
-     * ปิด Agent mode (แชท AI) ก่อนเริ่มงานเสมอ — ตั้งใจเลี่ยงไม่ใช้โหมดนี้เลย เพราะยืนยันจริงแล้ว
-     * ว่าไม่รับประกันว่าฟังค่า default ที่ตั้งไว้ (ตั้ง count=4 ถูกต้อง แต่ Agent generate ได้แค่
-     * ~1 ภาพ) เช็ก aria-pressed ก่อนกด — ปลอดภัยที่จะเรียกซ้ำได้ทุกรอบ (ค่านี้ผูกระดับบัญชี/
-     * session ไม่ใช่ต่อโปรเจกต์ ยืนยันสด 2026-09-23 ว่าติดข้าม New project ด้วย จึงน่าจะต้องกด
-     * แค่ครั้งแรกที่เจอ ON เท่านั้น แต่เช็กทุกรอบไว้เพื่อความปลอดภัย ต้นทุนต่ำมาก)
-     */
-    async function ensureAgentModeOff(): Promise<void> {
-      if (!sel.agentModeChip) return;
-      const chip = page.locator(sel.agentModeChip).first();
-      const pressed = await chip.getAttribute("aria-pressed").catch(() => null);
-      if (pressed === "true") {
-        await humanClick(page, chip, cfg);
-        await sleepMs(randInt([500, 900]));
-      }
-    }
-
-    async function ensureConfirmPolicyNever(): Promise<void> {
-      if (!sel.confirmPolicyNever) return;
-      const never = page.locator(sel.confirmPolicyNever).first();
-      if (await never.isVisible().catch(() => false)) {
-        await humanClick(page, never, cfg);
-        await sleepMs(randInt([200, 400]));
-      }
-    }
-
-    /** ปิดแผงตั้งค่า — ดูคอมเมนต์ settingsPanelOpen ใน flow-selectors ว่าทำไมห้าม Escape */
-    async function closeSettings(name: FlowStep): Promise<void> {
-      if (!sel.settingsPanelOpen) {
-        await page.keyboard.press("Escape");
-        await sleepMs(500);
-        return;
-      }
-      const pane = page.locator(sel.settingsPanelOpen).first();
-      if (await pane.isVisible().catch(() => false)) {
-        if (sel.closeSettingsButton) {
-          // panel ฝังถาวร (ไม่ใช่ .cdk-overlay-pane) — กด trigger ซ้ำไม่รับประกันว่า toggle ปิด
-          // ใช้ปุ่มปิดเฉพาะที่ประกาศไว้แทน (เช่นปุ่ม Back)
-          const closeBtn = await firstVisible(page, name, sel.closeSettingsButton, cfg.selectorTimeoutMs);
-          await humanClick(page, closeBtn, cfg);
-        } else {
-          const trigger = await firstVisible(page, name, sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
-          await humanClick(page, trigger, cfg);
-        }
-        await pane.waitFor({ state: "hidden", timeout: cfg.selectorTimeoutMs });
-      }
-      await sleepMs(randInt([400, 800]));
-    }
-
-    // รอบ 3-4 แยกทางตรงนี้ — ใช้ step/checkpoint/openSettings/closeSettings/attachReferences ร่วมกับรอบรูป
-    // (ฟังก์ชันประกาศไว้ถัดลงไปใน block เดียวกัน) · ต่อจากนี้คือรอบรูปเดิม ไม่เปลี่ยนพฤติกรรม
-    // ห้ามประกาศ let/const ระดับ runRound ระหว่างบรรทัดนี้กับฟังก์ชันของรอบ 3-4 — ฟังก์ชัน hoist แต่ตัวแปรไม่ hoist (TDZ, 75387b4)
-    // สถานะของการโหลดคลิปอยู่ใน clipCapture (clip-capture.ts) ที่แต่ละรอบสร้างเอง
-    if (input.round === 4) return await upscaleRound();
-    if (input.round === 3) return await renderRound();
-
-    await step("switch-image-mode", async () => {
-      await openSettings("switch-image-mode");
+    await s.step("switch-image-mode", async () => {
+      await s.openSettings("switch-image-mode");
       // แก้ 2026-09-23: โฮสต์ที่ไม่ประกาศ imageTab (migrated ตั้งแต่รอบนี้) ไม่มีปุ่มสลับโหมด
       // Image/Video แยกให้กดอีกแล้ว — แผงใหม่โชว์ทั้งสอง section พร้อมกัน ข้ามการคลิก+ยืนยันไปเลย
       if (sel.imageTab) {
@@ -438,8 +82,8 @@ export async function runRound(
       }
     });
 
-    await step("set-model", async () => {
-      await openSettings("set-model");
+    await s.step("set-model", async () => {
+      await s.openSettings("set-model");
       const modelBtn = await firstVisible(page, "set-model", sel.modelTrigger, cfg.selectorTimeoutMs);
       // ปุ่มนี้โชว์ label ของโมเดลที่เลือกอยู่ในตัวเอง (เช่น "🍌 Nano Banana 2 ...") — เช็คข้อความ
       // ก่อนเปิดเมนูเลย ถ้าถูกอยู่แล้วข้ามการเปิดเมนู+คลิก+ปิดทั้งชุด (ประหยัดสุดในบรรดา 4 ขั้นนี้)
@@ -457,7 +101,7 @@ export async function runRound(
       await sleepMs(randInt([500, 900]));
     });
 
-    await step("set-aspect-3-4", async () => {
+    await s.step("set-aspect-3-4", async () => {
       const tab = page.locator(sel.aspectTab(ASPECT)).first();
       await tab.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
       if (!(await isChecked(tab))) {
@@ -467,7 +111,7 @@ export async function runRound(
       await assertSelected(tab, "set-aspect-3-4", ASPECT);
     });
 
-    await step("set-count-4", async () => {
+    await s.step("set-count-4", async () => {
       const tabs = page.locator(sel.countTabs).filter({ hasText: sel.countTabPattern });
       const target = tabs.nth(COUNT - 1);
       await target.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
@@ -477,261 +121,40 @@ export async function runRound(
       }
       await assertSelected(target, "set-count-4", "x4");
       // ถ่ายก่อนปิดแผง — ภาพต้องเห็นโมเดล/สัดส่วน/จำนวนที่เลือกไว้
-      await checkpoint(1, "settings");
-      await closeSettings("set-count-4");
+      await s.checkpoint(1, "settings");
+      await s.closeSettings("set-count-4");
     });
 
-    /**
-     * แนบรูปอ้างอิงเข้าช่องพรอมต์ — รอบรูปแนบ 1 รูป · Render แนบ 2 รูป (เลือกรอบ 1 + รอบ 2)
-     * อัปทุกไฟล์ใน filechooser เดียว (Flow รับหลายไฟล์พร้อมกันได้ ยืนยันสด 2026-09-30) แต่ไดอะล็อกเลือกเข้าพรอมต์
-     * ได้ทีละรูป (ไม่มี multi-select) — รูปที่สองขึ้นไปต้องเปิดเมนูแนบใหม่แล้วคลิกแถวของไฟล์นั้น
-     * expectChips: ถ้าระบุ ต้องมีชิปรูปในช่องพรอมต์เท่านี้พอดีหลังแนบครบ (Render) ไม่งั้นพังตรงนี้ ไม่ปล่อยไปเสียเครดิต
-     */
-    async function attachReferences(paths: string[], expectChips?: { selector: string; count: number }): Promise<void> {
-      const add = await firstVisible(page, "attach-reference", sel.addMedia, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.addMedia, log });
-      await humanClick(page, add, cfg);
-      await sleepMs(randInt([800, 1400]));
-      const uploadBtn = await firstVisible(page, "attach-reference", sel.uploadButtonInDialog, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.upload, log });
-      const uploadResponse = page.waitForResponse((r) => r.url().includes(sel.uploadResponseUrlPart) && r.request().method() === "POST", { timeout: cfg.uploadTimeoutMs });
-      // uploadResponse ถูกสร้างไว้ก่อน Promise.all ด้านล่างโดยตั้งใจ (ต้องเริ่มฟังก่อนคลิก) แต่ถ้า
-      // waitForEvent("filechooser") ข้างล่าง timeout ก่อน โค้ดจะ throw ทิ้ง uploadResponse ที่ยังรอ
-      // อยู่กลางอากาศ — พอมันหมดเวลาเองอีก uploadTimeoutMs (ค่าเริ่มต้น 120s) ทีหลัง จะกลาย
-      // เป็น unhandled rejection พังทั้งโปรเซส node (พิสูจน์แล้วจริงตอน E2E: 2026-09-07) แนบ
-      // catch เปล่าตรงนี้กันไว้ — ไม่กระทบ `await uploadResponse` ตัวจริงด้านล่างที่ยังโยน error ตามปกติ
-      uploadResponse.catch(() => {});
-      // จังหวะ "คน" (หน่วง actionDelayMs + เลื่อนเมาส์) ต้องเกิดให้จบ**ก่อน**เริ่มจับเวลา
-      // filechooser ไม่งั้น timeout 8 วิถูกกินไปกับการหน่วงจนเหลือเวลาจริงให้ Chrome ยิง event
-      // แค่ ~4 วิ แล้วพังเป็น selector_drift ปลอม (เกิดจริงตอน E2E 2026-09-07)
-      const clickUpload = await prepareHumanClick(page, uploadBtn, cfg);
-      const [chooser] = await Promise.all([
-        page.waitForEvent("filechooser", { timeout: cfg.selectorTimeoutMs }),
-        clickUpload(),
-      ]);
-      await chooser.setFiles(paths);
-      logActivity({ kind: "upload", jobId: input.jobId, round: input.round, detail: { files: paths.length } });
-      const up = await uploadResponse;
-      if (up.status() >= 400) {
-        throw new FlowStepError("attach-reference", "flow_error", `อัปโหลดรูปตอบ HTTP ${up.status()}`);
-      }
-      await sleepMs(randInt([1000, 2000]));
-      const dialog = page.locator(sel.openDialog).last();
-      for (const [i, file] of paths.entries()) {
-        if (i > 0) {
-          // ไดอะล็อกปิดไปแล้วหลังแนบรูปก่อนหน้า — เปิดเมนูแนบใหม่เพื่อเลือกรูปถัดไป (ไฟล์อัปไปพร้อมกันแล้ว)
-          const again = await firstVisible(page, "attach-reference", sel.addMedia, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.addMedia, log });
-          await humanClick(page, again, cfg);
-          await sleepMs(randInt([800, 1400]));
-        }
-        // เว็บใหม่ไม่เลือกไฟล์ที่เพิ่งอัปให้เอง — ยังคาที่สื่อชิ้นเดิม ถ้ากดยืนยันเลยจะได้ของผิดชิ้น
-        // จึงต้องรอให้แถวของไฟล์เรานี้มี thumbnail (= อัปเสร็จ) แล้วกดเลือกก่อน
-        if (sel.uploadedAssetItem) {
-          const item = page.locator(sel.uploadedAssetItem(path.basename(file))).first();
-          await item.waitFor({ state: "visible", timeout: cfg.uploadTimeoutMs });
-          await humanClick(page, item, cfg);
-          await sleepMs(randInt([800, 1500]));
-        }
-        // บางหน้าตาของไดอะล็อกแนบรูปให้ทันทีที่กดเลือกแล้วปิดตัวเอง (โปรเจกต์เปล่าบนเว็บใหม่ / รูปที่สองของ Render)
-        // บางหน้าตายังเปิดค้างรอปุ่มยืนยัน — เช็กว่ายังเปิดอยู่ไหมก่อน ไม่ใช่บังคับหาปุ่มเสมอ
-        if (await dialog.isVisible().catch(() => false)) {
-          // ปุ่ม "Add to prompt": ใช้ selector จริงถ้ามี · ไม่มีก็ถอยไปใช้ heuristic
-          // "ปุ่มสุดท้ายในไดอะล็อกที่ไม่มีไอคอน" (ข้อความเปลี่ยนตามภาษา จึงไม่จับด้วยข้อความ)
-          const confirm = sel.confirmMedia
-            ? await firstVisible(page, "attach-reference", sel.confirmMedia, cfg.selectorTimeoutMs, undefined, { intent: JEV_INTENT.confirmMedia, log })
-            : dialog.locator("button").filter({ hasNot: page.locator("i, mat-icon") }).last();
-          if ((await confirm.count()) > 0 && (await confirm.isVisible().catch(() => false))) {
-            await humanClick(page, confirm, cfg);
-          }
-          await dialog.waitFor({ state: "hidden", timeout: 15_000 });
-        }
-        await sleepMs(randInt([1000, 2000]));
-      }
-      if (expectChips) {
-        const chips = await page.locator(expectChips.selector).count();
-        if (chips !== expectChips.count) {
-          throw new FlowStepError(
-            "attach-reference",
-            "selector_drift",
-            `ช่องพรอมต์มีรูปแนบ ${String(chips)} รูป (ต้อง ${String(expectChips.count)}) — ไม่กดสร้างเพื่อไม่เสียเครดิตกับคลิปผิดรูป`,
-          );
-        }
-      }
-      await checkpoint(2, "reference");
-    }
+    await s.step("attach-reference", () => s.attachReferences([input.reference]));
 
-    /**
-     * รอบ 3: Render คลิป 1 ตัวด้วยสูตรที่ผู้ใช้ทำมือ (Video · Ingredients · 9:16 · Omni 1.1 Flash · 720p · 10s · x1
-     * = 15 เครดิต) แนบรูปที่เลือก 2 รอบ วาง 10-part prompt แล้วโหลดตัวอย่าง 720p Original size กลับมาให้ดูก่อน
-     * (ไฟล์ 1080p ขยายตอนโหลดซึ่งรอนาน — ทำเฉพาะคลิปที่ผู้ใช้กดผ่านแล้ว ในรอบ 4)
-     */
-    async function renderRound(): Promise<RoundResult> {
-      const prompt = input.renderPrompt ?? "";
-      if (prompt.trim() === "") throw new FlowStepError("paste-prompt", "worker_crash", "ไม่มี 10-part prompt ให้วาง");
-      const capture = clipCapture({ page, cfg, sel, log, outDir: input.outDir, jobId: input.jobId, round: input.round, checkpoint });
-
-      await step("switch-video-mode", async () => {
-        const v = videoSelectors(sel, "switch-video-mode");
-        await openSettings("switch-video-mode");
-        const tab = page.locator(v.modeTab).first();
-        await tab.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-        if (!(await isChecked(tab))) {
-          await humanClick(page, tab, cfg);
-          await sleepMs(randInt([900, 1500]));
-        }
-        // โหมดผิด = ได้รูป 4 รูปแทนคลิป — อ่านกลับเสมอ
-        await assertSelected(tab, "switch-video-mode", "โหมดวิดีโอ");
-      });
-
-      await step("set-video-settings", async () => {
-        const v = videoSelectors(sel, "set-video-settings");
-        const pick = async (loc: Locator, what: string) => {
-          await loc.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
-          if (!(await isChecked(loc))) {
-            await humanClick(page, loc, cfg);
-            await sleepMs(randInt([400, 800]));
-          }
-          await assertSelected(loc, "set-video-settings", what);
-        };
-        await pick(page.locator(v.ingredientTab).first(), "Ingredient");
-        await pick(page.locator(sel.aspectTab(RENDER_ASPECT)).first(), RENDER_ASPECT);
-        // โมเดลไม่เปลี่ยนให้เอง — ถ้าไม่ใช่ตัวที่ผู้ใช้ยืนยันแล้วว่าได้ผล (และราคา 15 เครดิต) ให้หยุดให้คนดู
-        // อ่านทุกปุ่มเมนูในแผง (ไม่ผูกว่าต้องมีไอคอน arrow_drop_down แบบปุ่มโมเดลรูป — สเปกยืนยันแค่ class + ข้อความ)
-        const modelTexts = (await page.locator(v.modelTrigger).allInnerTexts().catch(() => [] as string[])).map((t) => t.trim());
-        if (!modelTexts.some((t) => v.modelLabel.test(t))) {
-          throw new FlowStepError(
-            "set-video-settings",
-            "selector_drift",
-            `โมเดลวิดีโอไม่ใช่ Omni 1.1 Flash (ปุ่มโมเดลเขียนว่า: ${modelTexts.map((t) => `"${t}"`).join(" / ") || "ไม่เจอปุ่ม"})`,
-          );
-        }
-        for (const label of RENDER_TEXT_OPTIONS) {
-          // ข้อความทั้งปุ่มต้องจบด้วย label พอดี (กัน "10s" ไปโดน "x10" หรือ "4s" ไปโดน "14s")
-          const toggle = page.locator(v.optionToggles).filter({ hasText: new RegExp(`(^|\\s)${label}\\s*$`) }).first();
-          await pick(toggle, label);
-        }
-        // ถ่ายก่อนปิดแผง — ภาพต้องเห็นโหมด/อัตราส่วน/โมเดล/ความละเอียด/ความยาว/จำนวนที่เลือกไว้
-        await checkpoint(1, "settings");
-        await closeSettings("set-video-settings");
-        // ยืนยันทั้งชุดจากป้ายบนปุ่มตั้งค่าอีกชั้น (เห็นจริง: "Video · 720p · 10s" + crop_9_16 + x1)
-        const trigger = await firstVisible(page, "set-video-settings", sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
-        const triggerText = (await trigger.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-        if (!renderSettingsLabelOk(triggerText)) {
-          throw new FlowStepError("set-video-settings", "selector_drift", `ป้ายตั้งค่าไม่ตรงสูตร: "${triggerText}"`);
-        }
-      });
-
-      const chipSelector = videoSelectors(sel, "attach-reference").ingredientChip;
-      await step("attach-reference", () =>
-        attachReferences(input.referencePaths, { selector: chipSelector, count: input.referencePaths.length })
-      );
-
-      await step("paste-prompt", async () => {
-        const box = await firstVisible(page, "paste-prompt", sel.promptBox, cfg.selectorTimeoutMs);
-        await humanClick(page, box, cfg);
-        await page.keyboard.press("Control+A");
-        await page.keyboard.press("Delete");
-        await sleepMs(randInt([300, 700]));
-        // วางทั้งก้อนด้วย insertText ครั้งเดียว — พรอมต์ ~3,000 ตัวพิมพ์ทีละตัวใช้หลายนาที และมีขึ้นบรรทัด ~58 ครั้ง
-        // ถ้ากด Enter จะเท่ากับกดส่ง · insertText ใส่ขึ้นบรรทัดเป็นย่อหน้าโดยไม่ส่ง (ยืนยันสด 2026-09-30)
-        await page.keyboard.insertText(prompt);
-        await sleepMs(randInt([800, 1500]));
-        // Ctrl+A/Delete ต้องไม่ลบรูปที่แนบไว้ — เช็กซ้ำก่อนเสียเครดิต
-        const chips = await page.locator(chipSelector).count();
-        if (chips !== input.referencePaths.length) {
-          throw new FlowStepError("paste-prompt", "selector_drift", `หลังวางพรอมต์เหลือรูปแนบ ${String(chips)} รูป (ต้อง ${String(input.referencePaths.length)})`);
-        }
-        await checkpoint(3, "prompt");
-      });
-
-      // นับสภาพหน้าก่อนกด (การ์ด error / ช่องในกริด / id ของช่องวิดีโอ) — ช่องคลิปเก่าของรอบเรนเดอร์ก่อนอยู่ในโปรเจกต์เดียวกัน
-      const watch = await armRenderWatch(page, sel, (s) => capture.tileIds(s));
-
-      await step("click-generate", async () => {
-        const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
-        submitAt = Date.now();
-        logActivity({ kind: input.round === 3 ? "generate_video" : "generate_image", jobId: input.jobId, round: input.round });
-        await humanClick(page, btn, cfg);
-      });
-
-      const mediaId = await step("wait-render", () =>
-        watch.wait({ submitAt, responses, timeoutMs: cfg.renderTimeoutMs, onBotSignal }),
-      );
-
-      const dwell = await softStep("dwell", async () => {
-        await sleepRange(cfg.dwellAfterResultsMs);
-        await checkpoint(4, "results");
-        await maybeIdleScroll(page, cfg);
-      });
-      if (!dwell.ok) {
-        return { files: [], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: dwell.reason };
-      }
-
-      // หลังจากนี้ห้ามทำให้งาน failed — เครดิตจ่ายแล้ว คลิปมีจริงในโปรเจกต์ (spec 2026-09-30 §2 "หลักการรวม")
-      // ลำดับ: ลิงก์ตรง → เมนู → ยอมแพ้แบบไม่พัง ให้ผู้ใช้ไปโหลดเองใน Flow (capturePreview ไม่ throw)
-      const previewStep = await softStep("download-preview", () => capture.capturePreview(mediaId, `${input.filePrefix}.mp4`));
-      if (!previewStep.ok) {
-        return { files: [], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: previewStep.reason };
-      }
-      const preview = previewStep.value;
-      return {
-        files: preview.file === null ? [] : [preview.file],
-        projectId: projectId as string,
-        responseBody: null,
-        // uuid จากลิงก์ตรงคงที่ข้ามการเปิดโปรเจกต์ใหม่ (id จาก thumbnail ไม่คงที่) — รอบ 4 ใช้หาช่องนี้
-        mediaId: preview.mediaId,
-        downloadFailed: preview.failed,
-      };
-    }
-
-    /**
-     * รอบ 4: ผู้ใช้กด "ผ่าน" คลิปตัวอย่างแล้ว — กลับไปโปรเจกต์เดิม หาช่องของคลิปนั้นด้วย id ที่รอบ 3 เก็บไว้
-     * แล้วโหลดแบบ 1080p Upscaled (Flow ขยายให้ตอนโหลด ไม่เสียเครดิต แต่รอนาน) · ไม่กดสร้างอะไรเลย
-     */
-    async function upscaleRound(): Promise<RoundResult> {
-      const mediaId = input.mediaId ?? "";
-      if (mediaId === "") throw new FlowStepError("find-video", "worker_crash", "ไม่รู้ว่าคลิปที่ผ่านคือช่องไหนใน Flow (ไม่มี media id)");
-      const capture = clipCapture({ page, cfg, sel, log, outDir: input.outDir, jobId: input.jobId, round: input.round, checkpoint });
-      await step("find-video", () => capture.findClip(mediaId));
-      // 1080p ล้ม = ไม่พัง: ผู้ใช้มี 720p อยู่แล้ว งานจบด้วยหมายเหตุ (spec 2026-09-30 §2) — captureFinal ไม่ throw
-      const final = await step("download-final", () => capture.captureFinal(mediaId, `${input.filePrefix}.mp4`));
-      return { files: final.file === null ? [] : [final.file], projectId: projectId as string, responseBody: null, mediaId, downloadFailed: final.failed };
-    }
-
-    await step("attach-reference", () => attachReferences(input.referencePaths));
-
-    await step("type-prompt", async () => {
+    await s.step("type-prompt", async () => {
       const box = await firstVisible(page, "type-prompt", sel.promptBox, cfg.selectorTimeoutMs);
       await humanClick(page, box, cfg);
       await page.keyboard.press("Control+A");
       await page.keyboard.press("Delete");
       await sleepMs(randInt([300, 700]));
-      await typeHuman(page, buildFlowPrompt(input.round === 2 ? 2 : 1, input.productName, input.extraPrompt), cfg.typeCharDelayMs);
+      await typeHuman(page, buildFlowPrompt(input.round, input.productName, input.extraPrompt), cfg.typeCharDelayMs);
       await sleepMs(randInt([500, 1200]));
       // ภาพนี้เห็นทั้งรูปที่แนบและพรอมต์ที่พิมพ์ครบแล้ว (รวมข้อความเพิ่มเติม) ก่อนกด Generate
-      await checkpoint(3, "prompt");
+      await s.checkpoint(3, "prompt");
     });
 
     // นับสภาพหน้าก่อนกด (รูป / การ์ด error / ช่องในกริด) — ดู armImageWatch
     const watch = await armImageWatch(page, sel, COUNT);
+    const submitAt = await s.clickGenerate("generate_image");
 
-    await step("click-generate", async () => {
-      const btn = await firstVisible(page, "click-generate", sel.submit, cfg.selectorTimeoutMs);
-      submitAt = Date.now();
-      logActivity({ kind: input.round === 3 ? "generate_video" : "generate_image", jobId: input.jobId, round: input.round });
-      await humanClick(page, btn, cfg);
-    });
-
-    const urls = await step("wait-results", () =>
-      watch.wait({ submitAt, responses, timeoutMs: cfg.generationTimeoutMs, onBotSignal }),
+    const urls = await s.step("wait-results", () =>
+      watch.wait({ submitAt, responses: s.responses, timeoutMs: cfg.generationTimeoutMs, onBotSignal: s.onBotSignal }),
     );
 
-    await step("dwell", async () => {
+    await s.step("dwell", async () => {
       await sleepRange(cfg.dwellAfterResultsMs);
       // หลังรอ dwell รูปโหลดครบแล้ว และก่อนเลื่อนจอเล่น (เลื่อนแล้วผลลัพธ์อาจหลุดจากเฟรม)
-      await checkpoint(4, "results");
+      await s.checkpoint(4, "results");
       await maybeIdleScroll(page, cfg);
     });
 
-    const files = await step("download-4", async () => {
+    const files = await s.step("download-4", async () => {
       const picked = urls.slice(0, COUNT);
       if (picked.length < COUNT) {
         throw new FlowStepError("download-4", "download_failed", `ได้ URL รูปแค่ ${picked.length} จาก ${COUNT}`);
@@ -744,17 +167,181 @@ export async function runRound(
         const isPng = buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50;
         const isJpg = buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8;
         if (!isPng && !isJpg) throw new FlowStepError("download-4", "download_failed", `ไฟล์ ${i} ไม่ใช่ PNG/JPEG (${buf.length} bytes)`);
-        const file = path.join(input.outDir, `${input.filePrefix}-${i}.${isPng ? "png" : "jpg"}`);
+        const file = path.join(input.out.dir, `${input.out.prefix}-${i}.${isPng ? "png" : "jpg"}`);
         writeFileSync(file, buf);
         written.push(file);
         await sleepMs(randInt([300, 900]));
       }
-      logActivity({ kind: "download", jobId: input.jobId, round: input.round, detail: { files: 4 } });
+      logActivity({ kind: "download", jobId: ctx.jobId, round: input.round, detail: { files: 4 } });
       return written;
     });
 
-    return { files, projectId: projectId as string, responseBody: responses.filter((r) => r.at >= submitAt).map((r) => r.body), downloadFailed: null };
-  } finally {
-    page.off("response", onResponse);
+    return { files, projectId, responseBody: s.responses.filter((r) => r.at >= submitAt).map((r) => r.body) };
+  });
+}
+
+export type RenderClipInput = {
+  /** รูปที่เลือกรอบ 1 + รอบ 2 — แนบพร้อมกันใน filechooser เดียว */
+  references: string[];
+  /** 10-part prompt ของ entry (chatgptOutput) — ว่าง = ไม่แตะหน้าเลย (paste-prompt / worker_crash) */
+  tenPartPrompt: string;
+  /** ต่อท้ายพรอมต์ (buildRenderPrompt) · "" = 10-part prompt อย่างเดียว */
+  extraPrompt: string;
+  /** โปรเจกต์ของรอบ 1-2 · null = สร้างใหม่ */
+  projectId: string | null;
+  /** Preview clip `${prefix}.mp4` (r3-a<attempt>) */
+  out: OutputFiles;
+};
+
+export type RenderedClip = {
+  projectId: string;
+  /** id ของคลิปใน Flow (เก็บเป็น FlowJobImage.flowMediaId — Final clip ใช้หาช่องนี้) */
+  mediaId: string;
+  /** Preview clip ที่เขียนแล้ว · null = Flow เรนเดอร์เสร็จแต่โหลดมาไม่ได้ (คลิปยังอยู่ในโปรเจกต์) */
+  file: string | null;
+  /** เหตุผลที่โหลดไม่ได้ · null = ได้ไฟล์ */
+  failed: string | null;
+};
+
+/**
+ * รอบ 3: Render คลิป 1 ตัวด้วยสูตรที่ผู้ใช้ทำมือ (Video · Ingredients · 9:16 · Omni 1.1 Flash · 720p · 10s · x1
+ * = 15 เครดิต) แนบรูปที่เลือก 2 รอบ วาง 10-part prompt แล้วโหลดตัวอย่าง 720p Original size กลับมาให้ดูก่อน
+ * (ไฟล์ 1080p ขยายตอนโหลดซึ่งรอนาน — ทำเฉพาะคลิปที่ผู้ใช้กดผ่านแล้ว ใน fetchFinalClip)
+ * ขั้น: open-flow → ensure-project → switch-video-mode → set-video-settings → attach-reference → paste-prompt →
+ * click-generate → wait-render → dwell* → download-preview* (* = softStep: พังแล้วคืนผล ไม่ throw)
+ */
+export async function renderClip(ctx: FlowContext, input: RenderClipInput): Promise<RenderedClip> {
+  // ไม่มี 10-part prompt = ไม่เปิดหน้าเลย (กันเสียเครดิตกับคลิปที่ไม่มีพรอมต์) — ด่านเดียวของเรื่องนี้
+  if (input.tenPartPrompt.trim() === "") {
+    throw new FlowStepError("paste-prompt", "worker_crash", "entry นี้ยังไม่มี 10-part prompt — กด สร้างด้วย AI ในหน้างานก่อน");
   }
+  // พรอมต์ที่วางทั้งก้อน (10-part prompt + ข้อความเพิ่มเติม)
+  const prompt = buildRenderPrompt(input.tenPartPrompt, input.extraPrompt);
+
+  return withFlowSession(ctx, 3, input.out, async (s) => {
+    const { page, cfg, sel } = s;
+    const projectId = await s.openProject(input.projectId, false);
+    const capture = s.clipCapture();
+
+    await s.step("switch-video-mode", async () => {
+      const v = videoSelectors(sel, "switch-video-mode");
+      await s.openSettings("switch-video-mode");
+      const tab = page.locator(v.modeTab).first();
+      await tab.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
+      if (!(await isChecked(tab))) {
+        await humanClick(page, tab, cfg);
+        await sleepMs(randInt([900, 1500]));
+      }
+      // โหมดผิด = ได้รูป 4 รูปแทนคลิป — อ่านกลับเสมอ
+      await assertSelected(tab, "switch-video-mode", "โหมดวิดีโอ");
+    });
+
+    await s.step("set-video-settings", async () => {
+      const v = videoSelectors(sel, "set-video-settings");
+      const pick = async (loc: Locator, what: string) => {
+        await loc.waitFor({ state: "visible", timeout: cfg.selectorTimeoutMs });
+        if (!(await isChecked(loc))) {
+          await humanClick(page, loc, cfg);
+          await sleepMs(randInt([400, 800]));
+        }
+        await assertSelected(loc, "set-video-settings", what);
+      };
+      await pick(page.locator(v.ingredientTab).first(), "Ingredient");
+      await pick(page.locator(sel.aspectTab(RENDER_ASPECT)).first(), RENDER_ASPECT);
+      // โมเดลไม่เปลี่ยนให้เอง — ถ้าไม่ใช่ตัวที่ผู้ใช้ยืนยันแล้วว่าได้ผล (และราคา 15 เครดิต) ให้หยุดให้คนดู
+      // อ่านทุกปุ่มเมนูในแผง (ไม่ผูกว่าต้องมีไอคอน arrow_drop_down แบบปุ่มโมเดลรูป — สเปกยืนยันแค่ class + ข้อความ)
+      const modelTexts = (await page.locator(v.modelTrigger).allInnerTexts().catch(() => [] as string[])).map((t) => t.trim());
+      if (!modelTexts.some((t) => v.modelLabel.test(t))) {
+        throw new FlowStepError(
+          "set-video-settings",
+          "selector_drift",
+          `โมเดลวิดีโอไม่ใช่ Omni 1.1 Flash (ปุ่มโมเดลเขียนว่า: ${modelTexts.map((t) => `"${t}"`).join(" / ") || "ไม่เจอปุ่ม"})`,
+        );
+      }
+      for (const label of RENDER_TEXT_OPTIONS) {
+        // ข้อความทั้งปุ่มต้องจบด้วย label พอดี (กัน "10s" ไปโดน "x10" หรือ "4s" ไปโดน "14s")
+        const toggle = page.locator(v.optionToggles).filter({ hasText: new RegExp(`(^|\\s)${label}\\s*$`) }).first();
+        await pick(toggle, label);
+      }
+      // ถ่ายก่อนปิดแผง — ภาพต้องเห็นโหมด/อัตราส่วน/โมเดล/ความละเอียด/ความยาว/จำนวนที่เลือกไว้
+      await s.checkpoint(1, "settings");
+      await s.closeSettings("set-video-settings");
+      // ยืนยันทั้งชุดจากป้ายบนปุ่มตั้งค่าอีกชั้น (เห็นจริง: "Video · 720p · 10s" + crop_9_16 + x1)
+      const trigger = await firstVisible(page, "set-video-settings", sel.modeTrigger, cfg.selectorTimeoutMs, sel.modeTriggerIntent);
+      const triggerText = (await trigger.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
+      if (!renderSettingsLabelOk(triggerText)) {
+        throw new FlowStepError("set-video-settings", "selector_drift", `ป้ายตั้งค่าไม่ตรงสูตร: "${triggerText}"`);
+      }
+    });
+
+    const chipSelector = videoSelectors(sel, "attach-reference").ingredientChip;
+    await s.step("attach-reference", () =>
+      s.attachReferences(input.references, { selector: chipSelector, count: input.references.length })
+    );
+
+    await s.step("paste-prompt", async () => {
+      const box = await firstVisible(page, "paste-prompt", sel.promptBox, cfg.selectorTimeoutMs);
+      await humanClick(page, box, cfg);
+      await page.keyboard.press("Control+A");
+      await page.keyboard.press("Delete");
+      await sleepMs(randInt([300, 700]));
+      // วางทั้งก้อนด้วย insertText ครั้งเดียว — พรอมต์ ~3,000 ตัวพิมพ์ทีละตัวใช้หลายนาที และมีขึ้นบรรทัด ~58 ครั้ง
+      // ถ้ากด Enter จะเท่ากับกดส่ง · insertText ใส่ขึ้นบรรทัดเป็นย่อหน้าโดยไม่ส่ง (ยืนยันสด 2026-09-30)
+      await page.keyboard.insertText(prompt);
+      await sleepMs(randInt([800, 1500]));
+      // Ctrl+A/Delete ต้องไม่ลบรูปที่แนบไว้ — เช็กซ้ำก่อนเสียเครดิต
+      const chips = await page.locator(chipSelector).count();
+      if (chips !== input.references.length) {
+        throw new FlowStepError("paste-prompt", "selector_drift", `หลังวางพรอมต์เหลือรูปแนบ ${String(chips)} รูป (ต้อง ${String(input.references.length)})`);
+      }
+      await s.checkpoint(3, "prompt");
+    });
+
+    // นับสภาพหน้าก่อนกด (การ์ด error / ช่องในกริด / id ของช่องวิดีโอ) — ช่องคลิปเก่าของรอบเรนเดอร์ก่อนอยู่ในโปรเจกต์เดียวกัน
+    const watch = await armRenderWatch(page, sel, (step) => capture.tileIds(step));
+    const submitAt = await s.clickGenerate("generate_video");
+
+    const mediaId = await s.step("wait-render", () =>
+      watch.wait({ submitAt, responses: s.responses, timeoutMs: cfg.renderTimeoutMs, onBotSignal: s.onBotSignal }),
+    );
+
+    // หลังจากนี้ห้ามทำให้งาน failed — เครดิตจ่ายแล้ว คลิปมีจริงในโปรเจกต์ (spec 2026-09-30 §2 "หลักการรวม")
+    const dwell = await s.softStep("dwell", async () => {
+      await sleepRange(cfg.dwellAfterResultsMs);
+      await s.checkpoint(4, "results");
+      await maybeIdleScroll(page, cfg);
+    });
+    if (!dwell.ok) return { projectId, mediaId, file: null, failed: dwell.reason };
+
+    // ลำดับ: ลิงก์ตรง → เมนู → ยอมแพ้แบบไม่พัง ให้ผู้ใช้ไปโหลดเองใน Flow (capturePreview ไม่ throw)
+    const preview = await s.softStep("download-preview", () => capture.capturePreview(mediaId, `${input.out.prefix}.mp4`));
+    if (!preview.ok) return { projectId, mediaId, file: null, failed: preview.reason };
+    // uuid จากลิงก์ตรงคงที่ข้ามการเปิดโปรเจกต์ใหม่ (id จาก thumbnail ไม่คงที่) — fetchFinalClip ใช้หาช่องนี้
+    return { projectId, mediaId: preview.value.mediaId, file: preview.value.file, failed: preview.value.failed };
+  });
+}
+
+export type FinalClipInput = {
+  /** โปรเจกต์ที่ Render คลิปนี้ (FlowJob.flowProjectId) — ต้องเปิดได้ ไม่สร้างใหม่ */
+  projectId: string;
+  /** id ของคลิปที่ผ่าน (FlowJobImage.flowMediaId ที่ renderClip คืนมา) */
+  mediaId: string;
+  /** Final clip `${prefix}.mp4` (r3-final) · ภาพเมนูโหลด `${prefix}-5-menu.jpg` / `-6-submenu.jpg` */
+  out: OutputFiles;
+};
+
+/**
+ * รอบ 4: ผู้ใช้กด "ผ่าน" คลิปตัวอย่างแล้ว — กลับไปโปรเจกต์เดิม หาช่องของคลิปนั้นด้วย id ที่ renderClip คืนมา
+ * แล้วโหลดแบบ 1080p Upscaled (Flow ขยายให้ตอนโหลด ไม่เสียเครดิต แต่รอนาน) · ไม่กดสร้างอะไรเลย
+ * ขั้น: open-flow → ensure-project (ห้ามสร้างใหม่) → find-video → download-final
+ * 1080p ล้ม = ไม่ throw: คืน {file: null, failed} — ผู้ใช้มี 720p อยู่แล้ว (spec 2026-09-30 §2)
+ * ผู้เรียกต้องส่ง projectId/mediaId ที่ไม่ว่าง (processJob ตรวจกับแถวของงานก่อนเรียก)
+ */
+export async function fetchFinalClip(ctx: FlowContext, input: FinalClipInput): Promise<FinalCapture> {
+  return withFlowSession(ctx, 4, input.out, async (s) => {
+    await s.openProject(input.projectId, true);
+    const capture = s.clipCapture();
+    await s.step("find-video", () => capture.findClip(input.mediaId));
+    return s.step("download-final", () => capture.captureFinal(input.mediaId, `${input.out.prefix}.mp4`));
+  });
 }

@@ -12,6 +12,8 @@ const rd = (f) =>
     .filter((l) => !l.trim().startsWith("//")) // ตัดบรรทัดคอมเมนต์ กันเจอ needle ในคอมเมนต์
     .join(String.fromCharCode(10));
 const driver = rd("worker/flow-driver.ts");
+// ส่วนที่ทุกสูตรใช้ร่วม (ขั้น / เปิดโปรเจกต์ / แนบรูป / กด Generate / ดัก response) อยู่ flow-session.ts
+const session = rd("worker/flow-session.ts");
 const index = rd("worker/index.ts");
 const watch = rd("worker/generation-watch.ts");
 const capture = rd("worker/clip-capture.ts");
@@ -29,35 +31,41 @@ function within(src, start, end, needle) {
 }
 
 must("driver import logActivity", driver.includes('import { logActivity } from "./activity"'));
+must("session import logActivity", session.includes('import { logActivity } from "./activity"'));
 must(
-  "click-generate → generate_image/generate_video หลัง submitAt (ทั้งรอบรูปและ Render)",
-  (driver.match(/submitAt = Date\.now\(\);\s*\n\s*logActivity\(\{ kind: input\.round === 3 \? "generate_video" : "generate_image"/g) ?? []).length >= 2
+  "click-generate → generate_image/generate_video หลัง submitAt ก่อนคลิก (clickGenerate ที่เดียว)",
+  /function clickGenerate[^]*?const submitAt = Date\.now\(\);\s*\n\s*logActivity\(\{ kind, jobId, round \}\);\s*\n\s*await humanClick\(page, btn, cfg\);/.test(session)
 );
-must("attach-reference → upload หลัง setFiles", within(driver, "async function attachReferences", "\n    }\n", 'kind: "upload"') && /setFiles\(paths\);\s*\n\s*logActivity/.test(driver));
-must("ensure-project → new_project หลังคลิป New project", /humanClick\(page, btn, cfg\);\s*\n\s*logActivity\(\{ kind: "new_project"/.test(driver));
+must("รอบรูปกด Generate เป็น generate_image", (driver.match(/s\.clickGenerate\("generate_image"\)/g) ?? []).length === 1);
+must("Render กด Generate เป็น generate_video", (driver.match(/s\.clickGenerate\("generate_video"\)/g) ?? []).length === 1);
+must("attach-reference → upload หลัง setFiles", within(session, "async function attachReferences", "\n  }\n", 'kind: "upload"') && /setFiles\(paths\);\s*\n\s*logActivity/.test(session));
+must("ensure-project → new_project หลังคลิป New project", /humanClick\(page, btn, cfg\);\s*\n\s*logActivity\(\{ kind: "new_project"/.test(session));
 must("downloadVideoDirect → download via direct หลังเขียนไฟล์", /writeFileSync\(file, buf\);[^]*?via: "direct"/.test(capture) && within(capture, "async function downloadVideoDirect", "async function menuRequestFileUrl(", 'via: "direct"'));
 must("downloadVideo (menu) → download via menu หลังเขียนไฟล์ที่ดึงเอง", /Flow ขอไฟล์แล้ว[^]*?writeFileSync\(file, buf\);[^]*?via: "menu"/.test(capture));
-must("assertPageUsable bot_signal มี jobId/round", (driver.match(/kind: "bot_signal", jobId, round,/g) ?? []).length >= 2);
+must("assertPageUsable bot_signal มี jobId/round", (session.match(/kind: "bot_signal", jobId, round,/g) ?? []).length >= 2);
 must("download-4 → download files:4", within(driver, 'step("download-4"', "return written;", "files: 4"));
-must("onResponse → http_warn on 429/403/5xx", within(driver, "const onResponse", "};", 'kind: "http_warn"') && within(driver, "const onResponse", "};", "res.status() === 429 || res.status() === 403 || res.status() >= 500"));
-must("http_warn ตัด url ≤ 120", within(driver, "const onResponse", "};", "res.url().slice(0, 120)"));
-must("assertPageUsable → bot_signal (captcha)", within(driver, "async function assertPageUsable", "\n}\n", 'kind: "bot_signal", jobId, round, detail: { signal: c }'));
-must("assertPageUsable → bot_signal (login_required)", within(driver, "async function assertPageUsable", "\n}\n", 'signal: "login_required"'));
+must("onResponse → http_warn on 429/403/5xx", within(session, "const onResponse", "};", 'kind: "http_warn"') && within(session, "const onResponse", "};", "res.status() === 429 || res.status() === 403 || res.status() >= 500"));
+must("http_warn ตัด url ≤ 120", within(session, "const onResponse", "};", "res.url().slice(0, 120)"));
+must("assertPageUsable → bot_signal (captcha)", within(session, "async function assertPageUsable", "\n}\n", 'kind: "bot_signal", jobId, round, detail: { signal: c }'));
+must("assertPageUsable → bot_signal (login_required)", within(session, "async function assertPageUsable", "\n}\n", 'signal: "login_required"'));
 // ลูปรอผลหลังกด Generate มีบ้านเดียว (worker/generation-watch.ts) — captcha/HTTP บล็อก/การ์ดบล็อก → onBotSignal ก่อน throw
 // ตรวจผ่าน interface จริง (หน้าปลอม + นาฬิกาปลอม) ใน check-flow-worker-pure.mjs ส่วน "generation-watch" · ที่นี่ตรวจการต่อสายเข้า FlowActivity
 must(
   "ตัวเฝ้าหลัง Generate: onBotSignal → logActivity bot_signal พร้อม jobId/round",
-  within(driver, "const onBotSignal", "};", 'logActivity({ kind: "bot_signal", jobId: input.jobId, round: input.round, detail: { signal } })')
+  within(session, "const onBotSignal", "};", 'logActivity({ kind: "bot_signal", jobId, round, detail: { signal } })')
 );
-must("wait-results ส่ง onBotSignal ให้ตัวเฝ้า", within(driver, 'step("wait-results"', ");", "onBotSignal"));
-must("wait-render ส่ง onBotSignal ให้ตัวเฝ้า", within(driver, 'step("wait-render"', ");", "onBotSignal"));
+must("wait-results ส่ง onBotSignal ให้ตัวเฝ้า", within(driver, 'step("wait-results"', ");", "onBotSignal: s.onBotSignal"));
+must("wait-render ส่ง onBotSignal ให้ตัวเฝ้า", within(driver, 'step("wait-render"', ");", "onBotSignal: s.onBotSignal"));
 must("runWatch เรียก onBotSignal ก่อน throw", /run\.onBotSignal\(verdict\.botSignal\);\s*\n\s*throw new FlowStepError/.test(watch));
-must("flow-driver ไม่มีลูปรอผลสำเนาเหลือ (captchaSignals อ่านที่ assertPageUsable ที่เดียว)", (driver.match(/sel\.captchaSignals/g) ?? []).length === 1);
+must(
+  "ไม่มีลูปรอผลสำเนาเหลือ (captchaSignals อ่านที่ assertPageUsable ที่เดียว)",
+  (session.match(/sel\.captchaSignals/g) ?? []).length === 1 && !/captchaSignals/.test(driver)
+);
 must("index import logActivity", index.includes('import { logActivity } from "./activity"'));
 must("session_start with config หลังเปิด Flow", within(index, "เปิด Flow แล้ว", "let longBreakTarget", 'kind: "session_start"') && within(index, 'kind: "session_start"', "});", "longBreakMs: cfg.longBreakMs"));
 must("break why:long ก่อน sleepUntil ของพักยาว", within(index, "พักยาว ${", "longBreakTarget = pickLongBreakTarget", 'why: "long"'));
 must("break why:between ก่อน sleepUntil ต่อสินค้า", within(index, "const pause = randInt(", "await sleepUntil(Date.now() + pause)", 'why: "between"'));
-must("ห้าม await logActivity (fire-and-forget)", [driver, index, capture].every((src) => !/await logActivity\(/.test(src)));
+must("ห้าม await logActivity (fire-and-forget)", [driver, session, index, capture].every((src) => !/await logActivity\(/.test(src)));
 
 console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 process.exit(failed === 0 ? 0 : 1);

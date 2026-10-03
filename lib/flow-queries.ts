@@ -18,7 +18,7 @@ export type FlowImageRow = {
   promptExtra: string;
 };
 
-/** ภาพจุดเช็กที่บอทถ่ายไว้ระหว่างทำงาน (worker/flow-driver.ts checkpoint) — path ใต้ uploads/ สำหรับ /api/uploads */
+/** ภาพจุดเช็กที่บอทถ่ายไว้ระหว่างทำงาน (worker/flow-session.ts checkpoint) — path ใต้ uploads/ สำหรับ /api/uploads */
 export type FlowCheckpoint = { label: string; path: string };
 
 export type FlowJobRow = {
