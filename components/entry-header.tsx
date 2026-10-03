@@ -36,10 +36,10 @@ export function EntryHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex max-w-full min-w-0 items-center gap-2 sm:gap-3">
           {/* ชื่อสินค้าต้องได้ความกว้างที่เหลือทั้งหมดบนจอแคบ ไม่ใช่ถูกล็อกที่ 14rem */}
           <div className="min-w-0 flex-1 rounded-lg border border-header-muted/40 bg-header-foreground/5 px-3 py-2 sm:flex-none sm:px-4">
-            <p className="truncate text-sm text-header-foreground sm:max-w-[14rem]">
+            <p className="text-sm max-sm:leading-relaxed [overflow-wrap:anywhere] text-header-foreground sm:max-w-[14rem] sm:truncate">
               {productName || "ยังไม่ตั้งชื่อสินค้า"}
             </p>
           </div>
