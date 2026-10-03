@@ -2,16 +2,16 @@
 
 import { useState } from "react";
 
-import { revenueByClip, type AffiliateOrderRecord } from "@/lib/dashboard";
+import type { DashboardView } from "@/lib/dashboard-view";
 import { ClipThumbnail } from "@/components/clip-thumbnail";
 
 function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
 
-export function RevenueByClipList({ orders }: { orders: AffiliateOrderRecord[] }) {
+/** clips = revenueByClip (lib/dashboard.ts) ที่คำนวณฝั่ง server แล้ว — แบ่งเงิน 3 ทางตรงกับ summarizeOrders */
+export function RevenueByClipList({ clips }: { clips: DashboardView["clips"] }) {
   const [showAll, setShowAll] = useState(false);
-  const clips = revenueByClip(orders);
   if (clips.length === 0) return null;
 
   const shown = showAll ? clips : clips.slice(0, 5);

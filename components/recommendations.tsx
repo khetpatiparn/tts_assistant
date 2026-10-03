@@ -1,18 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
 import { ClipboardList } from "lucide-react";
 
-import type { AffiliateOrderRecord } from "@/lib/dashboard";
-import { repeatStatus } from "@/lib/angle";
+import type { RepeatStatus } from "@/lib/angle";
+import type { DashboardView } from "@/lib/dashboard-view";
 import { daysUntil, nextImportDate } from "@/lib/import-schedule";
-import {
-  buildClipStats,
-  detectTasks,
-  type ClipMetricRecord,
-  type ClipSignalKind,
-  type ClipTask,
-} from "@/lib/recommender";
+import type { ClipSignalKind, ClipTask } from "@/lib/recommender";
 
 const KIND_LABEL: Record<ClipSignalKind, string> = {
   growing: "กำลังโต",
@@ -33,17 +26,9 @@ function shortThaiDate(d: Date): string {
 /**
  * บรรทัดบอกว่าทำตามงานนี้ไปแล้วหรือยัง — ตรวจจากสายเลือดการทำซ้ำ ไม่ใช่ให้ติ๊กเอง
  * (ปัญหาต้นทางของผู้ใช้คือลืม/ไม่ได้ทำ ของที่ต้องจำไปติ๊กคือของที่ลืมได้อีกอย่าง)
+ * status มาจาก repeatStatus (lib/angle.ts) ที่คำนวณฝั่ง server แล้ว
  */
-function repeatLine(
-  entries: {
-    id: string;
-    duplicatedFromId: string | null;
-    videoUrl: string;
-    postedAt: Date | null;
-  }[],
-  entryId: string
-): string | null {
-  const status = repeatStatus(entries, entryId);
+function repeatLine(status: RepeatStatus): string | null {
   if (status.repeats === 0) return null;
   const bits = [`ทำซ้ำไปแล้ว ${status.repeats} คลิป`];
   if (status.lastPostedAt) {
@@ -93,41 +78,20 @@ function detailLine(task: ClipTask): string {
 }
 
 export function Recommendations({
-  entries,
-  metrics,
-  orders,
+  view,
   now,
   lastOrdersImportedAt,
   lastMetricsImportedAt,
   onOpenEntry,
 }: {
-  entries: {
-    id: string;
-    productName: string;
-    duplicatedFromId: string | null;
-    videoUrl: string;
-    postedAt: Date | null;
-  }[];
-  metrics: ClipMetricRecord[];
-  orders: AffiliateOrderRecord[];
+  /** buildClipStats + detectTasks คำนวณฝั่ง server แล้ว (lib/dashboard-view.ts) */
+  view: DashboardView["recommendations"];
   now: Date;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
   onOpenEntry: (entryId: string) => void;
 }) {
-  const stats = useMemo(
-    () => buildClipStats({ entries, metrics, orders, now }),
-    [entries, metrics, orders, now]
-  );
-  const tasks = useMemo(() => detectTasks(stats), [stats]);
-
-  const withMetrics = new Set(
-    metrics.filter((m) => m.matchedEntryId !== null).map((m) => m.matchedEntryId)
-  );
-  const missing = entries.filter((e) => !withMetrics.has(e.id)).length;
-  const hasDelta =
-    metrics.length > 0 &&
-    new Set(metrics.map((m) => m.capturedOn.getTime())).size >= 2;
+  const { tasks, checkedClips, missingMetrics: missing, hasDelta } = view;
 
   // deadline ยึดชนิดข้อมูลที่เก่าที่สุด เพราะผลลัพธ์สดได้เท่ากับข้อมูลที่ล้าหลังที่สุดเท่านั้น
   const importedDates = [lastMetricsImportedAt, lastOrdersImportedAt].filter(
@@ -177,12 +141,12 @@ export function Recommendations({
             รอบนี้ไม่มีคลิปที่เข้าเกณฑ์ — ลงคลิปใหม่ต่อได้ตามปกติ
           </p>
           <p className="text-xs text-muted-foreground">
-            (ตรวจ {stats.filter((s) => s.views > 0).length} คลิปที่มีข้อมูลครบ)
+            (ตรวจ {checkedClips} คลิปที่มีข้อมูลครบ)
           </p>
         </div>
       ) : (
         tasks.map((task) => {
-          const line = repeatLine(entries, task.entryId);
+          const line = repeatLine(task.repeat);
           return (
             <button
               type="button"

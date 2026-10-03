@@ -1,6 +1,6 @@
 # Revenue dashboard (`/dashboard`, ไฟล์จาก TikTok Studio)
 
-ครอบคลุม: `components/dashboard-route.tsx` → `dashboard-panel.tsx`, `lib/dashboard.ts`, `lib/affiliate.ts`, `lib/clip-metrics.ts`, `lib/csv.ts`, `lib/import-log.ts`, `lib/recommender.ts`, `lib/tiktok-oembed.ts`, ตาราง `AffiliateOrder`/`ClipMetric`/`ImportLog`/`VideoThumbnail` · ข้อมูลทั้งหมดผู้ใช้โหลดมือจาก TikTok Studio (ไม่มี API)
+ครอบคลุม: `components/dashboard-route.tsx` → `dashboard-panel.tsx`, `lib/dashboard.ts`, `lib/dashboard-view.ts`, `lib/affiliate.ts`, `lib/clip-metrics.ts`, `lib/csv.ts`, `lib/import-log.ts`, `lib/recommender.ts`, `lib/tiktok-oembed.ts`, ตาราง `AffiliateOrder`/`ClipMetric`/`ImportLog`/`VideoThumbnail` · ข้อมูลทั้งหมดผู้ใช้โหลดมือจาก TikTok Studio (ไม่มี API)
 
 ## ออเดอร์และเงิน (`AffiliateOrder`, ไฟล์ xlsx)
 
@@ -8,7 +8,7 @@
 - **`lib/affiliate.ts` เป็นไฟล์เดียวที่รู้จัก SheetJS (`xlsx`)** — `sheet_to_json({header:1, raw:false})` อ้างคอลัมน์ตาม index (ไฟล์ใช้ inline strings ไม่มี sharedStrings, วันที่ `DD/MM/YYYY HH:MM:SS`) · คอลัมน์: 0=orderId 2=ชื่อ 3=รหัสสินค้า 5=จำนวน 13=สถานะ 17=รหัสเนื้อหา 23=GMV 34=ค่าคอมจริง 44=รายได้สุดท้าย 45=วันที่
 - **จับคู่ออเดอร์กับคลิปด้วย content ID (col 17) = video id ใน `PromptEntry.videoUrl`** (`videoIdFromUrl`) — สินค้าเดียวมีได้หลายคลิป ชื่อสินค้าจึงใช้จับคู่ไม่ได้
 - **GMV ≠ เงินจริง** — `summarizeOrders` (`lib/dashboard.ts`) คืน field แยกครบ: `totalGmv` (ทุกสถานะ) · `settledRevenue` (`finalRevenue` ที่สถานะ `PAID_STATUS` = `"ชำระแล้ว"`) = "เงินที่ได้จริง" เป็นพระเอกของหน้า · "กำลังรอ" = `pendingGmv` + `estimatedPendingCommission` (= pendingGmv × อัตราจริง) · หัวหน้าไม่โชว์ GMV รวม
-- **`revenueByClip` (`components/revenue-by-clip.tsx`) แบ่งเงิน 3 ทาง (จ่ายแล้ว/รอ/ไม่มีสิทธิ์ `INELIGIBLE_STATUS`) ให้ตรงกับ `summarizeOrders` เสมอ** — แก้ตรรกะฝั่งใดต้องเช็กอีกฝั่ง (เคยโยน "ไม่มีสิทธิ์" ไปปนกับ "รอ")
+- **`revenueByClip` (`lib/dashboard.ts`, แสดงที่ `components/revenue-by-clip.tsx`) แบ่งเงิน 3 ทาง (จ่ายแล้ว/รอ/ไม่มีสิทธิ์ `INELIGIBLE_STATUS`) ให้ตรงกับ `summarizeOrders` เสมอ** — แก้ตรรกะฝั่งใดต้องเช็กอีกฝั่ง (เคยโยน "ไม่มีสิทธิ์" ไปปนกับ "รอ")
 - `createEntryFromOrder` สร้าง entry ขั้นต่ำจากออเดอร์ที่ยังไม่มีในแอป แล้ว `updateMany` ผูก `matchedEntryId` ให้ทันที
 - ไฟล์ตัวอย่างจริง `affiliate_orders_*.xlsx` gitignore ไว้ — อยู่นอก commit เสมอ
 
@@ -30,7 +30,9 @@
 
 ## ส่วนประกอบของหน้า
 
-- `lib/dashboard.ts` เป็น aggregation ล้วน (pure) และเป็นเจ้าของ `IMPORT_STALE_DAYS` (7 วัน ใช้ร่วมกันทั้งแถบเตือนและบรรทัดสถานะ)
+- **เซิร์ฟเวอร์สรุป client แค่แสดงผล (2026-10-03)** — `getDashboardData(now)` (`lib/entry-queries.ts`) โหลดออเดอร์/ClipMetric/ImportLog/entry แบบเบา แล้วส่งเข้า `buildDashboardView` (`lib/dashboard-view.ts`, pure) ซึ่งเรียกฟังก์ชันเดิม (`summarizeOrders`, `revenueByClip`, `revenueTrend`, `weeklyGmvTrend`, `ordersByDay(filterByRange)` ครบ 3 ช่วง, `unmatchedProducts`, `buildClipStats`+`detectTasks`+`repeatStatus`, `groupLatestRound`) · `app/dashboard/page.tsx` ส่งเฉพาะ `view` ลง `DashboardRoute` **ห้ามส่งออเดอร์ดิบ/ClipMetric/entry กลับลงไปเป็น prop อีก** (เดิมทำแบบนั้นจน HTML 3.7 MB) — ต้องการตัวเลขใหม่บนจอ ให้เพิ่ม field ใน `DashboardView` · ตรวจด้วย `npx tsx scripts/check-dashboard-view.ts` (รวมเคสแบ่งเงิน 3 ทางตรงกับ `summarizeOrders` และ view ไม่มี `orderId`)
+- **component ฝั่ง client ของหน้านี้ import จาก `lib/dashboard`/`lib/dashboard-view`/`lib/recommender` ได้เฉพาะ `import type`** — `lib/dashboard.ts` ลาก `lib/affiliate.ts` → `xlsx` (หลายร้อย KB) เข้า bundle ของเบราว์เซอร์ทันทีที่ import ค่า (`reminder-banner.tsx` จึงเอา `IMPORT_STALE_DAYS` จาก `lib/import-schedule` ตรง)
+- `lib/dashboard.ts` เป็น aggregation ล้วน (pure) และเป็นเจ้าของ `IMPORT_STALE_DAYS` (7 วัน ใช้ร่วมกันทั้งแถบเตือนและบรรทัดสถานะ) · `REVENUE_RANGES` + `filterByRange` (ช่วงกราฟรายวัน นับจากออเดอร์ล่าสุดไม่ใช่วันนี้) และ `unmatchedProducts` อยู่ที่นี่ด้วย
 - กราฟเส้นใน `components/revenue-charts.tsx` ใช้ **Recharts v3.9.2** (library กราฟตัวเดียวในแอป, สีผูกผ่าน `var(--color-*)` ของ Tailwind v4) — API ต่างจากตัวอย่างทั่วไปที่เป็น v2 ยึด prop shape จาก `node_modules/recharts/types/` · sparkline และ bar ราย-คลิปวาดเองด้วย SVG/div
 - **แถบเตือน `components/reminder-banner.tsx`** อยู่ในหน้า dashboard เท่านั้น (`dashboard-panel.tsx` แสดงเมื่อ `reminderActive`) · เตือน 2 อย่าง: ข้อมูลเก่ากว่า `IMPORT_STALE_DAYS` / มีสินค้าขายได้ที่ยังไม่มี entry
 - **thumbnail คลิปมาจาก TikTok oEmbed** (สาธารณะ ไม่ต้อง auth) — `lib/tiktok-oembed.ts` ไฟล์เดียวที่รู้จัก endpoint · cache ในตาราง `VideoThumbnail` (เก็บแม้ล้มเหลว `ok=false` กันยิงซ้ำ) · resolve ผ่าน Server Action `resolveThumbnail` (client เรียก lazy) · คลิปโดนลบ = ไอคอนแทน

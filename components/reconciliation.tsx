@@ -1,30 +1,16 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useTransition } from "react";
 import { TriangleAlert, Plus } from "lucide-react";
 
 import { createEntryFromOrder } from "@/app/actions";
-import type { AffiliateOrderRecord } from "@/lib/dashboard";
+import type { DashboardView } from "@/lib/dashboard-view";
 import { ClipThumbnail } from "@/components/clip-thumbnail";
 import { Button } from "@/components/ui/button";
 
-export function Reconciliation({ orders }: { orders: AffiliateOrderRecord[] }) {
+/** unmatched = สินค้าที่ขายได้แต่ยังไม่มี entry (unmatchedProducts ใน lib/dashboard.ts คำนวณฝั่ง server) */
+export function Reconciliation({ unmatched }: { unmatched: DashboardView["unmatched"] }) {
   const [isPending, startTransition] = useTransition();
-
-  // สินค้าที่ขายได้แต่ยังไม่มี entry — รวมตาม content id
-  const unmatched = useMemo(() => {
-    const map = new Map<
-      string,
-      { contentId: string; productName: string; orders: number }
-    >();
-    for (const o of orders) {
-      if (o.matchedEntryId !== null) continue;
-      const ex = map.get(o.contentId);
-      if (ex) ex.orders++;
-      else map.set(o.contentId, { contentId: o.contentId, productName: o.productName, orders: 1 });
-    }
-    return [...map.values()].sort((a, b) => b.orders - a.orders);
-  }, [orders]);
 
   if (unmatched.length === 0) return null;
 

@@ -12,18 +12,12 @@ import {
   YAxis,
 } from "recharts";
 
-import {
-  ordersByDay,
-  revenueTrend,
-  weeklyGmvTrend,
-  type AffiliateOrderRecord,
-} from "@/lib/dashboard";
+import type { RevenueRangeKey } from "@/lib/dashboard";
+import type { DashboardView } from "@/lib/dashboard-view";
 
 function baht(n: number): string {
   return "฿" + n.toLocaleString("th-TH", { maximumFractionDigits: 0 });
 }
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Recharts รับค่าผ่าน props (width ของแกน, ความถี่ของ tick) ไม่ใช่ CSS
@@ -44,25 +38,6 @@ function useIsNarrow(): boolean {
   }, []);
 
   return isNarrow;
-}
-
-type RangeKey = "7d" | "30d" | "all";
-
-const RANGES: { key: RangeKey; label: string; days: number | null }[] = [
-  { key: "7d", label: "7 วัน", days: 7 },
-  { key: "30d", label: "30 วัน", days: 30 },
-  { key: "all", label: "ทั้งหมด", days: null },
-];
-
-/**
- * ช่วงเวลานับถอยหลังจากวันที่ล่าสุดที่มีข้อมูล (ไม่ใช่วันนี้) —
- * ข้อมูลนำเข้ามือแล้วมักค้างหลายวัน ถ้านับจากวันนี้ ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล
- */
-function filterByRange(orders: AffiliateOrderRecord[], days: number | null) {
-  if (days === null || orders.length === 0) return orders;
-  const latest = Math.max(...orders.map((o) => o.orderDate.getTime()));
-  const cutoff = latest - (days - 1) * DAY_MS;
-  return orders.filter((o) => o.orderDate.getTime() >= cutoff);
 }
 
 type DayPoint = { date: string; orders: number; gmv: number };
@@ -109,9 +84,8 @@ function WeeklyTooltip({
 }
 
 /** ยอดขาย (GMV) รายสัปดาห์ 8 สัปดาห์ล่าสุด — ภาพรวมยาว ต่างจาก TimeChart ที่เป็นรายวัน */
-function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+function WeeklyTrendChart({ data }: { data: DashboardView["weekly"] }) {
   const isNarrow = useIsNarrow();
-  const data = weeklyGmvTrend(orders, 8);
   if (data.length < 2) return null;
 
   return (
@@ -165,17 +139,19 @@ function WeeklyTrendChart({ orders }: { orders: AffiliateOrderRecord[] }) {
   );
 }
 
-/** กราฟ GMV ตามวัน — Recharts, hover ดูรายวันได้ + เลือกช่วงเวลา */
-function TimeChart({ orders }: { orders: AffiliateOrderRecord[] }) {
+/**
+ * กราฟ GMV ตามวัน — Recharts, hover ดูรายวันได้ + เลือกช่วงเวลา
+ * ทุกช่วงคำนวณไว้ฝั่ง server แล้ว (ordersByDay(filterByRange(...)) ใน lib/dashboard-view.ts) ปุ่มแค่สลับ
+ */
+function TimeChart({ daily }: { daily: DashboardView["daily"] }) {
   const isNarrow = useIsNarrow();
-  const [range, setRange] = useState<RangeKey>("all");
-  const days = RANGES.find((r) => r.key === range)!.days;
-  const data = ordersByDay(filterByRange(orders, days));
+  const [range, setRange] = useState<RevenueRangeKey>("all");
+  const data = daily.find((r) => r.key === range)?.points ?? [];
 
   return (
     <div className="mt-3 flex flex-col gap-2">
       <div className="flex gap-1">
-        {RANGES.map((r) => (
+        {daily.map((r) => (
           <button
             key={r.key}
             type="button"
@@ -266,10 +242,17 @@ function WindowCompareBars({ previous, current }: { previous: number; current: n
   );
 }
 
-export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
+export function RevenueTrend({
+  trend,
+  weekly,
+  daily,
+}: {
+  trend: DashboardView["trend"];
+  weekly: DashboardView["weekly"];
+  daily: DashboardView["daily"];
+}) {
   const [open, setOpen] = useState(false);
-  if (orders.length === 0) return null;
-  const { currentWindowGmv, previousWindowGmv, direction, changePct } = revenueTrend(orders);
+  const { currentWindowGmv, previousWindowGmv, direction, changePct } = trend;
 
   const Arrow = direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
   const arrowClass =
@@ -306,8 +289,8 @@ export function RevenueTrend({ orders }: { orders: AffiliateOrderRecord[] }) {
       </p>
       {open && (
         <>
-          <WeeklyTrendChart orders={orders} />
-          <TimeChart orders={orders} />
+          <WeeklyTrendChart data={weekly} />
+          <TimeChart daily={daily} />
         </>
       )}
     </div>

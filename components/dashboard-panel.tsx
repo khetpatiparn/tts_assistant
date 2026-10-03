@@ -6,13 +6,8 @@ import { ChevronDown, ChevronRight, Upload } from "lucide-react";
 import { importAffiliateOrders, importClipMetrics } from "@/app/actions";
 import type { AffiliateImportSummary, ClipMetricImportSummary } from "@/app/actions";
 import { ImportLogPanel } from "@/components/import-log-panel";
-import type { ImportLogRecord } from "@/lib/import-log";
-import type { ClipMetricRecord } from "@/lib/recommender";
-import {
-  summarizeOrders,
-  type AffiliateOrderRecord,
-  type ReminderState,
-} from "@/lib/dashboard";
+import type { ReminderState } from "@/lib/dashboard";
+import type { DashboardView } from "@/lib/dashboard-view";
 import { Reconciliation } from "@/components/reconciliation";
 import { Recommendations } from "@/components/recommendations";
 import { ReminderBanner } from "@/components/reminder-banner";
@@ -28,35 +23,25 @@ function baht(n: number): string {
 type ImportState = { summary: AffiliateImportSummary | null; error: string | null };
 
 export function DashboardPanel({
-  orders,
-  clipMetrics,
-  importLogs,
+  view,
   reminder,
   reminderActive,
   lastOrdersImportedAt,
   lastMetricsImportedAt,
-  entries,
   now,
   onOpenEntry,
 }: {
-  orders: AffiliateOrderRecord[];
-  clipMetrics: ClipMetricRecord[];
-  importLogs: ImportLogRecord[];
+  /** สรุปเสร็จฝั่ง server แล้ว (lib/dashboard-view.ts) — ไม่มีออเดอร์ดิบลงมาถึง client */
+  view: DashboardView;
   reminder: ReminderState;
   reminderActive: boolean;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
-  entries: {
-    id: string;
-    productName: string;
-    duplicatedFromId: string | null;
-    videoUrl: string;
-    postedAt: Date | null;
-  }[];
   now: Date;
   onOpenEntry: (entryId: string) => void;
 }) {
-  const summary = summarizeOrders(orders);
+  const { summary } = view;
+  const hasOrders = summary.orderCount > 0;
 
   // กางเองเมื่อข้อมูลถึงรอบต้องนำเข้า — ผู้ใช้ลืมง่าย ระบบจึงยกงานขึ้นมาเองแทนที่จะให้จำ
   // หลังจากนั้นกดสลับเองได้อิสระ (ค่านี้เป็นแค่ค่าตั้งต้นตอน mount)
@@ -105,16 +90,14 @@ export function DashboardPanel({
       {reminderActive && <ReminderBanner reminder={reminder} />}
 
       <Recommendations
-        entries={entries}
-        metrics={clipMetrics}
-        orders={orders}
+        view={view.recommendations}
         now={now}
         lastOrdersImportedAt={lastOrdersImportedAt}
         lastMetricsImportedAt={lastMetricsImportedAt}
         onOpenEntry={onOpenEntry}
       />
 
-      {orders.length === 0 ? (
+      {!hasOrders ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
           ยังไม่มีข้อมูลรายได้ — นำเข้าไฟล์ด้านล่างเพื่อเริ่ม
         </p>
@@ -166,9 +149,11 @@ export function DashboardPanel({
         </div>
       )}
 
-      {orders.length > 0 && <RevenueByClipList orders={orders} />}
-      {orders.length > 0 && <RevenueTrend orders={orders} />}
-      {orders.length > 0 && <Reconciliation orders={orders} />}
+      {hasOrders && <RevenueByClipList clips={view.clips} />}
+      {hasOrders && (
+        <RevenueTrend trend={view.trend} weekly={view.weekly} daily={view.daily} />
+      )}
+      {hasOrders && <Reconciliation unmatched={view.unmatched} />}
 
       {/* นำเข้าข้อมูล — งานประจำสัปดาห์ อยู่ล่างสุด พับไว้เมื่อยังไม่ถึงรอบ */}
       <div className="flex flex-col gap-3 border-t border-border pt-4">
@@ -188,7 +173,7 @@ export function DashboardPanel({
 
         {/* แผงสถานะอยู่นอกส่วนที่พับเสมอ — พับหรือกางก็ต้องเห็น */}
         <ImportLogPanel
-          logs={importLogs}
+          rounds={view.importRounds}
           now={now}
           lastOrdersImportedAt={lastOrdersImportedAt}
           lastMetricsImportedAt={lastMetricsImportedAt}

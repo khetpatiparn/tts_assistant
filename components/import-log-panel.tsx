@@ -1,13 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { daysUntil, nextImportDate } from "@/lib/import-schedule";
-import {
-  EXPECTED_CLIP_FILES,
-  groupLatestRound,
-  type ImportLogRecord,
-} from "@/lib/import-log";
+import { EXPECTED_CLIP_FILES, type RoundSummary } from "@/lib/import-log";
 
 const KIND_LABEL: Record<string, string> = {
   orders: "รายได้",
@@ -32,17 +26,17 @@ function dayOnly(d: Date): string {
 }
 
 export function ImportLogPanel({
-  logs,
+  rounds,
   now,
   lastOrdersImportedAt,
   lastMetricsImportedAt,
 }: {
-  logs: ImportLogRecord[];
+  /** groupLatestRound (lib/import-log.ts) ที่คำนวณฝั่ง server แล้ว */
+  rounds: RoundSummary[];
   now: Date;
   lastOrdersImportedAt: Date | null;
   lastMetricsImportedAt: Date | null;
 }) {
-  const rounds = useMemo(() => groupLatestRound(logs), [logs]);
 
   function importedAtOf(kind: string): Date | null {
     if (kind === "orders") return lastOrdersImportedAt;

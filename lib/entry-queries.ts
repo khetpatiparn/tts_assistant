@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { sortEntriesForRail } from "@/lib/entry-sort";
 import { entryStatus, type EntryRow } from "@/lib/entry-rows";
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+import { buildDashboardView } from "@/lib/dashboard-view";
 import { collectFamily, collectUsedAngles, summarizeEntryOutcome } from "@/lib/angle";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 
@@ -85,13 +86,29 @@ function daysSince(lastMs: number): number {
   return Math.floor((Date.now() - lastMs) / DAY_MS);
 }
 
-/** ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — ย้ายมาจาก app/page.tsx เดิมทั้งดุ้น */
-export async function getDashboardData() {
-  const [orders, clipMetrics, importLogs] = await Promise.all([
+/**
+ * ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — สรุปเสร็จฝั่ง server (`buildDashboardView`)
+ * ออเดอร์ดิบ/ClipMetric/entry ไม่ถูกส่งลง client (เดิมส่งทั้งตารางจน HTML ~3.7 MB)
+ */
+export async function getDashboardData(now: Date) {
+  const [orders, clipMetrics, importLogs, entryRows] = await Promise.all([
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
     prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
     prisma.importLog.findMany({ orderBy: { uploadedAt: "asc" } }),
+    // ใช้แค่ฟิลด์ที่ recommender/repeatStatus อ่าน — เรียงแบบเดียวกับ getEntryRows
+    // เพราะ detectTasks เรียงแบบ stable ลำดับ entry จึงเป็นตัวตัดสินงานที่คะแนนเท่ากัน
+    prisma.promptEntry.findMany({
+      select: {
+        id: true,
+        productName: true,
+        duplicatedFromId: true,
+        videoUrl: true,
+        postedAt: true,
+        createdAt: true,
+      },
+    }),
   ]);
+  const entries = sortEntriesForRail(entryRows);
 
   let daysSinceOrdersImport: number | null = null;
   let lastOrdersImportedAt: Date | null = null;
@@ -125,9 +142,7 @@ export async function getDashboardData() {
     unmatchedSoldProducts > 0;
 
   return {
-    orders,
-    clipMetrics,
-    importLogs,
+    view: buildDashboardView({ orders, clipMetrics, importLogs, entries, now }),
     reminder,
     reminderActive,
     lastOrdersImportedAt,

@@ -3,7 +3,9 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { BellRing, X } from "lucide-react";
 
-import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+// IMPORT_STALE_DAYS ดึงจาก lib/import-schedule ตรงๆ — lib/dashboard ลาก lib/affiliate (xlsx) เข้า bundle ของเบราว์เซอร์
+import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
+import type { ReminderState } from "@/lib/dashboard";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "reminder-dismissed";
