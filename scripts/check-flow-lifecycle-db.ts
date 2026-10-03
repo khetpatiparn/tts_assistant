@@ -783,6 +783,27 @@ async function branches() {
   await step("skip queued_r2 → skipped + unpause", p, (id) => OLD.skip(id), (id) => NEW.skip(id));
   await step("skip skipped (noop, stays paused)", p, (id) => OLD.skip(id), (id) => NEW.skip(id));
 
+  // NEW-only: failurePolicy "continue" (skipPause) — งานต้อง failed เหมือนทางหยุดคิวทุกช่อง (OLD เป็นตัวอ้างอิง) แต่ไม่มี pause
+  {
+    const q = await makePair({ status: FLOW_STATUS.RUNNING_R1, round: 1, attempt: 1 });
+    await pauseForTest();
+    const before = await snapWorker();
+    await OLD.roundFailed(q.a, "wait-results", "flow_error", "Flow: failed to generate", "uploads/_flow-failures/z");
+    const jb = await jobWithImages(q.b);
+    const failure = L.roundFailed({
+      round: jb.round as JobRound, hasVideoRow: false, step: "wait-results", kind: "flow_error",
+      message: "Flow: failed to generate", failureDir: "uploads/_flow-failures/z", now: new Date(), skipPause: true,
+    });
+    await db.applyPlan(q.b, failure.plan);
+    check("skipPause: pause = null", failure.pause === null);
+    check(
+      "skipPause: งาน failed เหมือนทางหยุดคิวทุกช่อง (failedStep/errorKind/errorMessage/failureDir)",
+      JSON.stringify(await snapJob(q.a)) === JSON.stringify(await snapJob(q.b)),
+      JSON.stringify([await snapJob(q.a), await snapJob(q.b)]),
+    );
+    check("skipPause: applyPlan ไม่แตะสถานะหยุดของบอท", JSON.stringify(await snapWorker()) === JSON.stringify(before));
+  }
+
   p = await makePair({ status: FLOW_STATUS.RUNNING_R3, round: 3, attempt: 1 });
   await step(
     "roundFailed r3 login_required",

@@ -27,6 +27,11 @@ export type WorkerConfig = {
    */
   renderEnabled: boolean;
   videoDailyCap: number;
+  /**
+   * จำนวนครั้ง/วัน (เวลาท้องถิ่น) ที่บอทข้ามงานที่ Flow วาดไม่สำเร็จไปทำงานถัดไปโดยไม่หยุดคิว · 0 = ปิด (พังแล้วหยุดทั้งคิวเหมือนเดิม)
+   * ไม่มี key นี้ในไฟล์ = 2 · ดูเงื่อนไขที่ failurePolicy ใน lib/flow-lifecycle.ts
+   */
+  autoContinueDailyCap: number;
   /** ["22:00","07:00"] = ทำงานเฉพาะช่วงนี้ (ข้ามเที่ยงคืนได้) · null = ตลอดเวลา */
   activeHours: [string, string] | null;
   generationTimeoutMs: number;
@@ -100,5 +105,10 @@ export function loadWorkerConfig(file = "flow-worker.config.json"): WorkerConfig
     throw new Error("config renderEnabled ต้องเป็น true/false");
   }
 
-  return { ...raw, renderEnabled: raw.renderEnabled === true } as unknown as WorkerConfig;
+  const ac = raw.autoContinueDailyCap;
+  if (ac !== undefined && (typeof ac !== "number" || !Number.isInteger(ac) || ac < 0)) {
+    throw new Error("config autoContinueDailyCap ต้องเป็นจำนวนเต็ม ≥ 0 (0 = ปิด)");
+  }
+
+  return { ...raw, renderEnabled: raw.renderEnabled === true, autoContinueDailyCap: ac ?? 2 } as unknown as WorkerConfig;
 }

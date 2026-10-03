@@ -285,6 +285,7 @@ export function FlowRoute({
                   job={detailJob}
                   renderEnabled={worker.renderEnabled}
                   workerAlive={worker.alive}
+                  queuePaused={paused}
                   onRound2Chosen={requestAutoGenerate}
                   onBack={() => setJobParam(null)}
                   onNext={nextWaiting ? () => selectJob(nextWaiting.id) : null}

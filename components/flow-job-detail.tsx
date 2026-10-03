@@ -29,7 +29,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { canApproveRender, canFinishManually, canRetryUpscale } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canApproveRender, canFinishManually, canRetryUpscale } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ export function FlowJobDetail({
   job,
   renderEnabled,
   workerAlive,
+  queuePaused,
   onRound2Chosen,
   onBack,
   onNext,
@@ -56,6 +57,8 @@ export function FlowJobDetail({
   renderEnabled: boolean;
   /** บอทส่ง heartbeat อยู่ไหม — งาน running_* ตอนบอทไม่อยู่ = ค้าง ต้องบอกผู้ใช้ ไม่ใช่ "กำลังทำ" */
   workerAlive: boolean;
+  /** คิวหยุดอยู่ไหม — งานที่พังตอนคิวไม่หยุด (บอทข้ามไปงานอื่น) ขึ้นหมายเหตุสั้นๆ แทนคำเตือนหยุดคิว */
+  queuePaused: boolean;
   onRound2Chosen: (entryId: string) => void;
   onBack: () => void;
   /** null = ไม่มีงานอื่นที่รอคุณ */
@@ -417,6 +420,9 @@ export function FlowJobDetail({
             <p className="text-sm font-medium text-foreground">
               พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {ERROR_KIND_LABELS[job.errorKind] ?? job.errorKind}
             </p>
+            {botMovedOnNote(job, queuePaused) !== null && (
+              <p className="text-sm leading-relaxed text-foreground">{botMovedOnNote(job, queuePaused)}</p>
+            )}
             <JobMessage status={job.status} message={job.errorMessage} />
             {job.video && (
               <ClipPlayer entryId={job.entryId} filename={job.video.filename} productName={job.productName} size="md" />

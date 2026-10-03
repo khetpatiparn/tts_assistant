@@ -12,6 +12,7 @@
   "dailyBatchCap": 60,
   "renderEnabled": true,
   "videoDailyCap": 20,
+  "autoContinueDailyCap": 2,
   "activeHours": null,
   "generationTimeoutMs": 300000,
   "renderTimeoutMs": 480000,

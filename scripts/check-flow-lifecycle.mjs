@@ -194,7 +194,46 @@ try {
     check("roundFailed รอบ 4 login_required → failed + หยุดคิว", L.roundFailed({ ...base, round: 4, hasVideoRow: true, kind: "login_required" }), failedPlan("login_required"));
     check("roundFailed รอบ 4 ไม่มีคลิป → failed + หยุดคิว", L.roundFailed({ ...base, round: 4, hasVideoRow: false, kind: "flow_error" }), failedPlan("flow_error"));
     check("roundFailed รอบ 3 → failed + หยุดคิว", L.roundFailed({ ...base, round: 3, hasVideoRow: true, kind: "selector_drift" }), failedPlan("selector_drift"));
+    check("roundFailed skipPause: งานยัง failed เหมือนเดิมทุกช่อง แต่ pause = null",
+      L.roundFailed({ ...base, round: 2, hasVideoRow: false, kind: "flow_error", skipPause: true }),
+      { plan: failedPlan("flow_error").plan, pause: null });
+    check("roundFailed skipPause=false/ไม่ใส่ = หยุดคิวเหมือนเดิม",
+      [L.roundFailed({ ...base, round: 2, hasVideoRow: false, kind: "flow_error", skipPause: false }).pause, L.roundFailed({ ...base, round: 2, hasVideoRow: false, kind: "flow_error" }).pause],
+      ["flow_error", "flow_error"]);
     check("roundFailed ข้อความยาวตัด 2000", L.roundFailed({ ...base, round: 1, hasVideoRow: false, kind: "worker_crash", message: "y".repeat(2500) }).plan.job.errorMessage.length, 2000);
+  }
+
+  // ---------- failurePolicy: ข้ามงานที่ Flow วาดไม่สำเร็จ ----------
+  {
+    const t = (h) => new Date(2026, 9, 3, h, 0);
+    const ok = { kind: "flow_error", step: "wait-results", round: 1, autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(9), cap: 2 };
+    const P = (o) => L.failurePolicy({ ...ok, ...o });
+    check("flow_error wait-results รอบ 1 → continue", P({}), "continue");
+    check("flow_error wait-render รอบ 3 → continue", P({ step: "wait-render", round: 3 }), "continue");
+    check("flow_error wait-results รอบ 2 → continue", P({ round: 2 }), "continue");
+    for (const kind of ["captcha", "login_required", "selector_drift", "generation_timeout", "worker_crash", "download_failed", "host_unsupported", ""]) {
+      check(`kind ${kind || "(ว่าง)"} ที่ wait-results → pause`, P({ kind }), "pause");
+    }
+    for (const step of ["click-generate", "attach-reference", "open-flow", "download", "find-video", "unknown", "wait-results ", ""]) {
+      check(`flow_error ที่ขั้น ${step || "(ว่าง)"} → pause`, P({ step }), "pause");
+    }
+    check("รอบ 4 flow_error wait-results → pause (ของเดิม)", P({ round: 4 }), "pause");
+    check("cap 0 = ปิดฟีเจอร์ → pause", P({ cap: 0 }), "pause");
+    check("cap 1: ใช้ 0 ครั้ง → continue", P({ cap: 1, autoContinuesToday: 0 }), "continue");
+    check("cap 1: ใช้ครบ 1 ครั้ง → pause", P({ cap: 1, autoContinuesToday: 1 }), "pause");
+    check("cap 2: ใช้ 1 ครั้ง (ข้ามล่าสุดเก่ากว่างานสำเร็จ) → continue", P({ autoContinuesToday: 1, lastAutoContinueAt: t(8), lastSuccessAt: t(9) }), "continue");
+    check("cap 2: ใช้ครบ 2 ครั้ง → pause", P({ autoContinuesToday: 2, lastAutoContinueAt: t(8), lastSuccessAt: t(9) }), "pause");
+    check("ติดกัน: ข้ามล่าสุดใหม่กว่างานสำเร็จล่าสุด → pause", P({ autoContinuesToday: 1, lastAutoContinueAt: t(10), lastSuccessAt: t(9) }), "pause");
+    check("ติดกัน: เวลาเท่ากันเป๊ะ ไม่ถือว่ามีงานสำเร็จคั่น → ไม่ใหม่กว่า → continue", P({ autoContinuesToday: 1, lastAutoContinueAt: t(9), lastSuccessAt: t(9) }), "continue");
+    check("ข้ามเมื่อวานล่าสุด ยังไม่เคยสำเร็จหลังจากนั้น → pause", P({ lastAutoContinueAt: new Date(2026, 9, 2, 20, 0), lastSuccessAt: null }), "pause");
+    check("ไม่เคยข้าม + ยังไม่เคยมีงานสำเร็จ → continue", P({ lastSuccessAt: null }), "continue");
+    check("ข้ามเมื่อวาน (autoContinuesToday 0) แต่มีงานสำเร็จหลังจากนั้น → continue", P({ lastAutoContinueAt: new Date(2026, 9, 2, 20, 0), lastSuccessAt: t(9) }), "continue");
+    check("isAutoContinueFailure ตรงกับนโยบาย", [L.isAutoContinueFailure("flow_error", "wait-render", 3), L.isAutoContinueFailure("flow_error", "wait-render", 4), L.isAutoContinueFailure("captcha", "wait-results", 1)], [true, false, false]);
+    const failedJob = { status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results" };
+    check("botMovedOnNote: failed + คิวไม่หยุด → มีหมายเหตุ", typeof L.botMovedOnNote(failedJob, false), "string");
+    check("botMovedOnNote: คิวหยุดอยู่ → ไม่มี", L.botMovedOnNote(failedJob, true), null);
+    check("botMovedOnNote: kind อื่น → ไม่มี", L.botMovedOnNote({ ...failedJob, errorKind: "selector_drift" }, false), null);
+    check("botMovedOnNote: งานไม่ failed → ไม่มี", L.botMovedOnNote({ ...failedJob, status: "queued_r1" }, false), null);
   }
 
   // ---------- เปิดบอท: กวาดงานค้าง ----------

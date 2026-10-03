@@ -13,7 +13,7 @@ import {
 } from "@/lib/flow-jobs";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
-  previewUnsaved, roundFailed, staleRender, staleRunning, staleUpscale,
+  failurePolicy, previewUnsaved, roundFailed, isAutoContinueFailure, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
 import { applyBulk, applyPlan, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -188,7 +188,34 @@ async function persistAfterRender(
   return false;
 }
 
-async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean> {
+/**
+ * พังแล้วข้ามไปงานถัดไปได้ไหม (failurePolicy ใน lib/flow-lifecycle.ts) — ดึงตัวเลขจาก FlowActivity: การข้ามวันนี้ (ตั้งแต่เที่ยงคืนท้องถิ่น),
+ * การข้ามล่าสุด, และรอบที่บอททำสำเร็จล่าสุด (kind round_ok) · อ่านไม่ได้ = หยุดคิวเหมือนเดิม (ปลอดภัยไว้ก่อน)
+ */
+async function decideFailurePolicy(cfg: WorkerConfig, round: JobRound, step: string, kind: string): Promise<"continue" | "pause"> {
+  if (!isAutoContinueFailure(kind, step, round) || cfg.autoContinueDailyCap <= 0) return "pause";
+  try {
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const [autoContinuesToday, lastAuto, lastOk] = await Promise.all([
+      prisma.flowActivity.count({ where: { kind: "auto_continue", at: { gte: midnight } } }),
+      prisma.flowActivity.findFirst({ where: { kind: "auto_continue" }, orderBy: { at: "desc" }, select: { at: true } }),
+      prisma.flowActivity.findFirst({ where: { kind: "round_ok" }, orderBy: { at: "desc" }, select: { at: true } }),
+    ]);
+    return failurePolicy({
+      kind, step, round, autoContinuesToday,
+      lastAutoContinueAt: lastAuto?.at ?? null,
+      lastSuccessAt: lastOk?.at ?? null,
+      cap: cfg.autoContinueDailyCap,
+    });
+  } catch (e) {
+    log(`อ่านสถิติข้ามงานไม่ได้ — หยุดคิวตามเดิม: ${String(e)}`);
+    return "pause";
+  }
+}
+
+/** true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · false = หยุดคิวแล้ว */
+async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped"> {
   const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
   const stepLog = new StepLog(true);
@@ -297,8 +324,20 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     });
     const failureDir = path.relative(process.cwd(), failureDirAbs).split(path.sep).join("/");
     // รอบ 4 (โหลด 1080p) ที่มี 720p แล้ว พังที่ขั้นไหนก็จบงานด้วย 720p ไม่หยุดคิว ยกเว้นสัญญาณบอท/หลุด login (roundFailed)
-    const failure = roundFailed({ round, hasVideoRow: videoRowOf(job) !== null, step, kind, message, failureDir, now: new Date() });
+    const policy = await decideFailurePolicy(cfg, round, step, kind);
+    const failure = roundFailed({
+      round, hasVideoRow: videoRowOf(job) !== null, step, kind, message, failureDir, now: new Date(),
+      skipPause: policy === "continue",
+    });
     await applyPlan(job.id, failure.plan);
+    if (policy === "continue") {
+      // งานเป็น failed เหมือนเดิม (หลักฐาน + "รันต่อ" ใช้ได้) แต่ไม่หยุดคิว · ต้องเขียนแถว auto_continue ก่อนงานถัดไปจะพัง
+      // เพื่อให้เพดาน/กฎ "ห้ามติดกัน" เห็น (logActivity ไม่ await แต่ใช้เวลาไม่กี่ ms เทียบกับพักระหว่างสินค้า 30+ วิ)
+      logActivity({ kind: "auto_continue", jobId: job.id, round, detail: { jobId: job.id, round, step, message: message.slice(0, 300) } });
+      log(`งาน ${job.id} Flow วาดไม่สำเร็จที่ ${step} — ข้ามไปงานถัดไป ไม่หยุดคิว หลักฐาน: ${failureDirAbs}`);
+      notify(`ข้าม ${job.entry.productName} ไปก่อน`, "Flow วาดไม่สำเร็จ · กด 'รันต่อ' ที่งานนั้นในหน้า /flow ได้");
+      return "skipped";
+    }
     if (failure.pause === null) {
       log(`งาน ${job.id} จบด้วย 720p (รอบ 4 พังที่ ${step} — ไม่หยุดคิว) หลักฐาน: ${failureDirAbs}`);
       notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
@@ -510,7 +549,7 @@ async function main() {
     }
 
     const ok = await processJob(page, job, cfg, sel, lastBatchAt);
-    if (!ok) {
+    if (ok === false) {
       // session หลุดกลางคิว → ปิดบอทเพื่อคืนโปรไฟล์ให้ Flow Login (หยุดรออยู่เฉยๆ ก็ login ไม่ได้
       // เพราะโปรไฟล์ถูกบอทถือไว้) พอเปิดบอทใหม่หลัง login ส่วนต้นของ main() จะคืนงานเข้าคิวเอง
       if ((await readState())?.pausedReason === "login_required") {
@@ -522,6 +561,8 @@ async function main() {
 
     lastBatchAt = Date.now();
     const doneRound = toJobRound(job.round);
+    // จุดอ้างอิง "บอททำสำเร็จล่าสุด" ของกฎห้ามข้ามติดกัน (failurePolicy) — งานที่ข้าม (skipped) ไม่นับ
+    if (ok === true) logActivity({ kind: "round_ok", jobId: job.id, round: doneRound });
     await prisma.flowWorkerState.update({
       where: { id: WORKER_STATE_ID },
       data: {
@@ -534,7 +575,8 @@ async function main() {
         // พักยาวทุก 2-3 สินค้า ผิดจากที่สเปกกับ CLAUDE.md เขียนไว้
         // ผลข้างเคียงที่ยอมรับ: สินค้าที่ผู้ใช้ข้าม/สั่งทำใหม่ตั้งแต่รอบ 1 จะไม่ขยับ streak เลย
         // ช่วงนั้นจึงเหลือ dailyBatchCap + betweenProductsMs เป็นตัวคุมจังหวะแทน
-        ...(doneRound === 2 ? { sessionStreak: { increment: 1 } } : {}),
+        // งานที่ข้ามเพราะ Flow วาดไม่สำเร็จไม่ใช่สินค้าที่เสร็จ — ไม่ขยับ streak (แต่ยังนับเพดานรูป/คลิป เพราะยิงขอ Flow ไปแล้ว)
+        ...(doneRound === 2 && ok === true ? { sessionStreak: { increment: 1 } } : {}),
       },
     });
 

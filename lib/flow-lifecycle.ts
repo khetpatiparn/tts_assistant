@@ -380,6 +380,44 @@ export function finalClipMissing(downloadFailed: string | null, now: Date): Plan
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now, errorMessage: previewOnlyMessage(`โหลด 1080p ไม่ได้: ${downloadFailed ?? ""}`) } };
 }
 
+/** ขั้นที่ Flow เองรายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (การ์ด "failed to generate" ไม่เสียเครดิต) — ขั้นเดียวที่ข้ามไปงานถัดไปได้ */
+const AUTO_CONTINUE_STEPS: ReadonlySet<string> = new Set(["wait-results", "wait-render"]);
+
+/** พังแบบที่เข้าข่ายให้บอทข้ามไปงานถัดไป (ก่อนดูเพดาน/กฎติดกัน) — หน้า /flow ใช้ตัดสินข้อความ "บอทข้ามไปแล้ว" ด้วย */
+export function isAutoContinueFailure(kind: string, step: string, round: number): boolean {
+  return kind === "flow_error" && AUTO_CONTINUE_STEPS.has(step) && round !== 4;
+}
+
+/**
+ * นโยบายตอนงานพัง: "continue" = งานเป็น failed แต่บอทไม่หยุดคิว ไปงานถัดไปหลังพักปกติ · "pause" = หยุดทั้งคิว (ของเดิม)
+ * ข้ามได้เฉพาะ flow_error ที่ wait-results/wait-render (Flow วาดไม่สำเร็จเอง) ทุกอย่างอื่นหยุดเหมือนเดิม ·
+ * เพดาน cap ครั้ง/วัน (0 = ปิดฟีเจอร์) · ห้ามข้ามติดกัน: ถ้าการข้ามล่าสุดใหม่กว่างานที่บอททำสำเร็จล่าสุด (หรือยังไม่เคยสำเร็จเลย)
+ * แปลว่าสองสินค้าพังติดกัน = น่าจะเป็นที่ระบบ → หยุดคิว
+ */
+export function failurePolicy(input: {
+  kind: string;
+  step: string;
+  round: number;
+  autoContinuesToday: number;
+  lastAutoContinueAt: Date | null;
+  lastSuccessAt: Date | null;
+  cap: number;
+}): "continue" | "pause" {
+  if (!isAutoContinueFailure(input.kind, input.step, input.round)) return "pause";
+  if (input.cap <= 0 || input.autoContinuesToday >= input.cap) return "pause";
+  if (input.lastAutoContinueAt !== null) {
+    if (input.lastSuccessAt === null || input.lastAutoContinueAt.getTime() > input.lastSuccessAt.getTime()) return "pause";
+  }
+  return "continue";
+}
+
+/** ข้อความสั้นใต้งานที่พัง เมื่อบอทข้ามไปทำงานอื่นแล้ว (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
+export function botMovedOnNote(job: { status: string; round: number; errorKind: string; failedStep: string }, queuePaused: boolean): string | null {
+  if (queuePaused || job.status !== FLOW_STATUS.FAILED) return null;
+  if (!isAutoContinueFailure(job.errorKind, job.failedStep, job.round)) return null;
+  return "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง";
+}
+
 /**
  * รอบพัง (บอทเก็บหลักฐานไว้ที่ failureDir แล้ว) — ปกติ = failed + หยุดทั้งคิว (pause = kind ให้บอทหยุดและแจ้งเตือนเอง)
  * ยกเว้นรอบ 4 (โหลด 1080p) ที่มี Preview clip แล้ว: จบงานด้วย 720p ไม่หยุดคิว — เว้นแต่สัญญาณบอท/หลุด login ที่ต้องหยุด
@@ -393,6 +431,8 @@ export function roundFailed<K extends string>(input: {
   message: string;
   failureDir: string;
   now: Date;
+  /** failurePolicy ตัดสินแล้วว่า "continue" — งานยัง failed เหมือนเดิมทุกอย่าง แต่ไม่หยุดคิว (pause = null) */
+  skipPause?: boolean;
 }): { plan: Plan; pause: K | null } {
   const { round, kind, step, message, failureDir } = input;
   if (round === 4 && kind !== "captcha" && kind !== "login_required" && input.hasVideoRow) {
@@ -410,7 +450,7 @@ export function roundFailed<K extends string>(input: {
   }
   return {
     plan: { job: { status: FLOW_STATUS.FAILED, failedStep: step, errorKind: kind, errorMessage: message.slice(0, MESSAGE_MAX), failureDir } },
-    pause: kind,
+    pause: input.skipPause === true ? null : kind,
   };
 }
 
