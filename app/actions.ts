@@ -1,6 +1,6 @@
 "use server";
 
-import { mkdir, readFile, writeFile, unlink, copyFile, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink, stat } from "node:fs/promises";
 import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -46,7 +46,6 @@ import { parseMonthDayLabel } from "@/lib/csv";
 import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
 import {
-  DEFAULT_CAPTIONS,
   FLOW_STATUS,
   acceptShortName,
   SHORT_NAME_TIMEOUT_MS,
@@ -56,8 +55,9 @@ import {
   pickBackupBrowserProfile,
   EXTRA_PROMPT_MAX,
   sourceFilename,
-  type FlowRound,
 } from "@/lib/flow-jobs";
+import { autoSourceFilename, isAutoSourceImage } from "@/lib/auto-source-image";
+import { removeAutoSourceFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
 import {
   approveRender,
   choose,
@@ -156,7 +156,9 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
             : image.mimeType === "image/heif"
               ? "heif"
               : "jpg";
-    const filename = `${crypto.randomUUID()}.${ext}`;
+    // รูปต้นทางอัตโนมัติคงเป็นรูปอัตโนมัติใน entry ใหม่ (prefix เดิม) — เข้าคิว Flow ของ entry ใหม่/เลือกรอบ 2 จะแทนมันได้
+    // ไม่งั้นมันกลายเป็น "รูปที่ผู้ใช้เพิ่มเอง" ค้างอยู่ตลอดและส่งรูปของร้านให้ Gemini ต่อหลังได้รูปที่ Flow วาดแล้ว
+    const filename = isAutoSourceImage(image.filename) ? autoSourceFilename(ext) : `${crypto.randomUUID()}.${ext}`;
     await writeFile(joinPath(UPLOAD_ROOT, created.id, filename), data);
     await prisma.productImage.create({
       data: {
@@ -1391,8 +1393,8 @@ export async function importShowcaseFile(
 
 // ---------------------------------------------------------------------------
 // Flow image bot (spec docs/superpowers/specs/2026-09-06-flow-image-bot-design.md)
-// ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้น chooseFlowCandidate
-// รอบ 2 ซึ่งเป็นที่เดียวที่สร้าง ProductImage (ก๊อป 2 ไฟล์ที่ผู้ใช้เลือก)
+// ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้นสองที่ที่แตะ ProductImage (lib/auto-source-image-db.ts):
+// เข้าคิว (enqueueFlowJobCore) ใส่/แทนรูปต้นทางอัตโนมัติ · chooseFlowCandidate รอบ 2 ลบรูปนั้นแล้วก๊อป 2 ไฟล์ที่ผู้ใช้เลือก
 // ---------------------------------------------------------------------------
 
 function extFromMime(mime: string): "png" | "webp" | "jpg" {
@@ -1444,6 +1446,14 @@ async function enqueueFlowJobCore(
     await addImage(job.id, row);
   }
 
+  // รูปต้นทาง (รูปแรก) เป็นรูปสินค้าของ entry ทันที ทำเองได้เลยไม่ต้องรอ Flow — เข้าคิวซ้ำแทนแถวเดิม เลือกรอบ 2 แทนด้วยรูปที่
+  // Flow วาด (lib/auto-source-image-db.ts) · งานเข้าคิวสำเร็จไปแล้ว ขั้นนี้พังห้ามทำให้เข้าคิวพัง ผู้ใช้อัปรูปเองที่หน้า entry ได้
+  try {
+    await replaceAutoSourceImage(UPLOAD_ROOT, entryId, images[0]);
+  } catch (err) {
+    console.error("ใส่รูปต้นทางเข้ารูปสินค้าไม่สำเร็จ (งาน Flow เข้าคิวแล้ว):", err);
+  }
+
   await logUserActivity({
     kind: "user_enqueue",
     jobId: job.id,
@@ -1452,6 +1462,7 @@ async function enqueueFlowJobCore(
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${entryId}`);
+  revalidatePath("/"); // รูปแรกของรายการ = ภาพย่อในหน้ารายการ
   return job.id;
 }
 
@@ -1472,7 +1483,7 @@ export async function enqueueFlowJob(formData: FormData): Promise<string> {
 }
 
 /**
- * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → ก๊อป 2 รูปที่เลือกเป็น ProductImage แล้วรอ 10-part prompt
+ * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → ลบรูปต้นทางอัตโนมัติ + ก๊อป 2 รูปที่เลือกเป็น ProductImage แล้วรอ 10-part prompt
  * (awaiting_prompt, รอบ 3 = Render) · generateWithAI เป็นคนส่งต่อเข้าคิว Render
  * (caption ตั้งต้นตาม DEFAULT_CAPTIONS แก้ได้ในหน้า entry เหมือนรูปที่อัปเอง)
  */
@@ -1487,6 +1498,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
   const plan = choose(job, job.images.find((i) => i.id === imageId), () => loadWorkerConfig().renderEnabled, new Date());
   const image = plan.image;
 
+  let removedAutoSource: string[] = [];
   await prisma.$transaction(async (tx) => {
     if (!plan.copyToProductImages) {
       await applyPlan(jobId, plan, tx);
@@ -1496,45 +1508,15 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
     // จบรอบ 2: รูปที่เลือกรอบ 1 + รูปนี้ (รอบ 2) → ProductImage 2 แถว
     const round1 = job.images.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen);
     if (!round1) throw new Error("ไม่พบรูปที่เลือกไว้ในรอบ 1");
-    const existingCount = await tx.productImage.count({ where: { entryId: job.entryId } });
-    const picks: { img: typeof image; round: FlowRound }[] = [
-      { img: round1, round: 1 },
-      { img: image, round: 2 },
-    ];
-    // ก๊อปไฟล์ไม่อยู่ใน transaction ของ DB — ถ้า copyFile ของ pick หลังพัง ต้องลบไฟล์ที่ก๊อป
-    // สำเร็จไปแล้วของ pick ก่อนหน้าในความพยายามนี้เอง ไม่งั้นจะเหลือไฟล์ค้างดิสก์ที่ไม่มีอะไรอ้างอิง
-    // (DB rollback เองอยู่แล้วเพราะอยู่ใน tx แต่ไฟล์บนดิสก์ไม่ transactional)
-    const copiedPaths: string[] = [];
-    try {
-      for (const [i, { img, round }] of picks.entries()) {
-        const ext = path.extname(img.filename).slice(1) || "png";
-        const filename = `${crypto.randomUUID()}.${ext}`;
-        const destPath = joinPath(UPLOAD_ROOT, job.entryId, filename);
-        await copyFile(path.join(UPLOAD_ROOT, job.entryId, "flow", img.filename), destPath);
-        copiedPaths.push(destPath);
-        await tx.productImage.create({
-          data: {
-            entryId: job.entryId,
-            filename,
-            mimeType: img.mimeType,
-            caption: DEFAULT_CAPTIONS[round],
-            sortOrder: existingCount + i,
-          },
-        });
-      }
-    } catch (err) {
-      // เก็บกวาดไฟล์ที่ก๊อปสำเร็จไปแล้วก่อนพัง — ล้มการเก็บกวาดเองก็ไม่ throw ทับ error เดิม
-      for (const copiedPath of copiedPaths) {
-        try {
-          await unlink(copiedPath);
-        } catch {
-          // ไม่ต้องทำอะไรเพิ่ม ปล่อยไฟล์ค้างไว้ดีกว่ากลืน error เดิมที่ทำให้ transaction ล้ม
-        }
-      }
-      throw err;
-    }
+    // รูปต้นทางอัตโนมัติ (แถว) ออก รูปที่ Flow วาด 2 รูปเข้า — รูปที่ผู้ใช้เพิ่มเองไม่ถูกแตะ
+    removedAutoSource = await replaceAutoSourceWithFlowImages(tx, UPLOAD_ROOT, job.entryId, [
+      { filename: round1.filename, mimeType: round1.mimeType, round: 1 },
+      { filename: image.filename, mimeType: image.mimeType, round: 2 },
+    ]);
     await applyPlan(jobId, plan, tx);
   });
+  // ไฟล์ของรูปต้นทางอัตโนมัติลบหลัง commit เท่านั้น — ทรานแซกชันล้ม = แถวยังอยู่ ไฟล์ต้องยังเปิดได้
+  await removeAutoSourceFiles(UPLOAD_ROOT, job.entryId, removedAutoSource);
 
   await logUserActivity({
     kind: "user_choose",

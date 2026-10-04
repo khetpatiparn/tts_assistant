@@ -28,7 +28,7 @@
 
 ## "ทำคลิปตัวนี้" (`startShowcaseProduct`)
 
-- รับ**ไฟล์**รูปต้นทาง 1 รูป (ครอปด้วย canvas ในเบราว์เซอร์ `components/showcase-photo-picker.tsx`) → สร้าง Entry + เข้าคิว Flow
+- รับ**ไฟล์**รูปต้นทาง 1 รูป (ครอปด้วย canvas ในเบราว์เซอร์ `components/showcase-photo-picker.tsx`) → สร้าง Entry + เข้าคิว Flow · รูปนั้นเป็นรูปสินค้าของ entry ทันที (รูปต้นทางอัตโนมัติ — "เลือกรูปใหม่" แทนรูปเดิม เลือกรอบ 2 แทนด้วยรูปที่ Flow วาด ดู `docs/agents/flow-bot.md`)
 - **ย่อชื่อสินค้าตอนสร้าง entry** — `startShowcaseProduct`/`createEntryFromCandidate` ผ่าน `shortNameForEntry` (`shortenProductName` ด้วย flash-lite + `acceptShortName` ใน `lib/flow-jobs.ts`) · ชื่อเต็มเก็บใน `productInfo` ขึ้นต้น `ชื่อเต็มจากร้าน: ` (`FULL_TITLE_PREFIX`) · ล้มเหลวหรือเกิน `SHORT_NAME_TIMEOUT_MS` (8 วิ, `withTimeout`) = ใช้ชื่อเต็ม ไม่ทำให้สร้างงานพัง · **เหตุผล:** บอทพิมพ์ `productName` ลงพรอมต์วาดรูปของ Flow ชื่อ SEO ยาวที่มีคุณสมบัติ ("หนานุ่มพิเศษ ซึมซับดี…") ทำให้ Flow ใส่ตัวหนังสือลงในรูป
 - **ลำดับใน `startShowcaseProduct`: ย่อชื่อ (เรียก Gemini) → เช็กกันสร้างซ้ำ (`linkedEntryId`) → สร้าง** — guard กับ create ติดกันโดยไม่มีการรอ Gemini คั่น (กดซ้ำระหว่างรอจะได้งานซ้ำ — ตรวจใน `scripts/check-flow-jobs.mjs`)
 - งานเก่าที่ชื่อยังเป็นชื่อร้าน ย่อด้วย `npx tsx scripts/shorten-showcase-names.ts [--apply]` (เฉพาะงานยังไม่โพสต์, idempotent)
