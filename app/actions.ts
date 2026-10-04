@@ -49,8 +49,11 @@ import {
   flowProjectUrl,
   pickBackupBrowserProfile,
   EXTRA_PROMPT_MAX,
+  checkSourceImage,
+  imageExtFromMime,
   sourceFilename,
 } from "@/lib/flow-jobs";
+import { changeSourcePhoto } from "@/lib/flow-change-source";
 import { autoSourceFilename, isAutoSourceImage } from "@/lib/auto-source-image";
 import { shortenInBackground } from "@/lib/short-name-db";
 import { removeAutoSourceFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
@@ -1206,12 +1209,13 @@ export async function startShowcaseProduct(
 }
 
 /**
- * หน้า Showcase แท็บ "กำลังทำ": "เลือกรูปใหม่" — ใช้ Entry เดิม ส่งรูปต้นทางใหม่เข้าคิว Flow
- * ใช้ได้เฉพาะเมื่องานล่าสุด Flow วาดไม่สำเร็จเอง (flow_error) / ถูกข้าม / ยังไม่มีงาน — ตรวจซ้ำฝั่ง server ด้วย
- * showcaseFlowState เพราะ client อาจค้างหน้าเก่า · งานที่พังค้างอยู่ถูกเปลี่ยนเป็น "ข้าม" และปลดการหยุดของ
- * worker เหมือนปุ่ม "ข้ามงานนี้" (ผู้ใช้เลือกแทนงานนั้นแล้ว) · **captcha ไม่เข้าเงื่อนไขโดยตั้งใจ** ดู showcaseFlowState
+ * หน้า Showcase แท็บ "กำลังทำ": "เลือกรูปใหม่" — ใช้ Entry เดิม · กติกาเดียวกับ "เปลี่ยนรูปต้นทาง" ของหน้า /flow (ticket 05):
+ * มีงานอยู่แล้ว = เปลี่ยนรูปต้นทางของงานล่าสุด (changeSourcePhoto — งานเดิมกลับไปวาดรอบ 1 ไม่สร้างงานใหม่ ไฟล์รอบเก่าไม่ถูกทับ)
+ * ยังไม่มีงานเลย = เข้าคิวงานใหม่ · ตรวจซ้ำฝั่ง server ด้วย showcaseFlowState เพราะ client อาจค้างหน้าเก่า ·
+ * **captcha/blocked ไม่เข้าเงื่อนไขโดยตั้งใจ** ดู showcaseFlowState · เปลี่ยนไม่ได้ (บอทหยิบไปก่อน ฯลฯ) คืน error เป็นข้อความ
+ * ไม่ throw — ข้อความ throw ของ server action ถูกซ่อนใน production build
  */
-export async function retryShowcasePhoto(formData: FormData): Promise<{ entryId: string }> {
+export async function retryShowcasePhoto(formData: FormData): Promise<{ entryId: string; error: string | null }> {
   const candidateId = String(formData.get("candidateId") ?? "");
   const photo = formData.get("photo");
   if (!(photo instanceof File) || photo.size === 0) throw new Error("กรุณาเลือกรูป 1 รูป");
@@ -1226,16 +1230,18 @@ export async function retryShowcasePhoto(formData: FormData): Promise<{ entryId:
     latest === null ? null : { status: latest.status, errorKind: latest.errorKind, round: latest.round }
   );
   if (state === "blocked") throw new Error("งาน Flow ของสินค้านี้หยุดด้วยเหตุผลอื่น — ไปจัดการที่หน้า คิว Flow ก่อน");
-  if (state === "busy") throw new Error("งาน Flow ของสินค้านี้ยังทำงานอยู่ หรือเสร็จแล้ว");
+  if (state === "busy") throw new Error("งาน Flow ของสินค้านี้กำลังทำ เริ่มทำคลิปแล้ว หรือเสร็จแล้ว");
 
-  if (latest !== null && latest.status === FLOW_STATUS.FAILED) await skipFlowJob(latest.id);
-  await enqueueFlowJobCore(
-    entryId,
-    [{ buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type }],
-    String(formData.get("extraPrompt") ?? "")
-  );
+  const image = { buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type };
+  const extraPrompt = String(formData.get("extraPrompt") ?? "");
+  if (latest === null) {
+    await enqueueFlowJobCore(entryId, [image], extraPrompt);
+  } else {
+    const r = await changeSourceAndLog(latest.id, image, extraPrompt);
+    if (!r.ok) return { entryId, error: r.message };
+  }
   revalidatePath("/showcase");
-  return { entryId };
+  return { entryId, error: null };
 }
 
 /**
@@ -1386,10 +1392,6 @@ export async function importShowcaseFile(
 // เข้าคิว (enqueueFlowJobCore) ใส่/แทนรูปต้นทางอัตโนมัติ · chooseFlowCandidate รอบ 2 ลบรูปนั้นแล้วก๊อป 2 ไฟล์ที่ผู้ใช้เลือก
 // ---------------------------------------------------------------------------
 
-function extFromMime(mime: string): "png" | "webp" | "jpg" {
-  return mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-}
-
 /**
  * แกนกลางของการเข้าคิว Flow — แยกจาก FormData เพราะตอนนี้มีสองต้นทางของรูป:
  * (1) ผู้ใช้อัปโหลดผ่านฟอร์ม (FormData, path เดิม) (2) รูปที่โหลดมาแล้วจาก Showcase import
@@ -1414,19 +1416,18 @@ async function enqueueFlowJobCore(
 
   if (images.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
   for (const img of images) {
-    // HEIC ไม่รับ — Flow อัปโหลดไม่ได้ และ Playwright ส่งไฟล์ตามที่เป็น
-    if (!["image/jpeg", "image/png", "image/webp"].includes(img.mimeType)) {
-      throw new Error("รองรับเฉพาะ JPEG, PNG, WebP");
-    }
-    if (img.buffer.length > MAX_IMAGE_BYTES) throw new Error("ไฟล์ใหญ่เกิน 10MB");
+    const invalid = checkSourceImage({ mimeType: img.mimeType, size: img.buffer.length });
+    if (invalid !== null) throw new Error(invalid);
   }
 
   const dir = path.join(UPLOAD_ROOT, entryId, "flow");
   await mkdir(dir, { recursive: true });
 
+  // ชื่อไฟล์ไม่ซ้ำข้ามงานของ entry เดียวกัน (โฟลเดอร์ flow/ ใช้ร่วมกัน — งานใหม่หลังงานก่อนจบ/ถูกข้ามไม่ทับรูปต้นทางเดิม)
+  const nonce = crypto.randomUUID().slice(0, 8);
   const plan = enqueue(
     extraPrompt,
-    images.map((img, index) => ({ filename: sourceFilename(index, extFromMime(img.mimeType)), mimeType: img.mimeType })),
+    images.map((img, index) => ({ filename: sourceFilename(1, index, imageExtFromMime(img.mimeType), nonce), mimeType: img.mimeType })),
   );
   const job = await createJob(entryId, plan.job);
   for (const [index, img] of images.entries()) {
@@ -1568,6 +1569,57 @@ export async function takeOverFlowJob(
   revalidatePath("/showcase");
   revalidatePath(`/entry/${job.entryId}`);
   return { taken: true, message: null, exportPath, exportError };
+}
+
+/**
+ * เปลี่ยนรูปต้นทาง + บันทึก FlowActivity user_change_source + revalidate — ใช้ร่วมทั้งหน้า /flow (changeFlowSource) และ Showcase
+ * (retryShowcasePhoto) · DB+ไฟล์อยู่ lib/flow-change-source.ts (gate/แข่งกับบอท/ไฟล์ไม่ซ้ำ/รูปสินค้าเปลี่ยนตาม)
+ */
+async function changeSourceAndLog(
+  jobId: string,
+  image: { buffer: Buffer; mimeType: string },
+  extraPrompt: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const r = await changeSourcePhoto({ root: UPLOAD_ROOT, jobId, image, extraPrompt });
+  if (!r.ok) {
+    revalidatePath("/flow");
+    return r;
+  }
+  // ไม่นับเป็น "ยิง Flow วันนี้" (summarizeActivity นับเฉพาะ generate_*) · round/attempt = ของเดิมก่อนเปลี่ยน (เหมือน user_redraw)
+  await logUserActivity({
+    kind: "user_change_source",
+    jobId,
+    round: r.fromRound,
+    detail: {
+      fromStatus: r.fromStatus,
+      round: r.fromRound,
+      attempt: r.fromAttempt,
+      nextAttempt: r.attempt,
+      ...extraDetail(r.extraPrompt),
+      waitedMs: waitedMsSince(r.waitedFrom),
+    },
+  });
+  revalidatePath("/flow");
+  revalidatePath("/showcase");
+  revalidatePath(`/entry/${r.entryId}`);
+  revalidatePath("/"); // รูปแรกของรายการ = ภาพย่อในหน้ารายการ (รูปต้นทางอัตโนมัติเปลี่ยน)
+  return { ok: true };
+}
+
+/**
+ * หน้า /flow: "เปลี่ยนรูปต้นทาง" — รูปจากร้าน (ครอปแล้วหรือไม่ก็ได้) หรือไฟล์จากเครื่อง ส่งมาเป็นไฟล์เดียว · งานเดิมกลับไปรอวาดรอบ 1
+ * ได้ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ (canChangeSource) · ไม่ throw กับกรณีที่ผู้ใช้ต้องรู้ผล (คืน message)
+ */
+export async function changeFlowSource(formData: FormData): Promise<{ changed: boolean; message: string | null }> {
+  const jobId = String(formData.get("jobId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File) || photo.size === 0) return { changed: false, message: "กรุณาเลือกรูป 1 รูป" };
+  const r = await changeSourceAndLog(
+    jobId,
+    { buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type },
+    String(formData.get("extraPrompt") ?? ""),
+  );
+  return r.ok ? { changed: true, message: null } : { changed: false, message: r.message };
 }
 
 function openInExplorer(dir: string): void {

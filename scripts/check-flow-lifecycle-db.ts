@@ -1168,6 +1168,154 @@ async function promptSaves() {
   }
 }
 
+/**
+ * เปลี่ยนรูปต้นทาง (ticket 05) — NEW-only (ไม่มีของเดิม): งานเดิมกลับไปรอวาดรอบ 1 · แถว source/candidate เก่าอยู่ครบ · chosen ล้าง ·
+ * งานพัง = ปลดการหยุด · เขียนแบบมีเงื่อนไขบนสถานะที่อ่านมา (แข่งกับบอท = ไม่แตะอะไร) · ไฟล์จริงในโฟลเดอร์ชั่วคราว (ไม่แตะ uploads/)
+ */
+async function changeSources() {
+  console.log("\n== เปลี่ยนรูปต้นทาง ==");
+  const SEED: ImgSeed[] = [
+    { kind: "source", round: 0, attempt: 1, index: 0, filename: "source-0.jpg" },
+    { kind: "candidate", round: 1, attempt: 1, index: 0, filename: "r1-a1-0.png" },
+    { kind: "candidate", round: 1, attempt: 2, index: 1, filename: "r1-a2-1.png", chosen: true },
+    { kind: "candidate", round: 2, attempt: 1, index: 3, filename: "r2-a1-3.png", chosen: true },
+  ];
+  const input = (extra: unknown = "") => ({ extraPrompt: extra, mimeType: "image/png", nonce: "t1" });
+  const seeds: [string, number][] = [
+    [FLOW_STATUS.QUEUED_R1, 1], [FLOW_STATUS.REVIEW_R1, 1], [FLOW_STATUS.QUEUED_R2, 2], [FLOW_STATUS.REVIEW_R2, 2],
+    [FLOW_STATUS.AWAITING_PROMPT, 3], [FLOW_STATUS.QUEUED_R3, 3], [FLOW_STATUS.FAILED, 1], [FLOW_STATUS.FAILED, 2], [FLOW_STATUS.SKIPPED, 2],
+  ];
+  for (const [status, round] of seeds) {
+    const failed = status === FLOW_STATUS.FAILED;
+    const p = await makePair(
+      { status, round, attempt: round === 3 ? 1 : 2, extraPrompt: "เก่า", failedStep: failed ? "wait-results" : "", errorKind: failed ? "captcha" : "", errorMessage: failed ? "x" : "", failureDir: failed ? "d" : "", finishedAt: status === FLOW_STATUS.SKIPPED ? SENTINEL : null },
+      SEED,
+    );
+    await pauseForTest();
+    const job = await jobWithImages(p.b);
+    const plan = L.changeSource(job, input(" ใหม่\nนะ "));
+    const r = await db.applyChangeSource(p.b, plan, job.status);
+    const j = await snapJob(p.b);
+    const w = await snapWorker();
+    const sources = j.images.filter((i) => i.kind === "source");
+    const cands = j.images.filter((i) => i.kind === "candidate");
+    check(
+      `changeSource ${status} r${round} → queued_r1 รอบ 1 attempt 3 · ล้างพัง/finishedAt · extra ใหม่ · ${failed ? "ปลดการหยุด" : "ยังหยุดอยู่"}`,
+      r === "changed" && j.status === FLOW_STATUS.QUEUED_R1 && j.round === 1 && j.attempt === 3 && j.extraPrompt === "ใหม่ นะ" &&
+        j.failedStep === "" && j.errorKind === "" && j.errorMessage === "" && j.failureDir === "" && j.finishedAt === null &&
+        (failed ? w?.pausedReason === "" : w?.pausedReason === "test_pause"),
+      JSON.stringify({ r, j, w }),
+    );
+    check(
+      `changeSource ${status}: แถว source/candidate เก่าอยู่ครบ · chosen ล้างหมด · source ใหม่ attempt 3`,
+      sources.length === 2 && sources.some((s) => s.filename === "source-0.jpg" && s.attempt === 1) &&
+        sources.some((s) => s.filename === "source-a3-0-t1.png" && s.attempt === 3 && s.round === 0 && s.index === 0) &&
+        cands.length === 3 && cands.every((c) => c.chosen === false),
+      JSON.stringify(j.images),
+    );
+  }
+  // gate ปฏิเสธก่อนแตะ DB
+  for (const [status, round] of [[FLOW_STATUS.RUNNING_R1, 1], [FLOW_STATUS.REVIEW_R3, 3], [FLOW_STATUS.FAILED, 3], [FLOW_STATUS.DONE, 2]] as const) {
+    const p = await makePair({ status, round, attempt: 1 }, SEED);
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(async () => L.changeSource(await jobWithImages(p.b), input()));
+    check(`changeSource ${status} r${round} → error ไม่แตะงาน`, !r.ok && before === JSON.stringify(await snapJob(p.b)), JSON.stringify(r));
+  }
+  // แข่งกับบอท: อ่านตอน queued_r2 แต่บอทหยิบไปก่อนเขียน → 0 แถว · ไม่มีแถว source ใหม่ · chosen ไม่ถูกล้าง
+  {
+    const p = await makePair({ status: FLOW_STATUS.QUEUED_R2, round: 2, attempt: 1 }, SEED);
+    const stale = await jobWithImages(p.b);
+    const stalePlan = L.changeSource(stale, input());
+    await NEW.claim(p.b, 2);
+    await pauseForTest();
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await db.applyChangeSource(p.b, stalePlan, stale.status);
+    check("แข่งกับบอท: บอทหยิบก่อน → status_changed · งาน/แถวรูปไม่เปลี่ยนเลย", r === "status_changed" && before === JSON.stringify(await snapJob(p.b)), JSON.stringify({ r }));
+  }
+  // แข่งฝั่งงานพัง: อ่านตอน failed (แผนมี unpause) แต่อีกแท็บ "รันต่อ" ไปแล้ว → ไม่ปลดการหยุด ไม่แตะงาน
+  {
+    const p = await makePair({ status: FLOW_STATUS.FAILED, round: 1, attempt: 1, failedStep: "x", errorKind: "flow_error" }, SEED);
+    const stale = await jobWithImages(p.b);
+    const stalePlan = L.changeSource(stale, input());
+    await NEW.resume(p.b);
+    await pauseForTest();
+    const r = await db.applyChangeSource(p.b, stalePlan, stale.status);
+    const j = await snapJob(p.b);
+    check("แข่ง (failed → รันต่อแล้ว): status_changed · ไม่ปลดการหยุด · ไม่มี source ใหม่",
+      r === "status_changed" && (await snapWorker())?.pausedReason === "test_pause" && j.images.filter((i) => i.kind === "source").length === 1, JSON.stringify({ r, j }));
+  }
+  // งานที่ถูกข้ามแต่ entry มีงานใหม่กว่าแล้ว → ไม่เปิดงานเก่ากลับมา (entry จะมีงานเปิดสองงาน)
+  {
+    const p = await makePair({ status: FLOW_STATUS.SKIPPED, round: 1, attempt: 1 }, SEED);
+    await prisma.flowJob.create({ data: { entryId: p.entryB, status: FLOW_STATUS.QUEUED_R1, createdAt: new Date(Date.now() + 1000) } });
+    const stale = await jobWithImages(p.b);
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await db.applyChangeSource(p.b, L.changeSource(stale, input()), stale.status);
+    check("งานถูกข้ามที่มีงานใหม่กว่าใน entry → newer_job ไม่แตะงานเก่า", r === "newer_job" && before === JSON.stringify(await snapJob(p.b)), JSON.stringify({ r }));
+  }
+
+  // ---- ทั้งเส้นพร้อมไฟล์ (lib/flow-change-source.ts — ที่ server action เรียก) บนโฟลเดอร์ชั่วคราว ----
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const cs = await import("@/lib/flow-change-source");
+  const ai = await import("@/lib/auto-source-image");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "check-change-source-"));
+  try {
+    const entryId = await newEntry();
+    const flowDir = path.join(root, entryId, "flow");
+    fs.mkdirSync(flowDir, { recursive: true });
+    for (const s of SEED) fs.writeFileSync(path.join(flowDir, s.filename), `old:${s.filename}`);
+    const job = await prisma.flowJob.create({ data: { entryId, status: FLOW_STATUS.REVIEW_R2, round: 2, attempt: 1 } });
+    for (const im of SEED) await prisma.flowJobImage.create({ data: { jobId: job.id, mimeType: "image/png", ...im } });
+    // รูปต้นทางอัตโนมัติเดิม (ticket 04) + รูปที่ผู้ใช้เพิ่มเอง
+    fs.writeFileSync(path.join(root, entryId, "auto-source-old.jpg"), "old-auto");
+    fs.writeFileSync(path.join(root, entryId, "user.png"), "user");
+    await prisma.productImage.create({ data: { entryId, filename: "auto-source-old.jpg", mimeType: "image/jpeg", caption: "", sortOrder: 0 } });
+    await prisma.productImage.create({ data: { entryId, filename: "user.png", mimeType: "image/png", caption: "", sortOrder: 1 } });
+
+    const r1 = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from("new-1"), mimeType: "image/jpeg" }, extraPrompt: "" });
+    const after1 = await jobWithImages(job.id);
+    const src1 = after1.images.filter((i) => i.kind === "source");
+    const newest1 = src1.sort((a, b) => b.attempt - a.attempt)[0];
+    check("changeSourcePhoto: ok · งาน queued_r1 attempt 3 · ไฟล์ใหม่ชื่อไม่ซ้ำเขียนแล้ว (เนื้อไฟล์ตรง)",
+      r1.ok && after1.status === FLOW_STATUS.QUEUED_R1 && after1.attempt === 3 && /^source-a3-0-[0-9a-f]{8}\.jpg$/.test(newest1.filename) &&
+        fs.readFileSync(path.join(flowDir, newest1.filename), "utf8") === "new-1",
+      JSON.stringify({ r1, images: after1.images }));
+    check("changeSourcePhoto: ไฟล์ source/candidate เดิมยังอยู่ไม่ถูกเขียนทับ",
+      SEED.every((s) => fs.readFileSync(path.join(flowDir, s.filename), "utf8") === `old:${s.filename}`));
+    const pis = await prisma.productImage.findMany({ where: { entryId }, orderBy: { sortOrder: "asc" } });
+    check("changeSourcePhoto: รูปต้นทางอัตโนมัติในหน้า entry เปลี่ยนตาม (แถว+ไฟล์เก่าออก · รูปที่ผู้ใช้เพิ่มเองอยู่)",
+      pis.length === 2 && ai.isAutoSourceImage(pis[0].filename) && pis[0].filename !== "auto-source-old.jpg" && pis[1].filename === "user.png" &&
+        fs.readFileSync(path.join(root, entryId, pis[0].filename), "utf8") === "new-1" && !fs.existsSync(path.join(root, entryId, "auto-source-old.jpg")),
+      JSON.stringify(pis));
+
+    // เปลี่ยนซ้ำทันที (ยัง queued_r1) → attempt 4 ไฟล์ใหม่อีกชื่อ ของ attempt 3 ยังอยู่
+    const r2 = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from("new-2"), mimeType: "image/png" }, extraPrompt: "เอาแค่ชิ้นเดียว" });
+    const after2 = await jobWithImages(job.id);
+    const src2 = after2.images.filter((i) => i.kind === "source");
+    check("changeSourcePhoto ซ้ำ: attempt 4 · แถว source 3 แถว ไฟล์ครบทุกตัว · extraPrompt ใหม่",
+      r2.ok && after2.attempt === 4 && after2.extraPrompt === "เอาแค่ชิ้นเดียว" && src2.length === 3 &&
+        src2.every((s) => fs.existsSync(path.join(flowDir, s.filename))) && new Set(src2.map((s) => s.filename)).size === 3,
+      JSON.stringify(after2.images));
+
+    // ปฏิเสธ (บอทกำลังทำ) → ไม่เหลือไฟล์ใหม่ค้าง ไม่แตะรูปสินค้า
+    await prisma.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.RUNNING_R1 } });
+    const filesBefore = fs.readdirSync(flowDir).sort().join(",");
+    const pisBefore = JSON.stringify(await prisma.productImage.findMany({ where: { entryId } }));
+    const r3 = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from("new-3"), mimeType: "image/png" }, extraPrompt: "" });
+    check("changeSourcePhoto บอทกำลังทำ → ok=false ข้อความไทย · ไม่มีไฟล์ค้าง · รูปสินค้าไม่เปลี่ยน",
+      !r3.ok && r3.message === L.CHANGE_SOURCE_BOT_BUSY_MESSAGE && fs.readdirSync(flowDir).sort().join(",") === filesBefore &&
+        JSON.stringify(await prisma.productImage.findMany({ where: { entryId } })) === pisBefore,
+      JSON.stringify(r3));
+    // ไฟล์ผิดชนิด → ok=false ไม่แตะอะไร
+    await prisma.flowJob.update({ where: { id: job.id }, data: { status: FLOW_STATUS.REVIEW_R1 } });
+    const r4 = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from("x"), mimeType: "image/heic" }, extraPrompt: "" });
+    check("changeSourcePhoto ไฟล์ HEIC → ok=false · งานยัง review_r1", !r4.ok && (await jobWithImages(job.id)).status === FLOW_STATUS.REVIEW_R1, JSON.stringify(r4));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /** applyPlan หลายขั้นต้องเป็นทรานแซกชันเดียว: ล้มกลางทาง = ไม่มีอะไรถูกเขียน */
 async function atomicity() {
   console.log("\n== ทรานแซกชัน ==");
@@ -1202,6 +1350,7 @@ async function main() {
     await sweeps();
     await takeovers();
     await promptSaves();
+    await changeSources();
     await atomicity();
   } finally {
     const jobs = await prisma.flowJob.findMany({ where: { entryId: { in: createdEntries } }, select: { id: true } });

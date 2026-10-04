@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, Hand, RotateCcw, SkipForward, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Hand, ImageUp, RotateCcw, SkipForward, Play } from "lucide-react";
 
 import {
   approveFlowRender,
+  changeFlowSource,
   retryFlowUpscale,
   chooseFlowCandidate,
   generateWithAI,
@@ -24,12 +25,13 @@ import {
   STATUS_LABELS,
   STEP_LABELS,
   buildFlowPrompt,
+  currentSourceImage,
   FINAL_VIDEO_FILENAME,
   flowProjectUrl,
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canApproveRender, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,7 @@ import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
 import { BotSteps, ClipLayout, ExportToFolder, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
 import { ProductIdCopy } from "@/components/product-id-copy";
+import { ShowcasePhotoPicker, shopPhotoSrc } from "@/components/showcase-photo-picker";
 import { ClipPlayer, ExtraPromptField, FlowProjectLink, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
 
 /**
@@ -74,13 +77,17 @@ export function FlowJobDetail({
   // ข้อความต่อท้ายพรอมต์ของ Flow — เริ่มจากค่าที่ใช้อยู่ของงาน (ติดจากรอบ 1 มารอบ 2 เอง) ใช้กับทั้ง "วาดใหม่"
   // และ "ใช้รูปนี้ → รอบ 2" · ล้างว่าง = กลับเป็นพรอมต์ตั้งต้นของบอท
   const [extra, setExtra] = useState(job.extraPrompt);
+  // ตัวเลือกรูปต้นทางใหม่ (เปลี่ยนรูปต้นทาง) เปิดอยู่ไหม
+  const [pickingSource, setPickingSource] = useState(false);
 
   // รอบรูป = เลือก 1 ใน 4 · รอบคลิป = ดูตัวอย่างแล้วผ่าน/เรนเดอร์ใหม่ — หน้าตาคนละแบบ
   const isImageReview = job.status === FLOW_STATUS.REVIEW_R1 || job.status === FLOW_STATUS.REVIEW_R2;
   const isRenderReview = job.status === FLOW_STATUS.REVIEW_R3;
   const isUpscale = job.status === FLOW_STATUS.QUEUED_UPSCALE || job.status === FLOW_STATUS.RUNNING_UPSCALE;
   const stalled = !workerAlive && isBotWorking(job.status);
-  const source = job.sources[0] ?? null;
+  const source = currentSourceImage(job.sources);
+  // เปลี่ยนรูปต้นทางได้ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ (gate เดียวกับ action) — นอกนั้นซ่อนปุ่ม
+  const sourceChangeable = canChangeSource(job.status, job.round);
   const selectedId = job.candidates.some((c) => c.id === selected) ? selected : null;
   // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
   const isStuckInRender = isInRenderStage(job.status, job.round) && canTakeOver(job.status);
@@ -119,6 +126,24 @@ export function FlowJobDetail({
       } catch (e) {
         setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
       }
+    });
+  }
+
+  /** "เปลี่ยนรูปต้นทาง": งานเดิมกลับไปรอวาดรอบ 1 ด้วยรูปใหม่ · บอทหยิบไปก่อน/สถานะเปลี่ยน = โชว์ข้อความ (ไม่ throw) */
+  function changeSourceTo(photo: File, extraForNew: string) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const formData = new FormData();
+        formData.set("jobId", job.id);
+        formData.set("photo", photo);
+        formData.set("extraPrompt", extraForNew);
+        const r = await changeFlowSource(formData);
+        if (!r.changed) setError(r.message ?? "เปลี่ยนรูปต้นทางไม่สำเร็จ");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "เปลี่ยนรูปต้นทางไม่สำเร็จ");
+      }
+      setPickingSource(false);
     });
   }
 
@@ -214,8 +239,20 @@ export function FlowJobDetail({
           </div>
         ) : (
           isBotWorking(job.status) && (
-            <p className="text-xs leading-relaxed text-muted-foreground">บอทกำลังทำงานนี้ — กด ทำต่อเอง ได้หลังบอททำเสร็จรอบนี้</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              บอทกำลังทำงานนี้ — กด ทำต่อเอง{job.round <= 2 ? " / เปลี่ยนรูปต้นทาง" : ""} ได้หลังบอททำเสร็จรอบนี้
+            </p>
           )
+        )}
+        {sourceChangeable && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button type="button" variant="outline" disabled={isPending} onClick={() => setPickingSource(true)}>
+              <ImageUp data-icon="inline-start" /> เปลี่ยนรูปต้นทาง
+            </Button>
+            <span className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+              เลือกรูปจากร้าน{job.shopPhotos.length === 0 ? "หรือไฟล์จากเครื่อง" : ""} — งานกลับไปวาดรอบ 1 ใหม่ รูปที่วาดไปแล้วยังเก็บไว้
+            </span>
+          </div>
         )}
       </header>
 
@@ -625,6 +662,19 @@ export function FlowJobDetail({
 
         {error && <p className="text-xs leading-relaxed text-destructive">{error}</p>}
       </div>
+
+      {pickingSource && (
+        <ShowcasePhotoPicker
+          productName={job.productName}
+          images={job.shopPhotos.map((p) => ({ id: p.id, filename: p.filename, src: shopPhotoSrc(p.candidateId, p.filename) }))}
+          allowLocalFile
+          confirmVerb="เปลี่ยนรูปต้นทาง"
+          note="งานนี้จะกลับไปรอบอทวาดรอบ 1 ใหม่ด้วยรูปนี้ — รูปที่วาดไปแล้วยังเก็บไว้ ไม่ถูกลบ"
+          busy={isPending}
+          onConfirm={changeSourceTo}
+          onCancel={() => setPickingSource(false)}
+        />
+      )}
 
       {lightbox !== null && source && isImageReview && (
         <FlowLightbox

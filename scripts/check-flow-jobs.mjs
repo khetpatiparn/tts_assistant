@@ -54,7 +54,12 @@ try {
   check("normalize ตัดความยาว", f.normalizeExtraPrompt("ก".repeat(500)).length, f.EXTRA_PROMPT_MAX);
   check("normalize null = ว่าง", f.normalizeExtraPrompt(null), "");
   check("candidateFilename", f.candidateFilename(1, 2, 3, "png"), "r1-a2-3.png");
-  check("sourceFilename", f.sourceFilename(0, "jpg"), "source-0.jpg");
+  // งานทุกตัวของ entry ใช้โฟลเดอร์ flow/ เดียวกัน — ชื่อรูปต้นทางต้องไม่ซ้ำข้าม attempt และข้ามงาน (เปลี่ยนรูปต้นทาง ticket 05)
+  check("sourceFilename มี attempt + index + nonce", f.sourceFilename(3, 0, "jpg", "ab12"), "source-a3-0-ab12.jpg");
+  check("checkSourceImage: jpeg/png/webp ≤10MB ผ่าน · HEIC/ใหญ่เกิน ไม่ผ่าน",
+    [["image/jpeg", 1], ["image/png", 10 * 1024 * 1024], ["image/webp", 5], ["image/heic", 1], ["image/png", 10 * 1024 * 1024 + 1]].map(([m, n]) => f.checkSourceImage({ mimeType: m, size: n })).join("|"),
+    "|||รองรับเฉพาะ JPEG, PNG, WebP|ไฟล์ใหญ่เกิน 10MB");
+  check("imageExtFromMime", ["image/png", "image/webp", "image/jpeg", "x"].map((m) => f.imageExtFromMime(m)).join(","), "png,webp,jpg,jpg");
 
   check("videoFilename", f.videoFilename(2), "r3-a2.mp4");
   check("videoDownloadName ตัดอักขระต้องห้ามของ Windows", f.videoDownloadName('กล่อง 2/3 "ใหม่"'), "กล่อง 2 3 ใหม่.mp4");

@@ -3,7 +3,7 @@
 import { Download, FolderCheck } from "lucide-react";
 
 import type { FlowJobRow } from "@/lib/flow-queries";
-import { FLOW_STATUS, STATUS_LABELS, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
+import { FLOW_STATUS, STATUS_LABELS, currentSourceImage, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -49,7 +49,8 @@ function FlowJobListItem({
   onSelect: () => void;
 }) {
   const kind = jobKindLabel(job.status, job.round);
-  const thumb = job.chosenRound2 ?? job.chosenRound1 ?? job.candidates[job.candidates.length - 1] ?? null;
+  // ยังไม่มีรูปที่วาดของรอบนี้ (รอบอท/เพิ่งเปลี่ยนรูปต้นทาง) → รูปต้นทางปัจจุบัน
+  const thumb = job.chosenRound2 ?? job.chosenRound1 ?? job.candidates[job.candidates.length - 1] ?? currentSourceImage(job.sources);
   return (
     <li
       className={cn(

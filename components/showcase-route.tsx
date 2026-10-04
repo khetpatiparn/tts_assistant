@@ -20,7 +20,7 @@ import {
 } from "@/lib/showcase";
 import { cn } from "@/lib/utils";
 import { ScannerLinkBox } from "@/components/scanner-link-box";
-import { ShowcasePhotoPicker } from "@/components/showcase-photo-picker";
+import { ShowcasePhotoPicker, shopPhotoSrc } from "@/components/showcase-photo-picker";
 import { Button } from "@/components/ui/button";
 
 const TABS: ShowcaseStatus[] = ["todo", "in_progress", "posted", "dismissed"];
@@ -42,7 +42,7 @@ function formatThaiDate(d: Date): string {
  */
 export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; scannerToken: string }) {
   const [tab, setTab] = useState<ShowcaseStatus>("todo");
-  // retry = สินค้าที่เริ่มทำแล้วแต่งาน Flow พัง/ถูกข้าม — ส่งรูปใหม่เข้าคิวโดยใช้งานเดิม
+  // retry = สินค้าที่เริ่มทำแล้ว ส่งรูปต้นทางใหม่ (มีงาน Flow = เปลี่ยนรูปต้นทางของงานเดิม ไม่มี = เข้าคิวใหม่)
   const [picking, setPicking] = useState<{ item: ShowcaseItem; retry: boolean } | null>(null);
   const [message, setMessage] = useState<{ text: string; entryId?: string; tone: "ok" | "error" } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -62,8 +62,12 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
         formData.set("candidateId", item.id);
         formData.set("photo", photo);
         formData.set("extraPrompt", extra);
-        const { entryId } = await retryShowcasePhoto(formData);
-        setMessage({ tone: "ok", entryId, text: `ส่งรูปใหม่ของ "${item.name}" เข้าคิว Flow แล้ว` });
+        const { entryId, error } = await retryShowcasePhoto(formData);
+        setMessage(
+          error !== null
+            ? { tone: "error", text: error }
+            : { tone: "ok", entryId, text: `ส่งรูปใหม่ของ "${item.name}" แล้ว — บอทจะวาดรอบ 1 ใหม่ด้วยรูปนี้` }
+        );
       } catch (e) {
         setMessage({ tone: "error", text: e instanceof Error ? e.message : "ส่งรูปใหม่ไม่สำเร็จ" });
       }
@@ -255,13 +259,17 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
                       กู้คืน
                     </Button>
                   )}
-                  {item.status === "in_progress" && item.flowState === "retry" && (
+                  {item.status === "in_progress" && (item.flowState === "retry" || item.flowState === "change") && (
                     <>
-                      <span className="text-xs leading-relaxed text-destructive">Flow วาดไม่สำเร็จ / ถูกข้าม</span>
+                      {item.flowState === "retry" && (
+                        <span className="text-xs leading-relaxed text-destructive">Flow วาดไม่สำเร็จ / ถูกข้าม</span>
+                      )}
                       {item.images.length > 0 && (
                         <Button
                           type="button"
                           size="sm"
+                          // งานยังเดินอยู่ (change) = ปุ่มรอง ไม่ดึงสายตาเท่างานที่พัง/ถูกข้าม
+                          variant={item.flowState === "change" ? "outline" : "default"}
                           onClick={() => setPicking({ item, retry: true })}
                           disabled={pending}
                         >
@@ -295,9 +303,10 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
 
       {picking && (
         <ShowcasePhotoPicker
-          candidateId={picking.item.id}
           productName={picking.item.name}
-          images={picking.item.images}
+          images={picking.item.images.map((img) => ({ ...img, src: shopPhotoSrc(picking.item.id, img.filename) }))}
+          note={picking.retry && picking.item.flowState === "change" ? "งาน Flow ของสินค้านี้จะกลับไปวาดรอบ 1 ใหม่ด้วยรูปนี้ — รูปที่วาดไปแล้วยังเก็บไว้" : undefined}
+          confirmVerb={picking.retry && picking.item.flowState === "change" ? "เปลี่ยนรูปต้นทาง" : "ส่งเข้าคิว Flow"}
           busy={pending}
           onConfirm={(photo, extra) => (picking.retry ? retry(picking.item, photo, extra) : start(picking.item, photo, extra))}
           onCancel={() => setPicking(null)}

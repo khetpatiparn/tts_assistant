@@ -9,7 +9,7 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
   ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID,
-  claimOrder, claimSequence, isUnshortenedName, needsShortNameGate, queuedStatus, shortNameRetryDelayMs, toJobRound, type JobRound,
+  claimOrder, claimSequence, currentSourceImage, isUnshortenedName, needsShortNameGate, queuedStatus, shortNameRetryDelayMs, toJobRound, type JobRound,
 } from "@/lib/flow-jobs";
 import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
@@ -165,10 +165,13 @@ function chosenImagePath(job: ClaimedJob, r: 1 | 2): string {
   return path.join(UPLOAD_ROOT, job.entryId, "flow", chosen.filename);
 }
 
-/** รูปที่แนบเข้า Flow ตอนวาดรูป: รอบ 1 = รูปแคปแรก · รอบ 2 = รูปที่เลือกรอบ 1 */
+/**
+ * รูปที่แนบเข้า Flow ตอนวาดรูป: รอบ 1 = รูปต้นทางปัจจุบัน (แถว source ล่าสุด — งานมีหลายแถวได้หลังเปลี่ยนรูปต้นทาง)
+ * · รอบ 2 = รูปที่เลือกรอบ 1
+ */
 function imageReferenceFor(job: ClaimedJob, round: 1 | 2): string {
   if (round === 2) return chosenImagePath(job, 1);
-  const src = job.images.filter((i) => i.kind === "source").sort((a, b) => a.index - b.index)[0];
+  const src = currentSourceImage(job.images);
   if (!src) throw new FlowStepError("open-flow", "worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง");
   return path.join(UPLOAD_ROOT, job.entryId, "flow", src.filename);
 }

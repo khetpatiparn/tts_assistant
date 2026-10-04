@@ -4,7 +4,7 @@
  * รัน: node scripts/check-showcase.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -36,11 +36,25 @@ const row = (over) => ({
 });
 
 try {
-  execFileSync(
-    "npx",
-    ["tsc", "lib/showcase.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
-    { stdio: "inherit", shell: true }
-  );
+  // lib/showcase.ts ใช้ gate เดียวกับ /flow (canChangeSource ใน lib/flow-lifecycle.ts) — คอมไพล์ด้วยกันแล้วชี้ "@/lib/x" ไปไฟล์ข้างๆ
+  // ไม่ได้ส่ง paths ให้ tsc: TS2307 ของ "@/lib/..." ตั้งใจ (ยัง emit .js, exit 2) แบบเดียวกับ check-flow-lifecycle.mjs
+  try {
+    execFileSync(
+      "npx",
+      ["tsc", "lib/showcase.ts", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+      { stdio: "pipe", shell: true }
+    );
+  } catch (e) {
+    const diag = String(e.stdout ?? "");
+    if (e.status !== 2 || diag.split("\n").some((l) => l.includes("error TS") && !l.includes("TS2307"))) {
+      console.log(diag);
+      throw e;
+    }
+  }
+  for (const f of ["showcase.js", "flow-lifecycle.js"]) {
+    const file = join(out, f);
+    writeFileSync(file, readFileSync(file, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"'));
+  }
   const s = await import(pathToFileURL(join(out, "showcase.js")).href);
   const build = (rows, urls = new Map()) => s.buildShowcaseItems(rows, urls, SINCE);
 
@@ -97,9 +111,12 @@ try {
   check("แท็บอื่น: ใหม่สุดขึ้นก่อน", s.itemsForTab(done, "dismissed").map((i) => i.sourceProductId), ["d2", "d1"]);
   check("แท็บกรองเฉพาะสถานะนั้น", s.itemsForTab(done, "todo").length, 0);
 
-  // --- ปุ่ม "เลือกรูปใหม่" ---
+  // --- ปุ่ม "เลือกรูปใหม่" (ticket 05: กติกาเดียวกับ "เปลี่ยนรูปต้นทาง" ของ /flow — canChangeSource) ---
+  // retry = ไม่มีงาน/งานพังหรือถูกข้าม (ป้ายแดง) · change = งานยังเปิดก่อนเริ่มเรนเดอร์ (ปุ่มเฉยๆ) · blocked = ไปจัดการที่คิว Flow · busy = ไม่มีปุ่ม
   check("ยังไม่มีงาน Flow = เลือกรูปใหม่ได้", s.showcaseFlowState(null), "retry");
-  check("งานถูกข้าม = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "", round: 1 }), "retry");
+  check("งานถูกข้ามรอบ 1 = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "", round: 1 }), "retry");
+  check("งานถูกข้ามรอบ 2 = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "skipped", errorKind: "", round: 2 }), "retry");
+  check("งานถูกข้ามตอนเรนเดอร์ (รอบ 3+) = ไม่มีปุ่ม (เริ่มเรนเดอร์แล้ว)", s.showcaseFlowState({ status: "skipped", errorKind: "", round: 3 }), "busy");
   check("Flow วาดไม่สำเร็จเอง = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 1 }), "retry");
   check("Flow วาดไม่สำเร็จเองรอบ 2 = เลือกรูปใหม่ได้", s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 2 }), "retry");
   check("โดนจับว่าเป็นบอท = ห้ามทางลัด (ต้องพัก 1 ชม.)", s.showcaseFlowState({ status: "failed", errorKind: "captcha", round: 1 }), "blocked");
@@ -109,20 +126,31 @@ try {
     s.showcaseFlowState({ status: "failed", errorKind: "flow_error", round: 3 }),
     "blocked"
   );
-  check("กำลังวาด = ไม่มีปุ่ม", s.showcaseFlowState({ status: "running_r1", errorKind: "", round: 1 }), "busy");
-  check("รอเลือกรูป = ไม่มีปุ่ม", s.showcaseFlowState({ status: "review_r1", errorKind: "", round: 1 }), "busy");
   check(
     "โหลด 1080p (round 4) พัง = ห้ามทางลัด",
     s.showcaseFlowState({ status: "failed", errorKind: "download_failed", round: 4 }),
     "blocked"
   );
-  for (const st of ["awaiting_prompt", "queued_r3", "running_r3", "review_r3"]) {
-    check(`${st} = ไม่มีปุ่ม`, s.showcaseFlowState({ status: st, errorKind: "", round: 3 }), "busy");
+  for (const [st, round] of [["queued_r1", 1], ["review_r1", 1], ["queued_r2", 2], ["review_r2", 2], ["awaiting_prompt", 3], ["queued_r3", 3]]) {
+    check(`${st} = เปลี่ยนรูปได้ (ก่อนเริ่มเรนเดอร์)`, s.showcaseFlowState({ status: st, errorKind: "", round }), "change");
   }
-  for (const st of ["queued_upscale", "running_upscale"]) {
-    check(`${st} = ไม่มีปุ่ม`, s.showcaseFlowState({ status: st, errorKind: "", round: 4 }), "busy");
+  for (const [st, round] of [["running_r1", 1], ["running_r2", 2], ["running_r3", 3], ["review_r3", 3], ["queued_upscale", 4], ["running_upscale", 4], ["done", 3], ["done", 2]]) {
+    check(`${st} = ไม่มีปุ่ม`, s.showcaseFlowState({ status: st, errorKind: "", round }), "busy");
   }
-  check("เสร็จแล้ว = ไม่มีปุ่ม", s.showcaseFlowState({ status: "done", errorKind: "", round: 3 }), "busy");
+
+  // --- รูปจากร้านของ entry (ตัวเลือกรูปต้นทางในหน้า /flow) ---
+  {
+    const im = (id) => ({ id, filename: `${id}.jpg` });
+    const r = (over) => ({ id: "x", sourceProductId: "P", linkedEntryId: null, capturedOn: day("09-30"), images: [], ...over });
+    const photos = (rows) => s.shopPhotosForEntry(rows, "E").map((p) => `${p.candidateId}/${p.filename}`);
+    check("แถวที่ผูกกับ entry และมีรูป → รูปของแถวนั้นตามลำดับ", photos([r({ id: "a", linkedEntryId: "E", images: [im("1"), im("2")] })]), ["a/1.jpg", "a/2.jpg"]);
+    check("แถวที่ผูกไม่มีรูป → ใช้แถวเก่าสุดของสินค้าเดียวกันที่มีรูป",
+      photos([r({ id: "a", linkedEntryId: "E" }), r({ id: "b", capturedOn: day("10-02"), images: [im("3")] }), r({ id: "c", capturedOn: day("10-01"), images: [im("4")] })]), ["c/4.jpg"]);
+    check("สแกนซ้ำ (หลายแถวมีรูป) → ชุดเดียว ไม่ซ้ำ (แถวที่ผูกชนะ)",
+      photos([r({ id: "b", capturedOn: day("09-29"), images: [im("5")] }), r({ id: "a", linkedEntryId: "E", images: [im("1")] })]), ["a/1.jpg"]);
+    check("สินค้าที่ไม่ได้ผูกกับ entry นี้ไม่มา", photos([r({ id: "z", sourceProductId: "Q", linkedEntryId: "OTHER", images: [im("9")] }), r({ id: "y", sourceProductId: "Q", images: [im("8")] })]), []);
+    check("entry ที่ไม่ได้มาจาก Showcase → ว่าง", photos([]), []);
+  }
 
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {

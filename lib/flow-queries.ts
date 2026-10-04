@@ -5,6 +5,7 @@ import { loadWorkerConfig } from "@/worker/config";
 import { isTakeoverKind, summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
+import { shopPhotosForEntry, type ShopPhoto } from "@/lib/showcase";
 
 export type FlowImageRow = {
   id: string;
@@ -35,6 +36,34 @@ export async function getProductIdsByEntry(entryIds: string[]): Promise<Map<stri
   });
   for (const r of rows) {
     if (r.linkedEntryId !== null && r.sourceProductId !== null && !map.has(r.linkedEntryId)) map.set(r.linkedEntryId, r.sourceProductId);
+  }
+  return map;
+}
+
+/**
+ * รูปจากร้าน (Shop photos) ของแต่ละ entry — ตัวเลือก "เปลี่ยนรูปต้นทาง" ของหน้า /flow · entry ที่ไม่ได้มาจาก Showcase = ไม่มีใน map
+ * ดึงแถวของสินค้าที่ผูกกับ entry + แถวสแกนซ้ำ (sourceProductId เดียวกัน) แล้วให้ shopPhotosForEntry (lib/showcase.ts) เลือกชุดเดียว
+ */
+export async function getShopPhotosByEntry(entryIds: string[]): Promise<Map<string, ShopPhoto[]>> {
+  const map = new Map<string, ShopPhoto[]>();
+  if (entryIds.length === 0) return map;
+  const linked = await prisma.productCandidate.findMany({
+    where: { linkedEntryId: { in: entryIds }, sourceProductId: { not: null } },
+    select: { sourceProductId: true },
+  });
+  const pids = [...new Set(linked.map((r) => r.sourceProductId as string))];
+  if (pids.length === 0) return map;
+  const rows = await prisma.productCandidate.findMany({
+    where: { sourceProductId: { in: pids } },
+    select: {
+      id: true, sourceProductId: true, linkedEntryId: true, capturedOn: true,
+      images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } },
+    },
+  });
+  const typed = rows.map((r) => ({ ...r, sourceProductId: r.sourceProductId as string }));
+  for (const entryId of entryIds) {
+    const photos = shopPhotosForEntry(typed, entryId);
+    if (photos.length > 0) map.set(entryId, photos);
   }
   return map;
 }
@@ -83,7 +112,10 @@ export type FlowJobRow = {
   updatedAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
+  /** แถวรูปต้นทางทุกแถว (หลังเปลี่ยนรูปต้นทางมีหลายแถว — รูปปัจจุบันเลือกด้วย currentSourceImage) */
   sources: FlowImageRow[];
+  /** รูปจากร้านของสินค้า (ว่าง = ไม่ได้มาจาก Showcase) — ตัวเลือกของ "เปลี่ยนรูปต้นทาง" */
+  shopPhotos: ShopPhoto[];
   /** candidate ของรอบ/attempt ปัจจุบันเท่านั้น (attempt เก่าเก็บไว้ในตาราง ไม่โชว์) */
   candidates: FlowImageRow[];
   chosenRound1: FlowImageRow | null;
@@ -184,9 +216,11 @@ export async function getFlowQueueData(): Promise<{
     }),
   ]);
 
-  const [tookOverIds, productIds] = await Promise.all([
+  const entryIds = [...new Set(raw.map((j) => j.entryId))];
+  const [tookOverIds, productIds, shopPhotos] = await Promise.all([
     getTookOverJobIds(raw.map((j) => j.id)),
-    getProductIdsByEntry([...new Set(raw.map((j) => j.entryId))]),
+    getProductIdsByEntry(entryIds),
+    getShopPhotosByEntry(entryIds),
   ]);
 
   const jobs: FlowJobRow[] = raw
@@ -222,6 +256,7 @@ export async function getFlowQueueData(): Promise<{
         startedAt: j.startedAt,
         finishedAt: j.finishedAt,
         sources: imgs.filter((i) => i.kind === "source"),
+        shopPhotos: shopPhotos.get(j.entryId) ?? [],
         candidates: imgs.filter((i) => i.kind === "candidate" && i.round === j.round && i.attempt === j.attempt),
         chosenRound1: imgs.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen) ?? null,
         chosenRound2: imgs.find((i) => i.kind === "candidate" && i.round === 2 && i.chosen) ?? null,

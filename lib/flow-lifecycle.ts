@@ -12,11 +12,13 @@ import {
   FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
   candidateFilename,
+  imageExtFromMime,
   isOpenStatus,
   normalizeExtraPrompt,
   queuedStatus,
   reviewStatus,
   runningStatus,
+  sourceFilename,
   toJobRound,
   videoFilename,
   type FlowRound,
@@ -51,9 +53,11 @@ export type ImageRow = {
   flowMediaId?: string;
 };
 
-/** แผนของงานเดียว — lib/flow-lifecycle-db.ts เขียนตามลำดับ: markChosen → deleteVideoRows → createImages → finalizeVideoRowId → job → unpauseWorker */
+/** แผนของงานเดียว — lib/flow-lifecycle-db.ts เขียนตามลำดับ: clearChosen → markChosen → deleteVideoRows → createImages → finalizeVideoRowId → job → unpauseWorker */
 export type Plan = {
   job: JobPatch;
+  /** เปลี่ยนรูปต้นทาง: ปลด chosen ของรูป candidate ทุกรอบทุก attempt (แถวรูปยังอยู่) */
+  clearChosen?: boolean;
   /** Checkpoint รูป: ปลด chosen ทุกรูป candidate ของรอบนี้ แล้วตั้งรูปที่เลือก */
   markChosen?: { round: number; imageId: string };
   /** ลบแถวคลิป (kind "video") ทั้งหมดของงาน — งานมีแถวคลิปได้แถวเดียว · ไฟล์บนดิสก์ผู้เรียกลบเอง */
@@ -225,7 +229,7 @@ export function enqueue(
  * @param renderEnabled อ่านหลังตรวจรูปเสมอ (ลำดับ error เดิม: รูปผิดรอบ → config → สถานะ)
  */
 export function choose<I extends { id: string; kind: string; round: number; attempt: number }>(
-  job: { status: string; round: number; attempt: number },
+  job: { status: string; round: number; attempt: number; images?: { kind: string; round: number; attempt: number }[] },
   image: I | undefined,
   renderEnabled: () => boolean,
   now: Date,
@@ -243,7 +247,8 @@ export function choose<I extends { id: string; kind: string; round: number; atte
       markChosen,
       // รอบ 2 เริ่มด้วยพรอมต์ตั้งต้นเสมอ — ข้อความเพิ่มเติมของรอบ 1 มักสั่งเฉพาะภาพพื้นหลังขาว พอติดไปรอบ 2
       // ภาพ "ตอนใช้งาน" ออกมาเหมือนรอบ 1 (ผู้ใช้เจอจริง 2026-10-02) · อยากสั่งรอบ 2 ให้พิมพ์แล้วกด "วาดใหม่" ในรอบ 2
-      job: { status: FLOW_STATUS.QUEUED_R2, round: 2, attempt: 1, extraPrompt: "" },
+      // attempt นับต่อจากชุดรอบ 2 เดิม (มีได้หลังเปลี่ยนรูปต้นทาง) — ไฟล์ r2-a<n>-* ของชุดเก่าไม่ถูกเขียนทับ · งานใหม่ = 1
+      job: { status: FLOW_STATUS.QUEUED_R2, round: 2, attempt: maxAttempt(job.images ?? [], 2) + 1, extraPrompt: "" },
     };
   }
   if (job.status === FLOW_STATUS.REVIEW_R2) {
@@ -340,6 +345,73 @@ export function takeOver(job: { status: string }, now: Date): Plan {
     );
   }
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now }, unpauseWorker: job.status === FLOW_STATUS.FAILED };
+}
+
+/** attempt สูงสุดของแถว candidate รอบ round (0 = ยังไม่มี) */
+function maxAttempt(images: { kind: string; round: number; attempt: number }[], round: number): number {
+  return images.filter((i) => i.kind === "candidate" && i.round === round).reduce((m, i) => Math.max(m, i.attempt), 0);
+}
+
+/** สถานะที่เปลี่ยนรูปต้นทางได้ทุกรอบ — ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ (failed/skipped ดูรอบด้วย ใน canChangeSource) */
+const CHANGE_SOURCE_OPEN: readonly FlowStatus[] = [
+  FLOW_STATUS.QUEUED_R1, FLOW_STATUS.REVIEW_R1, FLOW_STATUS.QUEUED_R2, FLOW_STATUS.REVIEW_R2,
+  FLOW_STATUS.AWAITING_PROMPT, FLOW_STATUS.QUEUED_R3,
+];
+
+/**
+ * ปุ่ม "เปลี่ยนรูปต้นทาง" (หน้า /flow) และ "เลือกรูปใหม่" (Showcase) — ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ ·
+ * งานพัง/ถูกข้ามได้เฉพาะรอบ 1–2 (รอบ 3+ = เริ่มเรนเดอร์แล้ว ใช้ ทำต่อเอง แทน) · ไม่ใช่ตอนบอททำอยู่ (running_*)
+ */
+export function canChangeSource(status: string, round: number): boolean {
+  if ((CHANGE_SOURCE_OPEN as readonly string[]).includes(status)) return true;
+  return (status === FLOW_STATUS.FAILED || status === FLOW_STATUS.SKIPPED) && round <= 2;
+}
+
+export const CHANGE_SOURCE_BOT_BUSY_MESSAGE = "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จรอบนี้แล้วค่อยเปลี่ยนรูปต้นทาง";
+export const CHANGE_SOURCE_REFUSED_MESSAGE = "งานนี้เริ่มทำคลิปแล้วหรือจบแล้ว — เปลี่ยนรูปต้นทางไม่ได้ (ใช้ ทำต่อเอง แทน)";
+/** applyChangeSource ได้ 0 แถว — สถานะเปลี่ยนระหว่างอ่านกับเขียน (บอทหยิบไป / อีกแท็บกดไปก่อน) */
+export const CHANGE_SOURCE_RACE_MESSAGE = "งานนี้เพิ่งเปลี่ยนสถานะ (บอทหยิบไปทำหรือกดจากอีกหน้า) — ยังไม่ได้เปลี่ยนรูป ดูสถานะล่าสุดแล้วลองใหม่";
+export const CHANGE_SOURCE_NEWER_JOB_MESSAGE = "สินค้านี้มีงาน Flow ที่ใหม่กว่าแล้ว — เปลี่ยนรูปต้นทางที่งานล่าสุด";
+
+/**
+ * "เปลี่ยนรูปต้นทาง" — งานเดิม (ไม่ใช่งานใหม่) กลับไปรอวาดรอบ 1 ด้วยรูปใหม่: attempt ใหม่เกินทุก attempt ที่เคยใช้
+ * (ไฟล์ r1-a<n>-* ชุดใหม่ไม่ทับชุดเก่า) · ปลด chosen ทุกรูป · ล้างร่องรอยพัง/finishedAt · extraPrompt จาก input (ว่าง = พรอมต์ตั้งต้น)
+ * · งานพัง = ปลดการหยุดของบอท · แถว/ไฟล์ source และ candidate เก่าเก็บไว้ (คลังรูป) — แถวรูปต้นทางใหม่ attempt ใหม่ ชื่อไม่ซ้ำ
+ * ผู้เรียกเขียนไฟล์ชื่อ createImages[0].filename ก่อน แล้วเขียนด้วย applyChangeSource (where status กันแข่งกับบอท) ไม่ใช่ applyPlan
+ * @param input.nonce สุ่มจากผู้เรียก — ชื่อไฟล์ไม่ซ้ำข้ามงานของ entry เดียวกัน (โฟลเดอร์ flow/ ใช้ร่วมกัน)
+ */
+export function changeSource(
+  job: { status: string; round: number; attempt: number; images: { attempt: number }[] },
+  input: { extraPrompt: unknown; mimeType: string; nonce: string },
+): Plan & { attempt: number; fromStatus: string; fromRound: number; fromAttempt: number } {
+  if (!canChangeSource(job.status, job.round)) {
+    throw new Error(isBotWorking(job.status) ? CHANGE_SOURCE_BOT_BUSY_MESSAGE : CHANGE_SOURCE_REFUSED_MESSAGE);
+  }
+  const attempt = job.images.reduce((m, i) => Math.max(m, i.attempt), job.attempt) + 1;
+  return {
+    attempt,
+    fromStatus: job.status,
+    fromRound: job.round,
+    fromAttempt: job.attempt,
+    clearChosen: true,
+    createImages: [{
+      kind: "source",
+      round: 0,
+      attempt,
+      index: 0,
+      filename: sourceFilename(attempt, 0, imageExtFromMime(input.mimeType), input.nonce),
+      mimeType: input.mimeType,
+    }],
+    job: {
+      status: FLOW_STATUS.QUEUED_R1,
+      round: 1,
+      attempt,
+      extraPrompt: normalizeExtraPrompt(input.extraPrompt),
+      finishedAt: null,
+      ...CLEARED_FAILURE,
+    },
+    unpauseWorker: job.status === FLOW_STATUS.FAILED,
+  };
 }
 
 // ---------------------------------------------------------------------------

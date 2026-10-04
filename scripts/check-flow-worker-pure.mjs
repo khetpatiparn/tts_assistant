@@ -503,5 +503,31 @@ try {
   check("processJob ตรวจ isUnshortenedName ของชื่อที่จะพิมพ์ (job.entry) ก่อน drawImages", backstopAt > index.indexOf("async function processJob(") && backstopAt < drawAt, true);
 }
 
+// ticket 05 (เปลี่ยนรูปต้นทาง): งานมีแถว source ได้หลายแถว — รอบ 1 ต้องแนบรูปต้นทางล่าสุด (attempt สูงสุด, index ต่ำสุดใน attempt นั้น)
+// ไม่ใช่แถวแรกตาม index (ของเดิม = รูปเก่าที่ผู้ใช้เปลี่ยนทิ้งไปแล้ว) · ตัวเลือกเป็น pure ใน lib/flow-jobs.ts ใช้ร่วมกับหน้า /flow และโฟลเดอร์ TTS
+{
+  const libOut = mkdtempSync(join(process.cwd(), ".check-flow-tmp-"));
+  try {
+    execFileSync("npx", ["tsc", "lib/flow-jobs.ts", "--outDir", libOut, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"], { stdio: "inherit", shell: true });
+    const f = await import(pathToFileURL(join(libOut, "flow-jobs.js")).href);
+    const src = (attempt, index, filename) => ({ kind: "source", round: 0, attempt, index, filename });
+    const cand = (round, attempt, index) => ({ kind: "candidate", round, attempt, index, filename: `r${round}-a${attempt}-${index}.png` });
+    const pick = (images) => f.currentSourceImage(images)?.filename ?? null;
+    check("งานใหม่ (แถว source เดียว) → แถวนั้น", pick([src(1, 0, "source-a1-0-x.jpg"), cand(1, 1, 0)]), "source-a1-0-x.jpg");
+    check("เปลี่ยนรูปต้นทางแล้ว → แถว attempt ใหม่ ไม่ใช่แถวแรก", pick([src(1, 0, "old.jpg"), cand(1, 1, 0), cand(2, 1, 0), src(3, 0, "new.jpg")]), "new.jpg");
+    check("ลำดับแถวไม่มีผล (DB อาจคืนแถวใหม่ก่อน)", pick([src(4, 0, "newest.png"), src(1, 0, "old.jpg"), src(2, 0, "mid.jpg")]), "newest.png");
+    check("วาดใหม่หลังเปลี่ยนรูป (job.attempt เกิน attempt ของ source) → ยังได้รูปล่าสุด", pick([src(1, 0, "old.jpg"), src(3, 0, "new.jpg"), cand(1, 3, 0), cand(1, 4, 0)]), "new.jpg");
+    check("เข้าคิวหลายรูปใน attempt เดียว → index ต่ำสุด (รูปแรก)", pick([src(1, 1, "second.jpg"), src(1, 0, "first.jpg")]), "first.jpg");
+    check("ชื่อไฟล์แบบเก่า source-<index> ยังเลือกได้", pick([src(1, 0, "source-0.jpg")]), "source-0.jpg");
+    check("ไม่มีแถว source → null", pick([cand(1, 1, 0)]), null);
+  } finally {
+    rmSync(libOut, { recursive: true, force: true });
+  }
+  const index = readFileSync("worker/index.ts", "utf8").replace(/\r\n/g, "\n");
+  const refAt = index.indexOf("function imageReferenceFor(");
+  const refFn = refAt < 0 ? "" : index.slice(refAt, index.indexOf("\n}\n", refAt));
+  check("imageReferenceFor รอบ 1 ใช้ currentSourceImage (ไม่เรียงตาม index เอง)", refFn.includes("currentSourceImage(job.images)") && !/sort\(/.test(refFn), true);
+}
+
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
 console.log("\nall checks passed");

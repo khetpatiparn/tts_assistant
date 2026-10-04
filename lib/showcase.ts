@@ -4,6 +4,7 @@
  * Showcase = รายการงานที่ต้องทำ: เพิ่มสินค้าเข้า Showcase ใน TikTok แปลว่าจะทำคลิปแน่นอน
  * สถานะคิดจากข้อมูลที่มีอยู่แล้วทั้งหมด ผู้ใช้ไม่ต้องติ๊กเอง ยกเว้น "ไม่ทำแล้ว"
  */
+import { canChangeSource } from "@/lib/flow-lifecycle";
 
 /**
  * สินค้าที่เข้ามาก่อนวันนี้ไม่นับเป็นงาน — ชุดแรก 197 ตัว (24 ก.ย.) ดึงมาทั้ง Showcase รวมตัวที่ทำคลิปไปแล้ว
@@ -14,25 +15,51 @@ export const SHOWCASE_TRACKING_SINCE = new Date("2026-09-29T00:00:00+07:00");
 export type ShowcaseStatus = "todo" | "in_progress" | "posted" | "dismissed";
 
 /**
- * สถานะงาน Flow ล่าสุดของ Entry ที่ผูกอยู่ — ใช้ตัดสินว่าโชว์ปุ่ม "เลือกรูปใหม่" ได้ไหม
- * - `retry`   = ไม่มีงาน Flow / ถูกข้าม / Flow วาดไม่สำเร็จเอง (flow_error) → เลือกรูปต้นทางใหม่ได้
+ * สถานะงาน Flow ล่าสุดของ Entry ที่ผูกอยู่ — ใช้ตัดสินว่าโชว์ปุ่ม "เลือกรูปใหม่" ได้ไหม · กติกาเดียวกับ "เปลี่ยนรูปต้นทาง" ของหน้า /flow
+ * (canChangeSource ใน lib/flow-lifecycle.ts) — มีงานอยู่แล้ว = เปลี่ยนรูปต้นทางของงานเดิม ไม่สร้างงานใหม่ (ticket 05)
+ * - `retry`   = ไม่มีงาน Flow (สร้างงานใหม่) / ถูกข้าม / Flow วาดไม่สำเร็จเอง (flow_error) รอบ 1–2 → ป้ายแดง + ปุ่ม
+ * - `change`  = งานยังเปิดอยู่ก่อนเริ่มเรนเดอร์ (รอวาด/รอเลือกรูป/รอพรอมต์/รอคิวเรนเดอร์) → ปุ่มเฉยๆ ไม่มีป้ายแดง
  * - `blocked` = พังด้วยเหตุผลอื่น (captcha/login/selector ฯลฯ) → ต้องไปจัดการที่หน้าคิว Flow ก่อน
- *   **ห้ามเปิดทางลัดให้ captcha** เพราะการส่งรูปใหม่เท่ากับเข้าคิวใหม่ทันที ข้ามกฎพัก 1 ชั่วโมง
- *   รวมถึง**งาน Render/โหลด 1080p (round 3-4) ที่พังทุกกรณี** แม้เป็น flow_error — ถึงรอบนี้ผู้ใช้เลือกรูปอ้างอิง
- *   ครบ 2 รอบแล้ว "เลือกรูปใหม่" จะทิ้งงานนี้แล้วเริ่มวาดรูปใหม่ตั้งแต่ต้น ทางที่ถูกคือกด "รันต่อ" ที่หน้าคิว Flow
- * - `busy`    = กำลังอยู่ในคิว/วาด/รอเลือก/รอพรอมต์/ทำคลิป/รอดูคลิป/โหลด 1080p หรือเสร็จแล้ว → ไม่มีปุ่ม
+ *   **ห้ามเปิดทางลัดให้ captcha** เพราะการส่งรูปใหม่เท่ากับเข้าคิวใหม่ทันที (และปลดการหยุดของบอท) ข้ามกฎพัก 1 ชั่วโมง
+ *   รวมถึง**งาน Render/โหลด 1080p (round 3-4) ที่พังทุกกรณี** แม้เป็น flow_error — เริ่มเรนเดอร์แล้ว ทางที่ถูกคือ "รันต่อ"/"ทำต่อเอง" ที่หน้าคิว Flow
+ * - `busy`    = บอทกำลังทำ / เริ่มเรนเดอร์แล้ว / เสร็จแล้ว → ไม่มีปุ่ม
  */
-export type ShowcaseFlowState = "retry" | "blocked" | "busy";
+export type ShowcaseFlowState = "retry" | "change" | "blocked" | "busy";
 
 export function showcaseFlowState(
   latestJob: { status: string; errorKind: string; round: number } | null
 ): ShowcaseFlowState {
-  if (latestJob === null || latestJob.status === "skipped") return "retry";
+  if (latestJob === null) return "retry";
   if (latestJob.status === "failed") {
     if (latestJob.round >= 3) return "blocked";
     return latestJob.errorKind === "flow_error" ? "retry" : "blocked";
   }
-  return "busy";
+  if (!canChangeSource(latestJob.status, latestJob.round)) return "busy";
+  return latestJob.status === "skipped" ? "retry" : "change";
+}
+
+/** รูปจากร้าน 1 รูป — ไฟล์อยู่ uploads/_candidates/<candidateId>/<filename> */
+export type ShopPhoto = { id: string; candidateId: string; filename: string };
+
+/**
+ * รูปจากร้าน (Shop photos) ของ entry — ตัวเลือกรูปต้นทางของหน้า /flow · สินค้าที่ผูกกับ entry (linkedEntryId) ต่อ sourceProductId
+ * ใช้รูปชุดเดียว (สแกนซ้ำ = หลายแถวมีรูปชุดเดียวกัน): แถวที่ผูกและมีรูปชนะ ไม่งั้นแถวเก่าสุดของสินค้าเดียวกันที่มีรูป
+ * @param rows แถวของสินค้าที่ผูกกับ entry และแถวอื่นที่ sourceProductId เดียวกัน (ผู้เรียกคิวรีมา)
+ */
+export function shopPhotosForEntry(
+  rows: { id: string; sourceProductId: string; linkedEntryId: string | null; capturedOn: Date; images: { id: string; filename: string }[] }[],
+  entryId: string,
+): ShopPhoto[] {
+  const products = [...new Set(rows.filter((r) => r.linkedEntryId === entryId).map((r) => r.sourceProductId))];
+  return products.flatMap((pid) => {
+    const withImages = rows
+      .filter((r) => r.sourceProductId === pid && r.images.length > 0)
+      .sort((a, b) =>
+        Number(b.linkedEntryId === entryId) - Number(a.linkedEntryId === entryId) || a.capturedOn.getTime() - b.capturedOn.getTime(),
+      );
+    const best = withImages[0];
+    return best === undefined ? [] : best.images.map((im) => ({ id: im.id, candidateId: best.id, filename: im.filename }));
+  });
 }
 
 export const SHOWCASE_STATUS_LABEL: Record<ShowcaseStatus, string> = {

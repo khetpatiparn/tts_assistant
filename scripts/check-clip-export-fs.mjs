@@ -192,6 +192,22 @@ try {
   check("ทำต่อเอง: รูปต้นทางก๊อปมาครบเนื้อหา", read(join(rA.path, "รูปต้นทาง.png")), "src-photo");
   check("ทำต่อเอง: record มี video เป็น null (กดซ้ำเป็น update เสมอ)", rA.record, { path: rA.path, video: null });
 
+  // เปลี่ยนรูปต้นทางแล้ว (ticket 05): งานมีแถว source หลายแถว → โฟลเดอร์ได้รูปต้นทางปัจจุบัน (attempt สูงสุด) ไม่ใช่รูปแรก
+  {
+    const base = makeJob("เปลี่ยนรูปต้นทาง", {});
+    writeFileSync(join(base.flowDir, "source-0.png"), "old-photo");
+    writeFileSync(join(base.flowDir, "source-a3-0-ab.jpg"), "new-photo");
+    const job = {
+      ...base, productName: "", caption: "", hashtags: "", chatgptOutput: "", productId: null,
+      images: [
+        { kind: "source", round: 0, attempt: 1, index: 0, chosen: false, filename: "source-0.png" },
+        { kind: "source", round: 0, attempt: 3, index: 0, chosen: false, filename: "source-a3-0-ab.jpg" },
+      ],
+    };
+    const r = await M.exportClip({ root: join(tmp, "TTS-change-source"), now, job, prev: null, ...T });
+    check("เปลี่ยนรูปต้นทางแล้ว: โฟลเดอร์ได้รูปต้นทางล่าสุด", [r.files, read(join(r.path, "รูปต้นทาง.jpg"))], [["รูปต้นทาง.jpg"], "new-photo"]);
+  }
+
   const tkB = makeTakeoverJob("มีรูปที่เลือก", { withChosen: true, productName: "" });
   const rB = await M.exportClip({ root: root4, now, job: tkB, prev: null, ...T });
   check("ทำต่อเอง: มีรูปที่เลือกรอบ 1/2 → ก๊อปมาด้วย", rB.files, ["รูปต้นทาง.png", "รูป-พื้นหลังขาว.png", "รูป-ตอนใช้งาน.jpg"]);

@@ -11,6 +11,9 @@ import { canRerenderWithPrompt, promptSaveGate, redo, type BulkPlan, type ImageR
 type Db = Prisma.TransactionClient;
 
 async function write(db: Db, jobId: string, plan: Plan): Promise<void> {
+  if (plan.clearChosen) {
+    await db.flowJobImage.updateMany({ where: { jobId, kind: "candidate", chosen: true }, data: { chosen: false } });
+  }
   if (plan.markChosen) {
     await db.flowJobImage.updateMany({
       where: { jobId, kind: "candidate", round: plan.markChosen.round },
@@ -31,6 +34,7 @@ async function write(db: Db, jobId: string, plan: Plan): Promise<void> {
 function writeCount(plan: Plan): number {
   return (
     1 +
+    (plan.clearChosen ? 1 : 0) +
     (plan.markChosen ? 2 : 0) +
     (plan.deleteVideoRows ? 1 : 0) +
     (plan.createImages?.length ?? 0) +
@@ -73,6 +77,30 @@ export async function applyTakeOver(jobId: string, plan: Plan, fromStatus: strin
     });
     if (res.count > 0 && plan.unpauseWorker) await unpauseWorker(tx);
     return res.count;
+  });
+}
+
+/**
+ * เขียนแผน "เปลี่ยนรูปต้นทาง" (changeSource) แบบมีเงื่อนไขในทรานแซกชันเดียว — แบบเดียวกับ applyTakeOver: อัปเดตเฉพาะถ้าสถานะยังเป็น
+ * fromStatus ตรงตัว (บอทหยิบ queued_* → running_* หรืออีกแท็บกด "รันต่อ" ระหว่างอ่านกับเขียน = "status_changed" ไม่แตะอะไรเลย
+ * ไม่ปลดการหยุด) · งานที่ถูกข้ามแต่ entry มีงานใหม่กว่าแล้ว = "newer_job" (ไม่เปิดงานเก่ากลับมาจน entry มีงานเปิดสองงาน)
+ * "changed" = ล้าง chosen + สร้างแถว source ใหม่ + แพตช์งาน + ปลดการหยุด (ถ้าแผนสั่ง) ครบในทรานแซกชันเดียว · ไฟล์ผู้เรียกเขียนก่อน/ลบเองถ้าไม่ changed
+ */
+export async function applyChangeSource(
+  jobId: string,
+  plan: Plan,
+  fromStatus: string,
+): Promise<"changed" | "status_changed" | "newer_job"> {
+  return prisma.$transaction(async (tx) => {
+    const job = await tx.flowJob.findUnique({ where: { id: jobId }, select: { entryId: true, createdAt: true } });
+    if (!job) throw new Error("ไม่พบงาน Flow");
+    const newer = await tx.flowJob.count({ where: { entryId: job.entryId, id: { not: jobId }, createdAt: { gt: job.createdAt } } });
+    if (newer > 0) return "newer_job";
+    const res = await tx.flowJob.updateMany({ where: { id: jobId, status: fromStatus }, data: plan.job satisfies JobPatch });
+    if (res.count === 0) return "status_changed";
+    await write(tx, jobId, { ...plan, unpauseWorker: false });
+    if (plan.unpauseWorker) await unpauseWorker(tx);
+    return "changed";
   });
 }
 

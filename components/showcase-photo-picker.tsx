@@ -1,11 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { ArrowLeft, Crop } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Crop, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EXTRA_PROMPT_MAX } from "@/lib/flow-jobs";
 
 type Box = { x: number; y: number; w: number; h: number };
+
+/** รูปให้เลือก 1 รูป — src = URL ที่เปิดได้ (รูปจากร้านผ่าน /api/uploads หรือ blob: ของไฟล์จากเครื่อง) · file = ไฟล์จากเครื่อง (ไม่ต้องโหลดซ้ำ) */
+export type PickerPhoto = { id: string; src: string; filename: string; file?: File };
+
+/** URL ของรูปจากร้าน (uploads/_candidates/<candidateId>/<filename>) */
+export function shopPhotoSrc(candidateId: string, filename: string): string {
+  return `/api/uploads/_candidates/${candidateId}/${filename}`;
+}
 
 /** กรอบเล็กกว่านี้ (สัดส่วนของรูป) = คลิกพลาด ไม่ใช่ตั้งใจครอป */
 const MIN_BOX = 0.03;
@@ -23,37 +31,50 @@ function normalize(start: { x: number; y: number }, end: { x: number; y: number 
 }
 
 /**
- * เลือกรูปต้นทาง 1 รูปจากรูปของร้าน แล้วครอปถ้าต้องการ (ลากกรอบอิสระ) — ผลลัพธ์เป็นไฟล์เดียวส่งให้ onConfirm
- * ครอปด้วย canvas ในเบราว์เซอร์ที่ความละเอียดเต็มของรูป (naturalWidth) ไม่ใช่ขนาดที่โชว์บนจอ · รูปมาจาก
- * /api/uploads ซึ่ง origin เดียวกัน canvas จึงไม่ถูก taint · ไม่ครอป = ส่งไฟล์ต้นฉบับตรงๆ ไม่เข้ารหัสใหม่
+ * เลือกรูปต้นทาง 1 รูป (รูปของร้าน หรือไฟล์จากเครื่องถ้า allowLocalFile) แล้วครอปถ้าต้องการ (ลากกรอบอิสระ) — ผลลัพธ์เป็นไฟล์เดียวส่งให้ onConfirm
+ * ใช้ทั้ง Showcase ("ทำคลิปตัวนี้"/"เลือกรูปใหม่") และหน้า /flow ("เปลี่ยนรูปต้นทาง") · ครอปด้วย canvas ในเบราว์เซอร์ที่ความละเอียดเต็มของรูป
+ * (naturalWidth) ไม่ใช่ขนาดที่โชว์บนจอ · รูปมาจาก /api/uploads (origin เดียวกัน) หรือ blob: ของไฟล์จากเครื่อง canvas จึงไม่ถูก taint ·
+ * ไม่ครอป = ส่งไฟล์ต้นฉบับตรงๆ ไม่เข้ารหัสใหม่
  */
 export function ShowcasePhotoPicker({
-  candidateId,
   productName,
   images,
   busy,
   onConfirm,
   onCancel,
+  allowLocalFile = false,
+  confirmVerb = "ส่งเข้าคิว Flow",
+  note,
 }: {
-  candidateId: string;
   productName: string;
-  images: { id: string; filename: string }[];
+  images: PickerPhoto[];
   busy: boolean;
   /** extra = ข้อความต่อท้ายพรอมต์ของ Flow ("" = พรอมต์ตั้งต้น) */
   onConfirm: (photo: File, extra: string) => void;
   onCancel: () => void;
+  /** มีปุ่ม "เลือกไฟล์จากเครื่อง" (entry ที่ไม่ได้มาจาก Showcase ไม่มีรูปจากร้าน) */
+  allowLocalFile?: boolean;
+  /** คำบนปุ่มยืนยัน ต่อจาก "ใช้ทั้งรูป →" / "ใช้ส่วนที่ครอป →" */
+  confirmVerb?: string;
+  /** บรรทัดอธิบายผลของการยืนยัน (เช่น งานกลับไปวาดรอบ 1) */
+  note?: string;
 }) {
-  const [chosen, setChosen] = useState<{ id: string; filename: string } | null>(
-    images.length === 1 ? images[0] : null
-  );
+  const [local, setLocal] = useState<PickerPhoto[]>([]);
+  const all = [...images, ...local];
+  const [chosen, setChosen] = useState<PickerPhoto | null>(images.length === 1 && !allowLocalFile ? images[0] : null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  // blob: URL ของไฟล์จากเครื่อง — คืนหน่วยความจำตอนปิดหน้าต่าง
+  const blobUrls = useRef<string[]>([]);
+  useEffect(() => {
+    const urls = blobUrls.current;
+    return () => urls.forEach((u) => URL.revokeObjectURL(u));
+  }, []);
   const [box, setBox] = useState<Box | null>(null);
   const [error, setError] = useState<string | null>(null);
   // รู้ตั้งแต่ตอนเลือกรูปได้ว่ารูปมีสินค้าหลายชิ้น/มีตัวหนังสือ — บอก Flow ได้เลยตั้งแต่รอบแรก
   const [extra, setExtra] = useState("");
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-
-  const srcOf = (filename: string) => `/api/uploads/_candidates/${candidateId}/${filename}`;
 
   function pointFrom(e: React.PointerEvent<HTMLDivElement>) {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -64,9 +85,13 @@ export function ShowcasePhotoPicker({
     if (chosen === null) return;
     setError(null);
     try {
-      const mime = mimeFromFilename(chosen.filename);
+      const mime = chosen.file?.type || mimeFromFilename(chosen.filename);
       if (!useCrop || box === null) {
-        const blob = await (await fetch(srcOf(chosen.filename))).blob();
+        if (chosen.file) {
+          onConfirm(chosen.file, extra);
+          return;
+        }
+        const blob = await (await fetch(chosen.src)).blob();
         onConfirm(new File([blob], chosen.filename, { type: mime }), extra);
         return;
       }
@@ -100,9 +125,39 @@ export function ShowcasePhotoPicker({
           <p className="line-clamp-1 text-sm leading-relaxed text-muted-foreground">{productName}</p>
         </div>
 
+        {note && <p className="text-sm leading-relaxed text-muted-foreground">{note}</p>}
+
         {chosen === null ? (
+          <div className="flex flex-col gap-3">
+          {all.length === 0 && (
+            <p className="text-sm leading-relaxed text-muted-foreground">สินค้านี้ไม่มีรูปจากร้าน — เลือกไฟล์รูปจากเครื่อง</p>
+          )}
+          {allowLocalFile && (
+            <div>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  const photo: PickerPhoto = { id: `local-${Date.now()}`, src: URL.createObjectURL(file), filename: file.name, file };
+                  blobUrls.current.push(photo.src);
+                  setLocal((prev) => [...prev, photo]);
+                  setChosen(photo);
+                  setBox(null);
+                }}
+              />
+              <Button type="button" variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
+                <FolderOpen className="size-4" />
+                เลือกไฟล์จากเครื่อง
+              </Button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {images.map((img) => (
+            {all.map((img) => (
               <button
                 key={img.id}
                 type="button"
@@ -113,9 +168,10 @@ export function ShowcasePhotoPicker({
                 className="overflow-hidden rounded-lg border-2 border-border-interactive outline-none hover:border-primary focus-visible:border-primary"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={srcOf(img.filename)} alt="" className="aspect-square w-full object-cover" />
+                <img src={img.src} alt="" className="aspect-square w-full object-cover" />
               </button>
             ))}
+          </div>
           </div>
         ) : (
           <>
@@ -147,7 +203,7 @@ export function ShowcasePhotoPicker({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   ref={imgRef}
-                  src={srcOf(chosen.filename)}
+                  src={chosen.src}
                   alt=""
                   draggable={false}
                   className="block h-auto w-full cursor-crosshair"
@@ -188,7 +244,7 @@ export function ShowcasePhotoPicker({
         {error && <p className="text-sm leading-relaxed text-destructive">{error}</p>}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {chosen !== null && images.length > 1 && (
+          {chosen !== null && (all.length > 1 || allowLocalFile) && (
             <Button type="button" variant="outline" className="mr-auto" onClick={() => setChosen(null)} disabled={busy}>
               <ArrowLeft className="size-4" />
               เลือกรูปอื่น
@@ -199,7 +255,7 @@ export function ShowcasePhotoPicker({
           </Button>
           {chosen !== null && (
             <Button type="button" onClick={() => void confirm(box !== null)} disabled={busy}>
-              {busy ? "กำลังส่ง..." : box !== null ? "ใช้ส่วนที่ครอป → ส่งเข้าคิว Flow" : "ใช้ทั้งรูป → ส่งเข้าคิว Flow"}
+              {busy ? "กำลังส่ง..." : box !== null ? `ใช้ส่วนที่ครอป → ${confirmVerb}` : `ใช้ทั้งรูป → ${confirmVerb}`}
             </Button>
           )}
         </div>

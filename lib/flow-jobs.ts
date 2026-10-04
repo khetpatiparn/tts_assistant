@@ -157,8 +157,36 @@ export function normalizeExtraPrompt(raw: unknown): string {
 export function candidateFilename(round: FlowRound, attempt: number, index: number, ext: "png" | "jpg"): string {
   return `r${round}-a${attempt}-${index}.${ext}`;
 }
-export function sourceFilename(index: number, ext: string): string {
-  return `source-${index}.${ext}`;
+/**
+ * รูปต้นทาง — งานทุกตัวของ entry ใช้โฟลเดอร์ `uploads/<entryId>/flow/` เดียวกัน และ "เปลี่ยนรูปต้นทาง" เพิ่มแถวใหม่ทุกครั้ง
+ * (แถว/ไฟล์เก่าเก็บไว้ให้คลังรูป) จึงต้องไม่ซ้ำทั้งข้าม attempt (attempt ในชื่อ) และข้ามงานของ entry เดียวกัน (nonce สุ่มจากผู้เรียก)
+ */
+export function sourceFilename(attempt: number, index: number, ext: string, nonce: string): string {
+  return `source-a${attempt}-${index}-${nonce}.${ext}`;
+}
+/**
+ * รูปต้นทางปัจจุบันของงาน — แถว source ที่ attempt สูงสุด (เปลี่ยนรูปต้นทาง = แถวใหม่ attempt ใหม่) แล้ว index ต่ำสุด (รูปแรกที่เข้าคิว)
+ * ที่เดียวที่ตัดสิน: บอทแนบรูปนี้ในรอบ 1 · หน้า /flow โชว์รูปนี้ · โฟลเดอร์ TTS ก๊อปรูปนี้ · แถวเก่าเก็บไว้ให้คลังรูป
+ */
+export function currentSourceImage<I extends { kind: string; attempt: number; index: number }>(images: I[]): I | null {
+  let best: I | null = null;
+  for (const i of images) {
+    if (i.kind !== "source") continue;
+    if (best === null || i.attempt > best.attempt || (i.attempt === best.attempt && i.index < best.index)) best = i;
+  }
+  return best;
+}
+/** รูปต้นทางใหญ่ได้ไม่เกินนี้ (เท่ากับ MAX_IMAGE_BYTES ของ app/actions.ts) */
+export const SOURCE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+/** ตรวจรูปต้นทางก่อนเขียน — null = ใช้ได้ · HEIC ไม่รับ (Flow อัปโหลดไม่ได้ และ Playwright ส่งไฟล์ตามที่เป็น) */
+export function checkSourceImage(img: { mimeType: string; size: number }): string | null {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(img.mimeType)) return "รองรับเฉพาะ JPEG, PNG, WebP";
+  if (img.size > SOURCE_IMAGE_MAX_BYTES) return "ไฟล์ใหญ่เกิน 10MB";
+  return null;
+}
+/** นามสกุลของรูปที่ Flow รับ (JPEG/PNG/WebP) จาก mime — อย่างอื่นถือเป็น jpg */
+export function imageExtFromMime(mime: string): "png" | "webp" | "jpg" {
+  return mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
 }
 /**
  * คลิปตัวอย่าง 720p ของ Render ครั้งที่ attempt — worker/flow-driver.ts เขียนเป็น `${filePrefix}.mp4` (filePrefix = r3-a<attempt>)

@@ -175,6 +175,60 @@ try {
   const NL = String.fromCharCode(10);
   check("normalizePromptText: ตัดช่องว่างหัวท้าย (เหมือนหน้า entry) คงบรรทัดกลางไว้", L.normalizePromptText("  a" + NL + NL + "b " + NL), "a" + NL + NL + "b");
 
+  // ---------- เปลี่ยนรูปต้นทาง (ticket 05) ----------
+  // gate: ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ · งานพัง/ถูกข้ามรอบ 1–2 · ไม่ใช่ตอนบอททำอยู่ · ไม่ใช่หลังเริ่มเรนเดอร์
+  const CHANGE_CASES = [
+    ["queued_r1", 1, true], ["review_r1", 1, true], ["queued_r2", 2, true], ["review_r2", 2, true],
+    ["awaiting_prompt", 3, true], ["queued_r3", 3, true],
+    ["failed", 1, true], ["failed", 2, true], ["skipped", 1, true], ["skipped", 2, true],
+    ["running_r1", 1, false], ["running_r2", 2, false], ["running_r3", 3, false], ["running_upscale", 4, false],
+    ["review_r3", 3, false], ["queued_upscale", 4, false], ["done", 2, false], ["done", 4, false],
+    ["failed", 3, false], ["failed", 4, false], ["skipped", 3, false], ["skipped", 4, false],
+  ];
+  check("canChangeSource ต่อสถานะ/รอบ", CHANGE_CASES.map(([s, r]) => L.canChangeSource(s, r)), CHANGE_CASES.map(([, , want]) => want));
+  {
+    const imgs = [
+      { kind: "source", round: 0, attempt: 1 },
+      { kind: "candidate", round: 1, attempt: 1 }, { kind: "candidate", round: 1, attempt: 3 },
+      { kind: "candidate", round: 2, attempt: 2 },
+    ];
+    const job = { status: "review_r2", round: 2, attempt: 2, images: imgs };
+    const p = L.changeSource(job, { extraPrompt: undefined, mimeType: "image/jpeg", nonce: "n1" });
+    // attempt ใหม่ต้องเกินทุก attempt ที่เคยใช้ (รอบ 1 เคยไปถึง a3) — ไม่งั้นรูปรอบ 1 ชุดใหม่ (r1-a<n>) เขียนทับของเก่า
+    check("changeSource: attempt = 1 + attempt สูงสุดที่เคยใช้ (งานหรือแถวรูป)", p.attempt, 4);
+    check("changeSource: งานกลับไปรอวาดรอบ 1 · ล้างร่องรอยพัง · ล้าง finishedAt · extraPrompt ว่างเป็นค่าตั้งต้น",
+      p.job, { status: "queued_r1", round: 1, attempt: 4, extraPrompt: "", finishedAt: null, ...cleared });
+    check("changeSource: แถวรูปต้นทางใหม่ (attempt ใหม่ ชื่อไฟล์ไม่ซ้ำต่อ attempt)", p.createImages,
+      [{ kind: "source", round: 0, attempt: 4, index: 0, filename: "source-a4-0-n1.jpg", mimeType: "image/jpeg" }]);
+    check("changeSource: ล้าง chosen ทุกรูป · ไม่ลบแถวรูป/คลิป · ไม่ปลดการหยุด (งานไม่ได้พัง)",
+      [p.clearChosen, p.deleteVideoRows ?? false, p.markChosen ?? null, p.unpauseWorker], [true, false, null, false]);
+    check("changeSource: คืน fromStatus/round/attempt เดิม (สำหรับ FlowActivity)", [p.fromStatus, p.fromRound, p.fromAttempt], ["review_r2", 2, 2]);
+    check("changeSource: extraPrompt จาก input ผ่าน normalize",
+      L.changeSource(job, { extraPrompt: "  เอาแค่\nแผ่นเดียว ", mimeType: "image/png", nonce: "x" }).job.extraPrompt, "เอาแค่ แผ่นเดียว");
+    check("changeSource: png → .png", L.changeSource(job, { extraPrompt: "", mimeType: "image/png", nonce: "x" }).createImages[0].filename, "source-a4-0-x.png");
+    check("changeSource: webp → .webp", L.changeSource(job, { extraPrompt: "", mimeType: "image/webp", nonce: "x" }).createImages[0].filename, "source-a4-0-x.webp");
+    check("changeSource งานพัง → ปลดการหยุด (เหมือนข้าม/ทำต่อเอง)",
+      L.changeSource({ status: "failed", round: 1, attempt: 1, images: [] }, { extraPrompt: "", mimeType: "image/jpeg", nonce: "x" }).unpauseWorker, true);
+    check("changeSource งานถูกข้าม → ไม่ปลดการหยุด",
+      L.changeSource({ status: "skipped", round: 2, attempt: 1, images: [] }, { extraPrompt: "", mimeType: "image/jpeg", nonce: "x" }).unpauseWorker, false);
+    check("changeSource awaiting_prompt (round 3 attempt 1) → attempt ข้ามของรอบ 1–2 ที่เคยใช้",
+      L.changeSource({ status: "awaiting_prompt", round: 3, attempt: 1, images: imgs }, { extraPrompt: "", mimeType: "image/jpeg", nonce: "x" }).attempt, 4);
+    for (const s of ["running_r1", "running_r2", "running_r3"]) {
+      checkThrows(`changeSource ${s} throws (บอทกำลังทำ)`, () => L.changeSource({ status: s, round: 1, attempt: 1, images: [] }, { extraPrompt: "", mimeType: "image/jpeg", nonce: "x" }), L.CHANGE_SOURCE_BOT_BUSY_MESSAGE ?? "undefined-constant");
+    }
+    for (const [s, r] of [["review_r3", 3], ["done", 2], ["failed", 3], ["queued_upscale", 4]]) {
+      checkThrows(`changeSource ${s} r${r} throws (เริ่มเรนเดอร์แล้ว/จบแล้ว)`, () => L.changeSource({ status: s, round: r, attempt: 1, images: [] }, { extraPrompt: "", mimeType: "image/jpeg", nonce: "x" }), L.CHANGE_SOURCE_REFUSED_MESSAGE ?? "undefined-constant");
+    }
+  }
+  // เลือกรูปรอบ 1 หลังเปลี่ยนรูปต้นทาง: รอบ 2 ต้องนับ attempt ต่อจากชุดรอบ 2 เก่า (ไม่เริ่ม a1 ใหม่จนเขียนทับ r2-a1-*)
+  {
+    const imgs = [{ kind: "candidate", round: 2, attempt: 1 }, { kind: "candidate", round: 2, attempt: 3 }, { kind: "candidate", round: 1, attempt: 9 }];
+    check("choose รอบ 1 หลังเปลี่ยนรูปต้นทาง → รอบ 2 attempt ต่อจากชุดรอบ 2 เดิม",
+      L.choose({ status: "review_r1", round: 1, attempt: 4, images: imgs }, img(1, 4), on, now).job.attempt, 4);
+    check("choose รอบ 1 งานใหม่ (ไม่มีรอบ 2 เก่า) → attempt 1 เหมือนเดิม",
+      L.choose({ status: "review_r1", round: 1, attempt: 3, images: [{ kind: "candidate", round: 1, attempt: 3 }] }, img(1, 3), on, now).job.attempt, 1);
+  }
+
   // ---------- บอท ----------
   check("claim รอบ 2 → running_r2 + startedAt + ล้างร่องรอยพัง (where กันหยิบซ้ำ)", L.claim(2, now),
     { where: { status: "queued_r2" }, job: { status: "running_r2", startedAt: now, ...cleared } });
@@ -329,7 +383,7 @@ try {
       .split("\n")
       .filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"))
       .join("\n");
-  const callers = ["app/actions.ts", "worker/index.ts"];
+  const callers = ["app/actions.ts", "worker/index.ts", "lib/flow-change-source.ts"];
   for (const f of callers) {
     const src = strip(f);
     const writes = src.match(/\b(flowJob|flowJobImage)\.(update|updateMany|create|createMany|delete|deleteMany|upsert)\(/g) ?? [];
@@ -347,6 +401,21 @@ try {
   const saveBody = (strip("app/actions.ts").match(/export async function saveFlowPrompt[^]*?\n}\n/) ?? [""])[0];
   check("saveFlowPrompt ใช้ applyPromptSave (gate+เขียนใน transaction เดียว) และ log user_edit_prompt", saveBody.includes("applyPromptSave(") && saveBody.includes('"user_edit_prompt"') && saveBody.includes("rerender: r.rerendered"), true);
   check("หน้า /flow ใช้ promptSaveGate (ไม่เช็กสถานะแก้พรอมต์เอง)", detail.includes("promptSaveGate("), true);
+  // ticket 05: เปลี่ยนรูปต้นทางมีทางเดียว (changeSourcePhoto → changeSource + applyChangeSource) ใช้ทั้ง /flow และ Showcase
+  const csFlow = strip("lib/flow-change-source.ts");
+  check("changeSourcePhoto ใช้ changeSource + applyChangeSource (where status กันแข่งกับบอท) + replaceAutoSourceImage",
+    csFlow.includes("changeSource(job") && csFlow.includes("applyChangeSource(") && csFlow.includes("replaceAutoSourceImage("), true);
+  const actionsSrc = strip("app/actions.ts");
+  const logBody = (actionsSrc.match(/async function changeSourceAndLog[^]*?\n}\n/) ?? [""])[0];
+  check("changeSourceAndLog เรียก changeSourcePhoto แล้ว log user_change_source { fromStatus, round, attempt }",
+    logBody.includes("changeSourcePhoto(") && logBody.includes('"user_change_source"') && /fromStatus: r\.fromStatus,\s*round: r\.fromRound,\s*attempt: r\.fromAttempt/.test(logBody), true);
+  const retryBody = (actionsSrc.match(/export async function retryShowcasePhoto[^]*?\n}\n/) ?? [""])[0];
+  check("Showcase เลือกรูปใหม่: มีงาน = changeSourceAndLog (ไม่ข้ามงาน/ไม่สร้างงานใหม่) · ไม่มีงาน = enqueueFlowJobCore",
+    retryBody.includes("changeSourceAndLog(latest.id") && retryBody.includes("latest === null") && !retryBody.includes("skipFlowJob("), true);
+  const changeBody = (actionsSrc.match(/export async function changeFlowSource[^]*?\n}\n/) ?? [""])[0];
+  check("changeFlowSource (หน้า /flow) ใช้ changeSourceAndLog", changeBody.includes("changeSourceAndLog("), true);
+  check("หน้า /flow ใช้ canChangeSource (ไม่เช็กสถานะเปลี่ยนรูปเอง)", detail.includes("canChangeSource("), true);
+  check("หน้า /flow โชว์รูปต้นทางปัจจุบันด้วย currentSourceImage (ไม่ใช่ sources[0])", detail.includes("currentSourceImage(") && !detail.includes("sources[0]"), true);
   check("ไม่มี finishRenderManually/finishManually/canFinishManually เหลือ", ["app/actions.ts", "lib/flow-lifecycle.ts", "components/flow-job-detail.tsx", "components/manual-render-panel.tsx"].filter((f) => /finishRenderManually|finishManually|canFinishManually/.test(strip(f))), []);
 }
 

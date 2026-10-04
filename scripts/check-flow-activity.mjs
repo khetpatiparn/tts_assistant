@@ -35,7 +35,7 @@ try {
   check("t กับ t+10:00 เป๊ะ ไม่อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(10 * 60000)], localNow).peakPer10Min, 1);
   check("t กับ t+9:59 อยู่หน้าต่างเดียวกัน", a.summarizeActivity([plus(0), plus(9 * 60000 + 59000)], localNow).peakPer10Min, 2);
   check("lastWarnAt = http_warn หรือ bot_signal ล่าสุด", a.summarizeActivity([{ at: at(50), kind: "http_warn" }, { at: at(20), kind: "bot_signal" }, gen(1)], now).lastWarnAt, at(20));
-  check("ACTIVITY_KINDS มีครบตามสเปก", a.ACTIVITY_KINDS, ["generate_image", "generate_video", "upload", "new_project", "download", "http_warn", "bot_signal", "break", "auto_continue", "round_ok", "session_start", "user_enqueue", "user_choose", "user_redraw", "user_approve_render", "user_redo_render", "user_skip", "user_resume", "user_finish_manual", "user_take_over", "user_prompt_now", "user_retry_upscale", "user_export_clip", "user_edit_prompt"]);
+  check("ACTIVITY_KINDS มีครบตามสเปก", a.ACTIVITY_KINDS, ["generate_image", "generate_video", "upload", "new_project", "download", "http_warn", "bot_signal", "break", "auto_continue", "round_ok", "session_start", "user_enqueue", "user_choose", "user_redraw", "user_approve_render", "user_redo_render", "user_skip", "user_resume", "user_finish_manual", "user_take_over", "user_prompt_now", "user_retry_upscale", "user_export_clip", "user_edit_prompt", "user_change_source"]);
   const userRows = a.ACTIVITY_KINDS.filter((k) => k.startsWith("user_")).map((k, i) => ({ at: at(i), kind: k }));
   check("kind ของผู้ใช้ไม่นับเป็นคำขอของบอท (today/peak) และไม่นับเป็นสัญญาณเตือน", a.summarizeActivity(userRows, now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
   check("ปนกับของบอท นับเฉพาะของบอท", a.summarizeActivity([...userRows, gen(1)], now).today, 1);
@@ -43,6 +43,7 @@ try {
     a.summarizeActivity([{ at: at(1), kind: "auto_continue" }, { at: at(2), kind: "round_ok" }], now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
   check("isTakeoverKind: user_take_over และแถวเก่า user_finish_manual นับเป็นทำต่อเอง · อย่างอื่นไม่", ["user_take_over", "user_finish_manual", "user_skip", "user_export_clip", "round_ok"].map((k) => a.isTakeoverKind(k)), [true, true, false, false, false]);
   check("user_edit_prompt ไม่นับเป็น 'ยิง Flow วันนี้'/peak/สัญญาณเตือน", a.summarizeActivity([{ at: at(1), kind: "user_edit_prompt" }, { at: at(2), kind: "user_edit_prompt" }], now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
+  check("user_change_source ไม่นับเป็น 'ยิง Flow วันนี้'/peak/สัญญาณเตือน", a.summarizeActivity([{ at: at(1), kind: "user_change_source" }], now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
   check("takeOver ไม่นับเป็นคำขอของบอท/สัญญาณเตือน", a.summarizeActivity([{ at: at(1), kind: "user_take_over" }], now), { today: 0, peakPer10Min: 0, lastWarnAt: null });
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {

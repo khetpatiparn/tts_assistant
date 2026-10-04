@@ -38,6 +38,8 @@ export const ACTIVITY_KINDS = [
   "user_export_clip",
   /** แก้ 10-part prompt ที่หน้า /flow (detail: { stage, lengthBefore, lengthAfter, rerender }) — การกระทำของผู้ใช้ ไม่ใช่คำขอถึง Flow */
   "user_edit_prompt",
+  /** เปลี่ยนรูปต้นทาง (หน้า /flow หรือ Showcase "เลือกรูปใหม่") — งานกลับไปวาดรอบ 1 (detail: { fromStatus, round, attempt, nextAttempt, … }) */
+  "user_change_source",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 

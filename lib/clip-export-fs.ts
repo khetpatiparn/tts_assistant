@@ -14,7 +14,7 @@ import {
   pickPostingDay, shortFolderName, slotFolderName, sourcePhotoName, tomorrowOf,
   type ExportRecord,
 } from "@/lib/clip-export";
-import { FINAL_VIDEO_FILENAME } from "@/lib/flow-jobs";
+import { FINAL_VIDEO_FILENAME, currentSourceImage } from "@/lib/flow-jobs";
 import { joinPath } from "@/lib/upload-paths";
 
 /** root ของโฟลเดอร์ TTS = CLIP_EXPORT_ROOT ถ้าตั้ง ไม่งั้น Desktop\TTS (โฟลเดอร์งานจริงของผู้ใช้ — ตอนทดสอบต้องตั้ง env นี้เสมอ) */
@@ -31,7 +31,7 @@ export type ClipExportJob = {
   /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = ไม่มี) — ลงบรรทัดท้าย โพสต์.txt */
   productId?: string | null;
   flowDir: string;
-  images: { kind: string; round: number; chosen: boolean; filename: string; index?: number }[];
+  images: { kind: string; round: number; chosen: boolean; filename: string; index?: number; attempt?: number }[];
 };
 
 /** already = คลิปเดิม โฟลเดอร์ยังอยู่ ไม่ก๊อปคลิป (ข้อความ/รูปเขียนใหม่) · updated = เขียนทับในโฟลเดอร์เดิม · new = ช่องใหม่ของวันโพสต์ */
@@ -132,10 +132,8 @@ export async function exportClip(args: {
       }
     }
 
-    // รูปต้นทางอยู่ในทุกโฟลเดอร์ (งานบอทและทำต่อเอง) — ของที่ต้องลากเข้า Flow ถ้าจะเรนเดอร์ใหม่เอง
-    const source = job.images
-      .filter((i) => i.kind === "source")
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))[0];
+    // รูปต้นทางอยู่ในทุกโฟลเดอร์ (งานบอทและทำต่อเอง) — ของที่ต้องลากเข้า Flow ถ้าจะเรนเดอร์ใหม่เอง · รูปปัจจุบัน (หลังเปลี่ยนรูปต้นทาง = แถวล่าสุด)
+    const source = currentSourceImage(job.images.map((i) => ({ ...i, attempt: i.attempt ?? 1, index: i.index ?? 0 })));
     if (source) {
       const src = joinPath(job.flowDir, source.filename);
       if (await isFile(src)) {
