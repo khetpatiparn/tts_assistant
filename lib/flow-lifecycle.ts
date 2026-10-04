@@ -211,14 +211,27 @@ export function normalizePromptText(text: string): string {
 // ผู้ใช้ (หน้า /flow, Showcase, หน้า entry)
 // ---------------------------------------------------------------------------
 
-/** เข้าคิว: งานใหม่เริ่มรอบ 1 + แถวรูปต้นทาง (ชื่อไฟล์ให้ผู้เรียกเขียนไฟล์ก่อนสร้างแถว) */
+/**
+ * attempt แรกของงานใหม่ = 1 + attempt สูงสุดของทุกแถวรูปใน entry (ทุกงาน) · entry ไม่เคยมีงาน = 1
+ * งานทุกตัวของ entry ใช้โฟลเดอร์ `uploads/<entryId>/flow/` เดียวกัน และชื่อไฟล์รูปที่วาดคือ r<round>-a<attempt>-<index> —
+ * งานใหม่ที่เริ่ม a1 ใหม่จะเขียนทับรูปของงานก่อน (รูปในคลังรูปหาย)
+ */
+export function newJobAttempt(entryImages: { attempt: number }[]): number {
+  return entryImages.reduce((m, i) => Math.max(m, i.attempt), 0) + 1;
+}
+
+/**
+ * เข้าคิว: งานใหม่เริ่มรอบ 1 + แถวรูปต้นทาง (ชื่อไฟล์ให้ผู้เรียกเขียนไฟล์ก่อนสร้างแถว)
+ * @param attempt จาก newJobAttempt (ผู้เรียกต้องรู้ก่อนตั้งชื่อไฟล์รูปต้นทาง) · ไม่ระบุ = 1
+ */
 export function enqueue(
   extraPrompt: unknown,
   sources: { filename: string; mimeType: string }[],
+  attempt = 1,
 ): { job: { status: FlowStatus; round: JobRound; attempt: number; extraPrompt: string }; sourceRows: ImageRow[] } {
   return {
-    job: { status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1, extraPrompt: normalizeExtraPrompt(extraPrompt) },
-    sourceRows: sources.map((s, index) => ({ kind: "source", round: 0, attempt: 1, index, filename: s.filename, mimeType: s.mimeType })),
+    job: { status: FLOW_STATUS.QUEUED_R1, round: 1, attempt, extraPrompt: normalizeExtraPrompt(extraPrompt) },
+    sourceRows: sources.map((s, index) => ({ kind: "source", round: 0, attempt, index, filename: s.filename, mimeType: s.mimeType })),
   };
 }
 
@@ -226,6 +239,8 @@ export function enqueue(
  * Checkpoint รูป: เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → รอ 10-part prompt ก่อน Render (awaiting_prompt, รอบ 3)
  * หรือจบงานถ้าปิด Render อัตโนมัติ (renderEnabled ของ flow-worker.config.json) · รอบ 2 ผู้เรียกก๊อป 2 รูปที่เลือกเป็น
  * ProductImage ในทรานแซกชันเดียวกัน (copyToProductImages)
+ * @param job.images แถวรูปของ**ทุกงานใน entry** (loadEntryFlowImages) — attempt ของรอบ 2 นับต่อจากชุดรอบ 2 ของทุกงาน
+ *   (โฟลเดอร์ flow/ ใช้ร่วมกัน) · ไม่ส่ง = งานใหม่ (attempt 1)
  * @param renderEnabled อ่านหลังตรวจรูปเสมอ (ลำดับ error เดิม: รูปผิดรอบ → config → สถานะ)
  */
 export function choose<I extends { id: string; kind: string; round: number; attempt: number }>(
@@ -378,6 +393,7 @@ export const CHANGE_SOURCE_NEWER_JOB_MESSAGE = "สินค้านี้ม�
  * (ไฟล์ r1-a<n>-* ชุดใหม่ไม่ทับชุดเก่า) · ปลด chosen ทุกรูป · ล้างร่องรอยพัง/finishedAt · extraPrompt จาก input (ว่าง = พรอมต์ตั้งต้น)
  * · งานพัง = ปลดการหยุดของบอท · แถว/ไฟล์ source และ candidate เก่าเก็บไว้ (คลังรูป) — แถวรูปต้นทางใหม่ attempt ใหม่ ชื่อไม่ซ้ำ
  * ผู้เรียกเขียนไฟล์ชื่อ createImages[0].filename ก่อน แล้วเขียนด้วย applyChangeSource (where status กันแข่งกับบอท) ไม่ใช่ applyPlan
+ * @param job.images แถวรูปของ**ทุกงานใน entry** (loadEntryFlowImages) — attempt ใหม่เกินของทุกงาน (โฟลเดอร์ flow/ ใช้ร่วมกัน)
  * @param input.nonce สุ่มจากผู้เรียก — ชื่อไฟล์ไม่ซ้ำข้ามงานของ entry เดียวกัน (โฟลเดอร์ flow/ ใช้ร่วมกัน)
  */
 export function changeSource(

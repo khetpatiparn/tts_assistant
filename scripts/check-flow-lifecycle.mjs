@@ -61,6 +61,13 @@ try {
       ],
     });
   check("enqueue: ไม่มีข้อความเพิ่มเติม = ''", L.enqueue(undefined, []).job.extraPrompt, "");
+  // งานใหม่ของ entry ที่เคยมีงานแล้ว: โฟลเดอร์ flow/ ใช้ร่วมกัน — attempt ต้องต่อจากทุกแถวรูปของ entry ไม่งั้น r1-a1-* ชุดใหม่ทับรูปเก่าในคลังรูป
+  check("newJobAttempt: entry ไม่เคยมีงาน → 1", L.newJobAttempt([]), 1);
+  check("newJobAttempt: เคยมีงาน → 1 + attempt สูงสุดของทุกแถวรูปใน entry (ทุกงาน ทุกรอบ)",
+    L.newJobAttempt([{ attempt: 1 }, { attempt: 3 }, { attempt: 2 }]), 4);
+  check("enqueue ด้วย attempt ต่อ → งานและแถวรูปต้นทางใช้ attempt นั้น",
+    [L.enqueue("", [{ filename: "source-a4-0-n.jpg", mimeType: "image/jpeg" }], 4).job.attempt,
+      L.enqueue("", [{ filename: "source-a4-0-n.jpg", mimeType: "image/jpeg" }], 4).sourceRows.map((r) => r.attempt)], [4, [4]]);
 
   const img = (round, attempt = 1) => ({ id: "img1", kind: "candidate", round, attempt });
   const on = () => true;
@@ -404,7 +411,18 @@ try {
   // ticket 05: เปลี่ยนรูปต้นทางมีทางเดียว (changeSourcePhoto → changeSource + applyChangeSource) ใช้ทั้ง /flow และ Showcase
   const csFlow = strip("lib/flow-change-source.ts");
   check("changeSourcePhoto ใช้ changeSource + applyChangeSource (where status กันแข่งกับบอท) + replaceAutoSourceImage",
-    csFlow.includes("changeSource(job") && csFlow.includes("applyChangeSource(") && csFlow.includes("replaceAutoSourceImage("), true);
+    csFlow.includes("changeSource({ ...job") && csFlow.includes("applyChangeSource(") && csFlow.includes("replaceAutoSourceImage("), true);
+  // โฟลเดอร์ flow/ ใช้ร่วมทุกงานของ entry → attempt ของชุดรูปใหม่ต้องดูแถวรูปทุกงาน (loadEntryFlowImages) ไม่ใช่แค่งานนี้
+  check("changeSourcePhoto ส่งแถวรูปทุกงานของ entry ให้ changeSource", csFlow.includes("images: await loadEntryFlowImages(job.entryId)"), true);
+  const chooseBody = (strip("app/actions.ts").match(/export async function chooseFlowCandidate[^]*?\n}\n/) ?? [""])[0];
+  check("chooseFlowCandidate ส่งแถวรูปทุกงานของ entry ให้ choose (attempt รอบ 2 ต่อจากงานก่อน)",
+    /choose\(\s*\{ \.\.\.job, images: await loadEntryFlowImages\(job\.entryId\) \}/.test(chooseBody), true);
+  const coreBody = (strip("app/actions.ts").match(/async function enqueueFlowJobCore[^]*?\n}\n/) ?? [""])[0];
+  check("enqueueFlowJobCore เข้าคิวผ่าน enqueueFlowJobFiles (attempt ต่อจากงานก่อน · ทดสอบได้ใน check-flow-lifecycle-db.ts)",
+    coreBody.includes("enqueueFlowJobFiles(") && !coreBody.includes("createJob("), true);
+  const enqSrc = strip("lib/flow-enqueue.ts");
+  check("enqueueFlowJobFiles ตั้ง attempt ด้วย newJobAttempt(loadEntryFlowImages) และชื่อไฟล์รูปต้นทางด้วย attempt นั้น",
+    enqSrc.includes("newJobAttempt(await loadEntryFlowImages(entryId))") && enqSrc.includes("sourceFilename(attempt,"), true);
   const actionsSrc = strip("app/actions.ts");
   const logBody = (actionsSrc.match(/async function changeSourceAndLog[^]*?\n}\n/) ?? [""])[0];
   check("changeSourceAndLog เรียก changeSourcePhoto แล้ว log user_change_source { fromStatus, round, attempt }",

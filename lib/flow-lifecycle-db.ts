@@ -154,6 +154,14 @@ export async function createJob(entryId: string, job: JobPatch & { status: strin
   return prisma.flowJob.create({ data: { entryId, ...job }, select: { id: true, extraPrompt: true } });
 }
 
+/**
+ * แถวรูปของทุกงานใน entry (attempt ที่เคยใช้) — งานทุกตัวของ entry ใช้โฟลเดอร์ `flow/` เดียวกัน attempt ของชุดรูปใหม่จึงต้องเกิน
+ * ของทุกงาน: เข้าคิวงานใหม่ (newJobAttempt) · เลือกรูปรอบ 1 → 2 (choose) · เปลี่ยนรูปต้นทาง (changeSource) ส่งตัวนี้เป็น images
+ */
+export async function loadEntryFlowImages(entryId: string, db: Db = prisma): Promise<{ kind: string; round: number; attempt: number }[]> {
+  return db.flowJobImage.findMany({ where: { job: { entryId } }, select: { kind: true, round: true, attempt: true } });
+}
+
 export async function addImage(jobId: string, row: ImageRow): Promise<void> {
   await prisma.flowJobImage.create({ data: { jobId, ...row } });
 }

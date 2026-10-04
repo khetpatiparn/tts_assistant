@@ -12,7 +12,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { checkSourceImage } from "@/lib/flow-jobs";
 import { CHANGE_SOURCE_RACE_MESSAGE, CHANGE_SOURCE_NEWER_JOB_MESSAGE, changeSource } from "@/lib/flow-lifecycle";
-import { applyChangeSource } from "@/lib/flow-lifecycle-db";
+import { applyChangeSource, loadEntryFlowImages } from "@/lib/flow-lifecycle-db";
 import { replaceAutoSourceImage } from "@/lib/auto-source-image-db";
 import { joinPath } from "@/lib/upload-paths";
 
@@ -27,11 +27,12 @@ export async function changeSourcePhoto(args: {
   image: { buffer: Buffer; mimeType: string };
   extraPrompt: unknown;
 }): Promise<ChangeSourceResult> {
-  const job = await prisma.flowJob.findUnique({ where: { id: args.jobId }, include: { images: { select: { attempt: true } } } });
+  const job = await prisma.flowJob.findUnique({ where: { id: args.jobId } });
   if (!job) return { ok: false, message: "ไม่พบงาน Flow" };
   let plan;
   try {
-    plan = changeSource(job, { extraPrompt: args.extraPrompt, mimeType: args.image.mimeType, nonce: crypto.randomUUID().slice(0, 8) });
+    // images = แถวรูปทุกงานของ entry — attempt ใหม่ต้องเกินของทุกงาน (โฟลเดอร์ flow/ ใช้ร่วมกัน งานที่เข้าคิวก่อนแก้ attempt ต่อเริ่ม a1 ซ้ำได้)
+    plan = changeSource({ ...job, images: await loadEntryFlowImages(job.entryId) }, { extraPrompt: args.extraPrompt, mimeType: args.image.mimeType, nonce: crypto.randomUUID().slice(0, 8) });
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "เปลี่ยนรูปต้นทางไม่ได้" };
   }

@@ -49,19 +49,16 @@ import {
   flowProjectUrl,
   pickBackupBrowserProfile,
   EXTRA_PROMPT_MAX,
-  checkSourceImage,
-  imageExtFromMime,
-  sourceFilename,
 } from "@/lib/flow-jobs";
 import { changeSourcePhoto } from "@/lib/flow-change-source";
+import { enqueueFlowJobFiles } from "@/lib/flow-enqueue";
 import { autoFlowFilename, autoSourceFilename, isAutoFlowImage, isAutoSourceImage } from "@/lib/auto-source-image";
 import { shortenInBackground } from "@/lib/short-name-db";
-import { removeAutomaticImageFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
+import { removeAutomaticImageFiles, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
 import {
   approveRender,
   checkPromptText,
   choose,
-  enqueue,
   normalizePromptText,
   PROMPT_BOT_RUNNING_MESSAGE,
   PROMPT_REFUSED_MESSAGE,
@@ -73,7 +70,7 @@ import {
   takeOver,
   TAKEOVER_BOT_BUSY_MESSAGE,
 } from "@/lib/flow-lifecycle";
-import { addImage, applyBulk, applyPlan, applyPromptSave, applyTakeOver, createJob } from "@/lib/flow-lifecycle-db";
+import { applyBulk, applyPlan, applyPromptSave, applyTakeOver, loadEntryFlowImages } from "@/lib/flow-lifecycle-db";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -1408,57 +1405,19 @@ async function enqueueFlowJobCore(
   images: { buffer: Buffer; mimeType: string }[],
   extraPrompt = ""
 ): Promise<string> {
-  if (!entryId) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
-  const entry = await prisma.promptEntry.findUnique({ where: { id: entryId }, select: { id: true, productName: true } });
-  if (!entry) throw new Error("ไม่พบรายการที่ต้องการเข้าคิว Flow");
-  if (entry.productName.trim() === "") throw new Error("ต้องมีชื่อสินค้าก่อน (พรอมต์ของ Flow ใช้ชื่อสินค้า)");
-
-  const open = await prisma.flowJob.findFirst({
-    where: { entryId, status: { notIn: [FLOW_STATUS.DONE, FLOW_STATUS.SKIPPED] } },
-    select: { id: true },
-  });
-  if (open) throw new Error("รายการนี้มีงาน Flow ค้างอยู่แล้ว");
-
-  if (images.length === 0) throw new Error("กรุณาเลือกรูปแคปสินค้าอย่างน้อย 1 รูป");
-  for (const img of images) {
-    const invalid = checkSourceImage({ mimeType: img.mimeType, size: img.buffer.length });
-    if (invalid !== null) throw new Error(invalid);
-  }
-
-  const dir = path.join(UPLOAD_ROOT, entryId, "flow");
-  await mkdir(dir, { recursive: true });
-
-  // ชื่อไฟล์ไม่ซ้ำข้ามงานของ entry เดียวกัน (โฟลเดอร์ flow/ ใช้ร่วมกัน — งานใหม่หลังงานก่อนจบ/ถูกข้ามไม่ทับรูปต้นทางเดิม)
-  const nonce = crypto.randomUUID().slice(0, 8);
-  const plan = enqueue(
-    extraPrompt,
-    images.map((img, index) => ({ filename: sourceFilename(1, index, imageExtFromMime(img.mimeType), nonce), mimeType: img.mimeType })),
-  );
-  const job = await createJob(entryId, plan.job);
-  for (const [index, img] of images.entries()) {
-    const row = plan.sourceRows[index];
-    await writeFile(path.join(dir, row.filename), img.buffer);
-    await addImage(job.id, row);
-  }
-
-  // รูปต้นทาง (รูปแรก) เป็นรูปสินค้าของ entry ทันที ทำเองได้เลยไม่ต้องรอ Flow — เข้าคิวซ้ำแทนแถวเดิม เลือกรอบ 2 แทนด้วยรูปที่
-  // Flow วาด (lib/auto-source-image-db.ts) · งานเข้าคิวสำเร็จไปแล้ว ขั้นนี้พังห้ามทำให้เข้าคิวพัง ผู้ใช้อัปรูปเองที่หน้า entry ได้
-  try {
-    await replaceAutoSourceImage(UPLOAD_ROOT, entryId, images[0]);
-  } catch (err) {
-    console.error("ใส่รูปต้นทางเข้ารูปสินค้าไม่สำเร็จ (งาน Flow เข้าคิวแล้ว):", err);
-  }
+  // DB + ไฟล์ (ตรวจ/สร้างงาน/attempt ต่อจากงานก่อนของ entry/รูปต้นทางอัตโนมัติ) อยู่ lib/flow-enqueue.ts — ทดสอบได้โดยไม่มี Next
+  const job = await enqueueFlowJobFiles({ root: UPLOAD_ROOT, entryId, images, extraPrompt });
 
   await logUserActivity({
     kind: "user_enqueue",
-    jobId: job.id,
+    jobId: job.jobId,
     round: 1,
-    detail: { round: 1, attempt: 1, images: images.length, ...extraDetail(job.extraPrompt) },
+    detail: { round: 1, attempt: job.attempt, images: images.length, ...extraDetail(job.extraPrompt) },
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${entryId}`);
   revalidatePath("/"); // รูปแรกของรายการ = ภาพย่อในหน้ารายการ
-  return job.id;
+  return job.jobId;
 }
 
 /** detail ของข้อความเพิ่มเติม (ความยาว + ข้อความ ≤200) สำหรับสมุดบันทึกพฤติกรรมผู้ใช้ */
@@ -1490,7 +1449,13 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, include: { images: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
   // Render อัตโนมัติปิดอยู่ = จบงานที่รูปรอบ 2 ผู้ใช้ทำคลิปเองใน Flow บัญชีหลัก — ดู WorkerConfig.renderEnabled
-  const plan = choose(job, job.images.find((i) => i.id === imageId), () => loadWorkerConfig().renderEnabled, new Date());
+  // images = แถวรูปทุกงานของ entry: attempt ของรอบ 2 ต้องเกินชุดรอบ 2 ของงานก่อน (โฟลเดอร์ flow/ ใช้ร่วมกัน ไม่งั้น r2-a1-* ทับกัน)
+  const plan = choose(
+    { ...job, images: await loadEntryFlowImages(job.entryId) },
+    job.images.find((i) => i.id === imageId),
+    () => loadWorkerConfig().renderEnabled,
+    new Date(),
+  );
   const image = plan.image;
 
   let removedAutoSource: string[] = [];

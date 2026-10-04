@@ -1319,6 +1319,80 @@ async function changeSources() {
   }
 }
 
+/**
+ * งานใหม่ของ entry ที่เคยมีงานแล้ว — NEW-only: งานทุกตัวของ entry ใช้โฟลเดอร์ flow/ เดียวกัน ชื่อไฟล์รูปที่วาดคือ r<round>-a<attempt>-<i>
+ * งานใหม่ต้องนับ attempt ต่อจากทุกแถวรูปของ entry (ไม่เริ่ม a1 ใหม่จนทับรูปในคลังรูป) · เลือกรอบ 1 → 2 และเปลี่ยนรูปต้นทางก็ดูทั้ง entry
+ * เข้าคิวทั้งเส้น (lib/flow-enqueue.ts — ที่ server action เรียก) บนโฟลเดอร์ชั่วคราว
+ */
+async function newJobAttempts() {
+  console.log("\n== งานใหม่ของ entry เดิม: attempt ต่อจากงานก่อน ไม่ทับรูปเก่า ==");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const enq = await import("@/lib/flow-enqueue");
+  const cs = await import("@/lib/flow-change-source");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "check-new-job-attempt-"));
+  try {
+    const entryId = await newEntry();
+    const flowDir = path.join(root, entryId, "flow");
+    fs.mkdirSync(flowDir, { recursive: true });
+    const OLD_IMAGES: ImgSeed[] = [
+      { kind: "source", round: 0, attempt: 1, index: 0, filename: "source-a1-0-old.jpg" },
+      { kind: "candidate", round: 1, attempt: 1, index: 0, filename: "r1-a1-0.png" },
+      { kind: "candidate", round: 1, attempt: 2, index: 0, filename: "r1-a2-0.png", chosen: true },
+      { kind: "candidate", round: 2, attempt: 1, index: 0, filename: "r2-a1-0.png" },
+      { kind: "candidate", round: 2, attempt: 2, index: 1, filename: "r2-a2-1.png", chosen: true },
+    ];
+    const oldJob = await prisma.flowJob.create({ data: { entryId, status: FLOW_STATUS.DONE, round: 3, attempt: 1, createdAt: new Date(Date.now() - 60_000) } });
+    for (const im of OLD_IMAGES) {
+      await prisma.flowJobImage.create({ data: { jobId: oldJob.id, mimeType: "image/png", ...im } });
+      fs.writeFileSync(path.join(flowDir, im.filename), `old:${im.filename}`);
+    }
+
+    const r = await enq.enqueueFlowJobFiles({ root, entryId, images: [{ buffer: Buffer.from("new-src"), mimeType: "image/jpeg" }], extraPrompt: "" });
+    const job = await jobWithImages(r.jobId);
+    const src = job.images.filter((i) => i.kind === "source");
+    check("เข้าคิวงานใหม่ของ entry เดิม → attempt 3 (ต่อจาก a2 ของงานก่อน) · แถวรูปต้นทาง attempt 3 ชื่อ source-a3-0-<nonce> · ไฟล์ตรง",
+      job.status === FLOW_STATUS.QUEUED_R1 && job.round === 1 && job.attempt === 3 && src.length === 1 && src[0].attempt === 3 &&
+        /^source-a3-0-[0-9a-f]{8}\.jpg$/.test(src[0].filename) && fs.readFileSync(path.join(flowDir, src[0].filename), "utf8") === "new-src",
+      JSON.stringify(job));
+
+    // บอทวาดรอบ 1 → ชื่อไฟล์ r1-a3-* ไม่ชนไฟล์ของงานก่อน
+    await db.applyPlan(job.id, L.imagesReady(1, job, ["png", "png", "png", "png"], "proj-new"));
+    const afterR1 = await jobWithImages(job.id);
+    const newNames = afterR1.images.filter((i) => i.kind === "candidate").map((i) => i.filename);
+    check("รูปรอบ 1 ของงานใหม่ = r1-a3-0..3 ไม่ชนชื่อไฟล์ของงานก่อน",
+      newNames.length === 4 && newNames.every((n) => n.startsWith("r1-a3-") && !OLD_IMAGES.some((o) => o.filename === n)), JSON.stringify(newNames));
+
+    // เลือกรอบ 1 → รอบ 2: attempt ของรอบ 2 ต่อจากรอบ 2 ของทุกงานใน entry (งานก่อนใช้ r2-a1, r2-a2)
+    const pick = afterR1.images.find((i) => i.kind === "candidate" && i.index === 0)!;
+    const entryImages = await db.loadEntryFlowImages(entryId);
+    const plan = L.choose({ ...afterR1, images: entryImages }, pick, () => true, new Date());
+    check("loadEntryFlowImages = แถวรูปทุกงานของ entry · choose รอบ 1 ด้วยแถวทั้ง entry → รอบ 2 attempt 3 (ไม่ทับ r2-a1/a2 ของงานก่อน)",
+      entryImages.length === OLD_IMAGES.length + 5 && plan.job.attempt === 3, JSON.stringify({ n: entryImages.length, attempt: plan.job.attempt }));
+
+    check("ไฟล์ของงานก่อนอยู่ครบ ไม่ถูกเขียนทับ", OLD_IMAGES.every((o) => fs.readFileSync(path.join(flowDir, o.filename), "utf8") === `old:${o.filename}`));
+
+    // เข้าคิวซ้ำตอนมีงานเปิดอยู่ → ปฏิเสธเหมือนเดิม ไม่มีไฟล์ใหม่
+    const before = fs.readdirSync(flowDir).sort().join(",");
+    const dup = await capture(() => enq.enqueueFlowJobFiles({ root, entryId, images: [{ buffer: Buffer.from("x"), mimeType: "image/png" }], extraPrompt: "" }));
+    check("เข้าคิวตอนมีงานค้าง → error · ไม่มีไฟล์ใหม่", !dup.ok && fs.readdirSync(flowDir).sort().join(",") === before, JSON.stringify(dup));
+
+    // งานที่เข้าคิวก่อนแก้นี้ (เริ่ม a1 ซ้ำกับงานก่อน) — เปลี่ยนรูปต้นทางต้องดูแถวทั้ง entry: attempt เกินทุก attempt ของทุกงาน
+    const entry2 = await newEntry();
+    const dir2 = path.join(root, entry2, "flow");
+    fs.mkdirSync(dir2, { recursive: true });
+    const prior = await prisma.flowJob.create({ data: { entryId: entry2, status: FLOW_STATUS.SKIPPED, round: 1, attempt: 5, createdAt: new Date(Date.now() - 60_000) } });
+    await prisma.flowJobImage.create({ data: { jobId: prior.id, kind: "candidate", round: 1, attempt: 5, index: 0, filename: "r1-a5-0.png", mimeType: "image/png" } });
+    const legacy = await prisma.flowJob.create({ data: { entryId: entry2, status: FLOW_STATUS.REVIEW_R1, round: 1, attempt: 1 } });
+    await prisma.flowJobImage.create({ data: { jobId: legacy.id, kind: "source", round: 0, attempt: 1, index: 0, filename: "source-0.jpg", mimeType: "image/jpeg" } });
+    const changed = await cs.changeSourcePhoto({ root, jobId: legacy.id, image: { buffer: Buffer.from("n"), mimeType: "image/png" }, extraPrompt: "" });
+    check("เปลี่ยนรูปต้นทางของงานที่มีงานก่อนใน entry → attempt 6 (เกิน a5 ของงานก่อน ไม่ทับ r1-a2..a5)",
+      changed.ok && changed.attempt === 6 && (await jobWithImages(legacy.id)).attempt === 6, JSON.stringify(changed));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /** applyPlan หลายขั้นต้องเป็นทรานแซกชันเดียว: ล้มกลางทาง = ไม่มีอะไรถูกเขียน */
 async function atomicity() {
   console.log("\n== ทรานแซกชัน ==");
@@ -1354,6 +1428,7 @@ async function main() {
     await takeovers();
     await promptSaves();
     await changeSources();
+    await newJobAttempts();
     await atomicity();
   } finally {
     const jobs = await prisma.flowJob.findMany({ where: { entryId: { in: createdEntries } }, select: { id: true } });
