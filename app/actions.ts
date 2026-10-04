@@ -60,14 +60,14 @@ import {
   approveRender,
   choose,
   enqueue,
-  finishManually,
   promptReady,
   redo,
   resume,
   retryUpscale,
   skip,
+  takeOver,
 } from "@/lib/flow-lifecycle";
-import { addImage, applyBulk, applyPlan, createJob } from "@/lib/flow-lifecycle-db";
+import { addImage, applyBulk, applyPlan, applyTakeOver, createJob } from "@/lib/flow-lifecycle-db";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -1552,21 +1552,23 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
 }
 
 /**
- * "ทำคลิปเองแล้ว — ปิดงานนี้" — งานที่ค้างอยู่ในขั้น Render (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) ตอนที่ผู้ใช้เลือกทำคลิปเอง
- * ใน Flow แทน รูป 2 รูปอยู่ใน ProductImage ตั้งแต่เลือกรอบ 2 แล้ว จึงปิดเป็น done ได้เลย · งานที่บอทกำลังทำอยู่ (running)
- * ห้ามปิดกลางคัน · งานพังที่ปิด = ปลดการหยุดของบอทด้วยเหมือน "ข้ามงานนี้"
+ * "ทำต่อเอง" (Manual takeover) — ผู้ใช้รับงานไปทำเองใน Flow บัญชีหลัก ได้ทุกขั้นที่บอทไม่ได้กำลังทำอยู่ · กดครั้งเดียว
+ * งานจบ (done) ทันที บอทไม่แตะอีก · ใช้ทั้งปุ่ม "ทำต่อเอง" ของหน้า /flow และปุ่มปิดงานของแผงทำคลิปเอง
+ * เขียนด้วย applyTakeOver (where status กันแข่งกับบอท) — 0 แถว = บอทหยิบงานนี้ไปก่อนแล้ว
  */
-export async function finishRenderManually(jobId: string): Promise<void> {
+export async function takeOverFlowJob(jobId: string): Promise<void> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  await applyPlan(jobId, finishManually(job, new Date()));
+  const changed = await applyTakeOver(jobId, takeOver(job, new Date()));
+  if (changed === 0) throw new Error("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
   await logUserActivity({
-    kind: "user_finish_manual",
+    kind: "user_take_over",
     jobId,
     round: job.round,
-    detail: { round: job.round, attempt: job.attempt, fromStatus: job.status, waitedMs: waitedMsSince(job.updatedAt) },
+    detail: { fromStatus: job.status, round: job.round, waitedMs: waitedMsSince(job.updatedAt) },
   });
   revalidatePath("/flow");
+  revalidatePath("/showcase");
   revalidatePath(`/entry/${job.entryId}`);
 }
 

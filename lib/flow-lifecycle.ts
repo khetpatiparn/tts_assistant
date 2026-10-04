@@ -1,6 +1,6 @@
 /**
  * วงจรชีวิตของงานในคิว Flow (FlowJob) — ที่เดียวที่รู้ว่าแต่ละจังหวะเปลี่ยนงานเป็นอะไร: ผู้ใช้กดที่ Checkpoint
- * (เลือกรูป / วาดใหม่ / ผ่าน / รันต่อ / ข้าม / ปิดเอง) · บอทหยิบงาน ทำรอบเสร็จ หรือพัง · เปิดบอทแล้วกวาดงานค้าง
+ * (เลือกรูป / วาดใหม่ / ผ่าน / รันต่อ / ข้าม / ทำต่อเอง) · บอทหยิบงาน ทำรอบเสร็จ หรือพัง · เปิดบอทแล้วกวาดงานค้าง
  * แต่ละจังหวะคืน "แผน" (Plan) = แพตช์ของ FlowJob + ผลข้างเคียงในตาราง Flow (ลบ/สร้างแถวคลิป, ปลดการหยุดของบอท)
  * ซึ่ง lib/flow-lifecycle-db.ts เขียนลง DB ทีเดียว (ทรานแซกชันเดียวถ้ามีหลายขั้น) — app/actions.ts และ worker/index.ts
  * ไม่เขียน FlowJob เอง จึงไม่มีจุดไหนลืมล้างช่อง error / ล้าง extraPrompt / ปลด pause / ลบแถวคลิปอีก
@@ -135,10 +135,28 @@ export function canRetryUpscale(
 }
 
 /**
- * ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) → "ทำคลิปเองแล้ว — ปิดงานนี้" ได้
- * งานที่บอทกำลังทำ (running) ห้ามปิดกลางคัน
+ * สถานะที่ผู้ใช้ "ทำต่อเอง" ได้ = ทุกสถานะเปิดยกเว้น running_* (บอทกำลังทำ) — adapter ใช้รายการนี้เป็น where ของการเขียน
+ * จึงปิดช่องที่บอทหยิบงานระหว่างผู้ใช้กดปุ่ม (lib/flow-lifecycle-db.ts applyTakeOver)
  */
-export function canFinishManually(status: string, round: number): boolean {
+export const TAKEOVER_STATUSES: readonly FlowStatus[] = [
+  FLOW_STATUS.QUEUED_R1,
+  FLOW_STATUS.REVIEW_R1,
+  FLOW_STATUS.QUEUED_R2,
+  FLOW_STATUS.REVIEW_R2,
+  FLOW_STATUS.AWAITING_PROMPT,
+  FLOW_STATUS.QUEUED_R3,
+  FLOW_STATUS.REVIEW_R3,
+  FLOW_STATUS.QUEUED_UPSCALE,
+  FLOW_STATUS.FAILED,
+];
+
+/** ปุ่ม "ทำต่อเอง": งานที่บอทไม่ได้กำลังทำอยู่ (และยังไม่จบ) */
+export function canTakeOver(status: string): boolean {
+  return (TAKEOVER_STATUSES as readonly string[]).includes(status);
+}
+
+/** อยู่ขั้นทำคลิป (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) — หน้า /flow ใช้ตัดสินว่าจะโชว์แผงทำคลิปเองตอนปิด Render อัตโนมัติ */
+export function isInRenderStage(status: string, round: number): boolean {
   return (
     status === FLOW_STATUS.AWAITING_PROMPT ||
     status === FLOW_STATUS.QUEUED_R3 ||
@@ -272,11 +290,17 @@ export function skip(job: { status: string }, now: Date): Plan | null {
 }
 
 /**
- * "ทำคลิปเองแล้ว — ปิดงานนี้" — รูป 2 รูปอยู่ใน ProductImage ตั้งแต่เลือกรอบ 2 แล้ว จึงปิดเป็น done ได้เลย
- * งานพังที่ปิด = ปลดการหยุดของบอทด้วยเหมือน "ข้ามงานนี้"
+ * "ทำต่อเอง" (Manual takeover) — ผู้ใช้รับงานไปทำเองใน Flow บัญชีหลัก กดครั้งเดียว งานจบ (done) ทันที บอทไม่แตะอีก
+ * ทำได้ทุกขั้นที่บอทไม่ได้กำลังทำอยู่ (canTakeOver) · งานพังที่ทำต่อเอง = ปลดการหยุดของบอทเหมือน "ข้ามงานนี้"
+ * ไม่ล้างร่องรอยพัง/ไม่แตะ round — ป้าย "ทำเอง" มาจากแถว FlowActivity user_take_over ไม่ใช่จากงาน
+ * ผู้เรียกต้องเขียนด้วย applyTakeOver (where status กันแข่งกับบอท) ไม่ใช่ applyPlan
  */
-export function finishManually(job: { status: string; round: number }, now: Date): Plan {
-  if (!canFinishManually(job.status, job.round)) throw new Error("ปิดได้เฉพาะงานที่อยู่ขั้นทำคลิป (และบอทไม่ได้กำลังทำอยู่)");
+export function takeOver(job: { status: string }, now: Date): Plan {
+  if (!canTakeOver(job.status)) {
+    throw new Error(
+      isOpenStatus(job.status) ? "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง" : "งานนี้จบแล้ว — ทำต่อเองไม่ได้",
+    );
+  }
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now }, unpauseWorker: job.status === FLOW_STATUS.FAILED };
 }
 

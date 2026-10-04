@@ -131,12 +131,26 @@ try {
   check("skip งานค้าง → skipped + ปลดการหยุด (แม้ไม่ได้พัง)", L.skip({ status: "review_r1" }, now), { job: { status: "skipped", finishedAt: now }, unpauseWorker: true });
   check("skip งานที่จบแล้ว → null (ไม่ทำอะไร)", [L.skip({ status: "done" }, now), L.skip({ status: "skipped" }, now)], [null, null]);
 
-  check("finishManually งานพังขั้นคลิป → done + ปลดการหยุด", L.finishManually({ status: "failed", round: 3 }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: true });
-  check("finishManually review_r3 → done ไม่แตะการหยุด", L.finishManually({ status: "review_r3", round: 3 }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: false });
-  check("canFinishManually: awaiting_prompt/queued_r3/review_r3/failed≥3 ได้ · running_r3/failed รอบ 2/review_r2 ไม่ได้",
-    [["awaiting_prompt", 3], ["queued_r3", 3], ["review_r3", 3], ["failed", 3], ["failed", 4], ["running_r3", 3], ["failed", 2], ["review_r2", 2]].map(([s, r]) => L.canFinishManually(s, r)),
+  // ทำต่อเอง (takeOver) แทน finishManually — ได้ทุกสถานะเปิดที่บอทไม่ได้กำลังทำอยู่ · งานพัง = ปลดการหยุด
+  const TAKE = ["queued_r1", "review_r1", "queued_r2", "review_r2", "awaiting_prompt", "queued_r3", "review_r3", "queued_upscale", "failed"];
+  const NOT_TAKE = ["running_r1", "running_r2", "running_r3", "running_upscale", "done", "skipped"];
+  check("canTakeOver: ทุกสถานะเปิดที่ไม่ใช่ running ได้", TAKE.map((s) => L.canTakeOver(s)), TAKE.map(() => true));
+  check("canTakeOver: running_* / done / skipped ไม่ได้", NOT_TAKE.map((s) => L.canTakeOver(s)), NOT_TAKE.map(() => false));
+  check("TAKEOVER_STATUSES = รายการเดียวกับ gate (adapter ใช้เป็น where กันแข่งกับบอท)", [...L.TAKEOVER_STATUSES].sort(), [...TAKE].sort());
+  for (const s of TAKE.filter((x) => x !== "failed")) {
+    check(`takeOver ${s} → done + finishedAt ไม่แตะการหยุด`, L.takeOver({ status: s }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: false });
+  }
+  for (const round of [1, 2, 3, 4]) {
+    check(`takeOver failed รอบ ${round} → done + ปลดการหยุด (เหมือนข้าม)`, L.takeOver({ status: "failed", round }, now), { job: { status: "done", finishedAt: now }, unpauseWorker: true });
+  }
+  check("takeOver แตะแค่ status/finishedAt (ไม่ล้างร่องรอยพัง ไม่แตะ round)", Object.keys(L.takeOver({ status: "failed" }, now).job).sort(), ["finishedAt", "status"]);
+  for (const s of ["running_r1", "running_r2", "running_r3", "running_upscale"]) {
+    checkThrows(`takeOver ${s} throws (บอทกำลังทำ)`, () => L.takeOver({ status: s }, now), "บอทเพิ่งเริ่มทำงานนี้");
+  }
+  for (const s of ["done", "skipped"]) checkThrows(`takeOver ${s} throws (จบแล้ว)`, () => L.takeOver({ status: s }, now), "งานนี้จบแล้ว");
+  check("isInRenderStage: awaiting_prompt/queued_r3/review_r3/failed≥3 ใช่ · running_r3/failed รอบ 2/review_r2 ไม่",
+    [["awaiting_prompt", 3], ["queued_r3", 3], ["review_r3", 3], ["failed", 3], ["failed", 4], ["running_r3", 3], ["failed", 2], ["review_r2", 2]].map(([s, r]) => L.isInRenderStage(s, r)),
     [true, true, true, true, true, false, false, false]);
-  checkThrows("finishManually running_r3 throws (บอทกำลังทำ)", () => L.finishManually({ status: "running_r3", round: 3 }, now), "ปิดได้เฉพาะงานที่อยู่ขั้นทำคลิป");
 
   // ---------- บอท ----------
   check("claim รอบ 2 → running_r2 + startedAt + ล้างร่องรอยพัง (where กันหยิบซ้ำ)", L.claim(2, now),
@@ -302,8 +316,9 @@ try {
   const sources = ["app/actions.ts", "worker/index.ts", "lib/flow-jobs.ts", "lib/flow-lifecycle-db.ts", "components/flow-job-detail.tsx", "components/flow-job-parts.tsx"];
   check("ข้อความ 'ได้ 720p' มีแค่ใน lib/flow-lifecycle.ts", sources.filter((f) => strip(f).includes("ได้ 720p")), []);
   const detail = strip("components/flow-job-detail.tsx");
-  check("หน้า /flow ใช้ canFinishManually (ไม่มีรายการสถานะขั้นคลิปซ้ำ)", detail.includes("canFinishManually(") && !detail.includes("job.round >= 3"), true);
-  check("finishRenderManually ใช้ finishManually", /export async function finishRenderManually[^]*?finishManually\(/.test(strip("app/actions.ts")), true);
+  check("หน้า /flow ใช้ isInRenderStage/canTakeOver (ไม่มีรายการสถานะซ้ำ)", detail.includes("isInRenderStage(") && detail.includes("canTakeOver(") && !detail.includes("job.round >= 3"), true);
+  check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", /export async function takeOverFlowJob[^]*?applyTakeOver\([^]*?takeOver\(/.test(strip("app/actions.ts")), true);
+  check("ไม่มี finishRenderManually/finishManually/canFinishManually เหลือ", ["app/actions.ts", "lib/flow-lifecycle.ts", "components/flow-job-detail.tsx", "components/manual-render-panel.tsx"].filter((f) => /finishRenderManually|finishManually|canFinishManually/.test(strip(f))), []);
 }
 
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }

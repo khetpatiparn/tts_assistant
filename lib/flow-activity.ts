@@ -28,13 +28,21 @@ export const ACTIVITY_KINDS = [
   "user_redo_render",
   "user_skip",
   "user_resume",
+  /** ปุ่มเก่า "ทำคลิปเองแล้ว — ปิดงานนี้" (ก่อนมี user_take_over) — ยังอ่านเป็นทำต่อเองได้ */
   "user_finish_manual",
+  /** "ทำต่อเอง": ผู้ใช้รับงานไปทำเองใน Flow (detail: { fromStatus, round, waitedMs }) — เป็นการเลือกของผู้ใช้ ไม่ใช่ตัวชี้ว่าบอทพลาด */
+  "user_take_over",
   "user_prompt_now",
   "user_retry_upscale",
   /** ส่งคลิป+รูป+ข้อความเข้าโฟลเดอร์ TTS บนเครื่อง (detail.path) — ใช้กันส่งซ้ำ */
   "user_export_clip",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+/** แถวนี้คือ "ทำต่อเอง" (รวมแถวเก่าของปุ่มปิดงานเอง) — ป้าย "ทำเอง" และรายงานพฤติกรรมอ่านจากแถวพวกนี้ */
+export function isTakeoverKind(kind: string): boolean {
+  return kind === "user_take_over" || kind === "user_finish_manual";
+}
 
 /** สิ่งที่ Google เห็นเป็น "คำขอ" จากเรา — ใช้นับความถี่ */
 const REQUEST_KINDS: ReadonlySet<string> = new Set(["generate_image", "generate_video", "upload", "new_project", "download"]);

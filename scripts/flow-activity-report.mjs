@@ -61,6 +61,13 @@ const parseDetail = (d) => {
     return {};
   }
 };
+// ทำต่อเอง = แถว user_take_over (+ user_finish_manual ของปุ่มเก่า) — การเลือกของผู้ใช้ ไม่ใช่ตัวชี้ว่าบอทพลาด
+// งานที่ทำต่อเองไม่นับในตัวเลขคุณภาพของบอท (เรนเดอร์ต่อคลิปที่ผ่าน ฯลฯ) เพราะบอทไม่ได้ทำงานนั้นจนจบ
+const TAKEOVER_KINDS = new Set(["user_take_over", "user_finish_manual"]);
+const STAGE_LABELS = {
+  queued_r1: "รอบอทวาดรอบ 1", review_r1: "เลือกรูปรอบ 1", queued_r2: "รอบอทวาดรอบ 2", review_r2: "เลือกรูปรอบ 2",
+  awaiting_prompt: "รอพรอมต์", queued_r3: "รอบอทเรนเดอร์", review_r3: "ดูคลิปตัวอย่าง", queued_upscale: "รอโหลด 1080p", failed: "งานที่พัง",
+};
 const USER_FILTER = "kind LIKE 'user\\_%' ESCAPE '\\'";
 const userRows = db
   .prepare(`SELECT at, kind, jobId, round, detail FROM FlowActivity WHERE ${USER_FILTER} ORDER BY at`)
@@ -82,7 +89,10 @@ if (userRows.length === 0) {
   const drawsOf = (jobId, round) => cand.find((c) => c.jobId === jobId && c.round === round)?.draws ?? 0;
   const DECISION = new Set(["user_choose", "user_redraw", "user_approve_render", "user_redo_render"]);
   const perJob = [];
+  const takeoverRows = userRows.filter((r) => TAKEOVER_KINDS.has(r.kind));
+  const takeoverJobIds = new Set(takeoverRows.map((r) => r.jobId));
   for (const j of jobs) {
+    if (takeoverJobIds.has(j.id)) continue;
     const mine = userRows.filter((r) => r.jobId === j.id);
     // เรนเดอร์ = attempt ของงานเมื่ออยู่รอบ 3-4 (redo เพิ่ม attempt ทีละ 1) · ยังไม่ถึงขั้นเรนเดอร์ = 0
     const renders = j.round >= 3 && j.status !== "awaiting_prompt" ? j.attempt : 0;
@@ -90,7 +100,7 @@ if (userRows.length === 0) {
     const waits = mine.filter((r) => DECISION.has(r.kind) && typeof r.d.waitedMs === "number").map((r) => r.d.waitedMs);
     perJob.push({ name: j.productName, r1: drawsOf(j.id, 1), r2: drawsOf(j.id, 2), renders, approved, wait: median(waits) });
   }
-  console.log(`งานที่มีการกระทำของคุณ ${perJob.length} งาน · การกระทำทั้งหมด ${userRows.length} ครั้ง`);
+  console.log(`งานที่มีการกระทำของคุณ ${perJob.length} งาน (ไม่รวมงานที่ทำต่อเอง — ดูหัวข้อด้านล่าง) · การกระทำทั้งหมด ${userRows.length} ครั้ง`);
   const byKind = new Map();
   for (const r of userRows) byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
   console.log("  " + [...byKind.entries()].map(([k, n]) => `${k}=${n}`).join("  "));
@@ -109,4 +119,29 @@ if (userRows.length === 0) {
   const r2 = perJob.filter((p) => p.r2 > 0);
   console.log(`  วาดเฉลี่ยต่อรอบ: รอบ 1 = ${avg(r1.reduce((s, p) => s + p.r1, 0), r1.length)} · รอบ 2 = ${avg(r2.reduce((s, p) => s + p.r2, 0), r2.length)}`);
   console.log(`  รอตัดสินใจ (median ทุกงาน): ${fmtWait(median(perJob.map((p) => p.wait).filter((w) => w !== null)))}`);
+}
+
+// ───────── ทำต่อเอง (เป็นการเลือกของคุณ ไม่ใช่ตัวชี้ว่าบอทพลาด) ─────────
+// นับต่องาน (แถวล่าสุดของงาน) แยกตามขั้นที่รับงานไปทำเอง · แถวเก่า user_finish_manual ไม่มี fromStatus เหมือนกัน
+{
+  const latest = new Map();
+  for (const r of userRows) if (TAKEOVER_KINDS.has(r.kind)) latest.set(r.jobId, r);
+  console.log("\n══ ทำต่อเอง ══");
+  if (latest.size === 0) {
+    console.log("ยังไม่เคยกดทำต่อเอง");
+  } else {
+    const byStage = new Map();
+    for (const r of latest.values()) {
+      const from = typeof r.d.fromStatus === "string" ? r.d.fromStatus : null;
+      const label = from === null ? "ไม่ทราบขั้น" : (STAGE_LABELS[from] ?? from);
+      const e = byStage.get(label) ?? { n: 0, waits: [] };
+      e.n++;
+      if (typeof r.d.waitedMs === "number") e.waits.push(r.d.waitedMs);
+      byStage.set(label, e);
+    }
+    console.log(`รับงานไปทำเอง ${latest.size} งาน (ตัวเลขของบอทด้านบนไม่รวมงานเหล่านี้)`);
+    for (const [label, e] of [...byStage.entries()].sort((a, b) => b[1].n - a[1].n)) {
+      console.log(`  ${label.padEnd(22)}  ${e.n} งาน · รอมา (median) ${fmtWait(median(e.waits))}`);
+    }
+  }
 }

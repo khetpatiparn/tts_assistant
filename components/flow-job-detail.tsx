@@ -7,7 +7,6 @@ import { ArrowLeft, ArrowRight, Check, RotateCcw, SkipForward, Play } from "luci
 
 import {
   approveFlowRender,
-  finishRenderManually,
   retryFlowUpscale,
   chooseFlowCandidate,
   generateWithAI,
@@ -15,6 +14,7 @@ import {
   redoFlowRound,
   resumeFlowWorker,
   skipFlowJob,
+  takeOverFlowJob,
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import type { FlowJobRow, FlowImageRow } from "@/lib/flow-queries";
@@ -29,7 +29,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canApproveRender, canFinishManually, canRetryUpscale } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canApproveRender, canRetryUpscale, canTakeOver, isInRenderStage } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -80,7 +80,7 @@ export function FlowJobDetail({
   const source = job.sources[0] ?? null;
   const selectedId = job.candidates.some((c) => c.id === selected) ? selected : null;
   // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
-  const isStuckInRender = canFinishManually(job.status, job.round);
+  const isStuckInRender = isInRenderStage(job.status, job.round) && canTakeOver(job.status);
   // รูป 2 รูปที่เลือกไว้ สำหรับแผงทำคลิปเอง (รอบ 1 = พื้นหลังขาว · รอบ 2 = ตอนใช้งาน)
   const manualImages = [job.chosenRound1, job.chosenRound2].flatMap((c, i) =>
     c
@@ -341,7 +341,7 @@ export function FlowJobDetail({
                   <RotateCcw data-icon="inline-start" /> เรนเดอร์ใหม่
                 </Button>
                 {job.video === null && (
-                  <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => finishRenderManually(job.id))}>
+                  <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => takeOverFlowJob(job.id))}>
                     <Check data-icon="inline-start" /> โหลดเองแล้ว — ปิดงานนี้
                   </Button>
                 )}
@@ -356,7 +356,7 @@ export function FlowJobDetail({
             entryId={job.entryId}
             prompt={job.prompt}
             images={manualImages}
-            onFinish={() => run(() => finishRenderManually(job.id))}
+            onFinish={() => run(() => takeOverFlowJob(job.id))}
             finishDisabled={isPending}
           />
         )}

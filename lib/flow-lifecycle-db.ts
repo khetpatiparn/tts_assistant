@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
-import type { BulkPlan, ImageRow, JobPatch, Plan } from "@/lib/flow-lifecycle";
+import { TAKEOVER_STATUSES, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -57,6 +57,22 @@ export async function applyBulk(bulk: BulkPlan, scope: { id?: string; entryId?: 
     data: bulk.job satisfies JobPatch,
   });
   return res.count;
+}
+
+/**
+ * เขียนแผน "ทำต่อเอง" แบบมีเงื่อนไข: อัปเดตเฉพาะถ้าสถานะยังเป็นหนึ่งในสถานะที่ทำต่อเองได้ (TAKEOVER_STATUSES) —
+ * ถ้าบอทหยิบงานไประหว่างที่ผู้ใช้กดปุ่ม (queued_* → running_*) จะไม่มีแถวถูกแก้ คืน 0 และไม่ปลดการหยุดของบอท
+ * (ผู้เรียกแปลง 0 เป็นข้อความไทย) · ปลดการหยุดอยู่ในทรานแซกชันเดียวกับการจบงาน
+ */
+export async function applyTakeOver(jobId: string, plan: Plan): Promise<number> {
+  return prisma.$transaction(async (tx) => {
+    const res = await tx.flowJob.updateMany({
+      where: { id: jobId, status: { in: [...TAKEOVER_STATUSES] } },
+      data: plan.job satisfies JobPatch,
+    });
+    if (res.count > 0 && plan.unpauseWorker) await unpauseWorker(tx);
+    return res.count;
+  });
 }
 
 /** สร้างงานใหม่ (แผนจาก enqueue) — แถวรูปต้นทางเพิ่มทีหลังด้วย addImage หลังเขียนไฟล์แต่ละรูป */

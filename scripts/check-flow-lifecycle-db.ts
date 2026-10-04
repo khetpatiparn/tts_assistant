@@ -535,9 +535,11 @@ const NEW = {
     await db.applyPlan(jobId, plan);
     return "skipped";
   },
-  async finishManually(jobId: string) {
+  /** ทำต่อเอง — action เขียนด้วย applyTakeOver แล้วแปลง 0 แถวเป็นข้อความไทย (ที่นี่แค่ throw ให้ step เทียบได้) */
+  async takeOver(jobId: string) {
     const job = await prisma.flowJob.findUniqueOrThrow({ where: { id: jobId } });
-    await db.applyPlan(jobId, L.finishManually(job, new Date()));
+    const n = await db.applyTakeOver(jobId, L.takeOver(job, new Date()));
+    if (n === 0) throw new Error("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
   },
   async previewReady(jobId: string, files: string[], downloadFailed: string | null, mediaId: string | null, projectId: string) {
     const job = await prisma.flowJob.findUniqueOrThrow({ where: { id: jobId } });
@@ -725,7 +727,6 @@ async function fullLifecycle() {
   check("finalClipSaved: done + r3-final.mp4 chosen", s.status === FLOW_STATUS.DONE && s.images.some((i) => i.kind === "video" && i.filename === FINAL_VIDEO_FILENAME && i.chosen));
   await step("retryUpscale on 1080p done (throws)", pair, (id) => OLD.retryUpscale(id), (id) => NEW.retryUpscale(id));
   await step("skip done job (noop)", pair, (id) => OLD.skip(id), (id) => NEW.skip(id));
-  await step("finishManually on done (throws)", pair, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
 }
 
 const VIDEO_720: ImgSeed = { kind: "video", round: 3, attempt: 1, index: 0, filename: "r3-a1.mp4", flowMediaId: "m" };
@@ -760,7 +761,7 @@ async function branches() {
     (id) => OLD.roundFailed(id, "download", "captcha", "403", "uploads/_flow-failures/y"),
     (id) => NEW.roundFailed(id, "download", "captcha", "403", "uploads/_flow-failures/y"),
   );
-  await step("finishManually failed r4 → done + unpause", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
+  await step("takeOver (parity with old finishManually) failed r4 → done + unpause", p, (id) => OLD.finishManually(id), (id) => NEW.takeOver(id));
 
   p = await makePair({ status: FLOW_STATUS.RUNNING_UPSCALE, round: 4, attempt: 1, flowProjectId: "proj" });
   await step(
@@ -811,16 +812,13 @@ async function branches() {
     (id) => OLD.roundFailed(id, "open-flow", "login_required", "login", "dir"),
     (id) => NEW.roundFailed(id, "open-flow", "login_required", "login", "dir"),
   );
-  await step("finishManually failed r3 → done + unpause", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
+  await step("takeOver (parity with old finishManually) failed r3 → done + unpause", p, (id) => OLD.finishManually(id), (id) => NEW.takeOver(id));
 
   p = await makePair({ status: FLOW_STATUS.REVIEW_R3, round: 3, attempt: 1 }, [VIDEO_720]);
-  await step("finishManually review_r3 → done, stays paused", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
+  await step("takeOver (parity with old finishManually) review_r3 → done, stays paused", p, (id) => OLD.finishManually(id), (id) => NEW.takeOver(id));
   p = await makePair({ status: FLOW_STATUS.AWAITING_PROMPT, round: 3, attempt: 1 });
-  await step("finishManually awaiting_prompt", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
-  p = await makePair({ status: FLOW_STATUS.FAILED, round: 2, attempt: 1 });
-  await step("finishManually failed r2 (throws)", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
+  await step("takeOver (parity with old finishManually) awaiting_prompt", p, (id) => OLD.finishManually(id), (id) => NEW.takeOver(id));
   p = await makePair({ status: FLOW_STATUS.REVIEW_R2, round: 2, attempt: 1 });
-  await step("finishManually review_r2 (throws)", p, (id) => OLD.finishManually(id), (id) => NEW.finishManually(id));
   await step("approve on review_r2 (throws)", p, (id) => OLD.approve(id), (id) => NEW.approve(id));
   await step("retryUpscale on review_r2 (throws)", p, (id) => OLD.retryUpscale(id), (id) => NEW.retryUpscale(id));
 
@@ -975,6 +973,70 @@ async function sweeps() {
   }
 }
 
+/**
+ * ทำต่อเอง (takeOver) — สถานะที่เกินขั้นทำคลิปไม่มีของเดิมให้เทียบ จึงเช็กผลที่แถวงาน/FlowWorkerState ตรงๆ
+ * (สถานะขั้นทำคลิปเทียบกับ OLD.finishManually แล้วใน branches)
+ */
+async function takeovers() {
+  console.log("\n== ทำต่อเอง ==");
+  const seeds: [string, number][] = [
+    [FLOW_STATUS.QUEUED_R1, 1], [FLOW_STATUS.REVIEW_R1, 1], [FLOW_STATUS.QUEUED_R2, 2], [FLOW_STATUS.REVIEW_R2, 2],
+    [FLOW_STATUS.AWAITING_PROMPT, 3], [FLOW_STATUS.QUEUED_R3, 3], [FLOW_STATUS.REVIEW_R3, 3], [FLOW_STATUS.QUEUED_UPSCALE, 4],
+    [FLOW_STATUS.FAILED, 1], [FLOW_STATUS.FAILED, 2],
+  ];
+  for (const [status, round] of seeds) {
+    const p = await makePair({ status, round, attempt: 2, extraPrompt: "keep", failedStep: status === FLOW_STATUS.FAILED ? "x" : "", errorKind: status === FLOW_STATUS.FAILED ? "captcha" : "" });
+    await ageTimestamps(p.b);
+    await pauseForTest();
+    const r = await capture(() => NEW.takeOver(p.b));
+    const j = await snapJob(p.b);
+    const w = await snapWorker();
+    const wantUnpause = status === FLOW_STATUS.FAILED;
+    check(
+      `takeOver ${status} r${round} → done + finishedAt ใหม่ · แถวอื่นไม่เปลี่ยน · ${wantUnpause ? "ปลดการหยุด" : "ยังหยุดอยู่"}`,
+      r.ok && j.status === FLOW_STATUS.DONE && j.finishedAt === "fresh" && j.round === round && j.attempt === 2 && j.extraPrompt === "keep" &&
+        (wantUnpause ? w?.pausedReason === "" : w?.pausedReason === "test_pause"),
+      JSON.stringify({ r, j, w }),
+    );
+  }
+  // บอททำอยู่ / จบแล้ว → plan โยน error ก่อนแตะ DB
+  for (const status of [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2, FLOW_STATUS.RUNNING_R3, FLOW_STATUS.RUNNING_UPSCALE, FLOW_STATUS.DONE, FLOW_STATUS.SKIPPED]) {
+    const p = await makePair({ status, round: 3, attempt: 1 });
+    await pauseForTest();
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => NEW.takeOver(p.b));
+    check(`takeOver ${status} → error ไม่แตะงาน/การหยุด`, !r.ok && before === JSON.stringify(await snapJob(p.b)) && (await snapWorker())?.pausedReason === "test_pause", JSON.stringify(r));
+  }
+  // แข่งกับบอท: ผู้ใช้อ่านงานตอนยัง queued_r1 แต่บอทหยิบไปก่อนเขียน → where กันไว้ 0 แถว งานต้องยัง running
+  {
+    const p = await makePair({ status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1 });
+    const stale = await prisma.flowJob.findUniqueOrThrow({ where: { id: p.b } });
+    const stalePlan = L.takeOver(stale, new Date());
+    await NEW.claim(p.b, 1);
+    await pauseForTest();
+    const n = await db.applyTakeOver(p.b, stalePlan);
+    const j = await snapJob(p.b);
+    check("แข่งกับบอท: บอทหยิบก่อน → applyTakeOver คืน 0 · งานยัง running_r1 · ไม่มี finishedAt", n === 0 && j.status === FLOW_STATUS.RUNNING_R1 && j.finishedAt === null, JSON.stringify({ n, j }));
+  }
+  // แข่งกับบอท ฝั่งงานพัง: อ่านตอน failed (แผนมี unpause) แต่ผู้ใช้อีกแท็บ "รันต่อ" + บอทหยิบไปแล้ว → ต้องไม่ปลดการหยุด
+  {
+    const p = await makePair({ status: FLOW_STATUS.FAILED, round: 1, attempt: 1, failedStep: "x", errorKind: "flow_error" });
+    const stale = await prisma.flowJob.findUniqueOrThrow({ where: { id: p.b } });
+    const stalePlan = L.takeOver(stale, new Date());
+    await NEW.resume(p.b);
+    await NEW.claim(p.b, 1);
+    await pauseForTest();
+    const n = await db.applyTakeOver(p.b, stalePlan);
+    check("แข่งกับบอท (งานพังที่ถูกรันต่อ+หยิบไปแล้ว): 0 แถว และไม่ปลดการหยุดของบอท", n === 0 && (await snapWorker())?.pausedReason === "test_pause", JSON.stringify({ n, w: await snapWorker() }));
+  }
+  // สำเร็จ = คืน 1
+  {
+    const p = await makePair({ status: FLOW_STATUS.REVIEW_R1, round: 1, attempt: 1 });
+    const n = await db.applyTakeOver(p.b, L.takeOver({ status: FLOW_STATUS.REVIEW_R1 }, new Date()));
+    check("applyTakeOver สำเร็จคืน 1", n === 1, String(n));
+  }
+}
+
 /** applyPlan หลายขั้นต้องเป็นทรานแซกชันเดียว: ล้มกลางทาง = ไม่มีอะไรถูกเขียน */
 async function atomicity() {
   console.log("\n== ทรานแซกชัน ==");
@@ -1007,6 +1069,7 @@ async function main() {
     await fullLifecycle();
     await branches();
     await sweeps();
+    await takeovers();
     await atomicity();
   } finally {
     const jobs = await prisma.flowJob.findMany({ where: { entryId: { in: createdEntries } }, select: { id: true } });
