@@ -9,8 +9,9 @@ import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
   ERROR_KIND_LABELS, FINAL_VIDEO_FILENAME, FINAL_VIDEO_PREFIX, FLOW_STATUS, WORKER_STATE_ID,
-  claimOrder, queuedStatus, toJobRound, type JobRound,
+  claimOrder, claimSequence, isUnshortenedName, needsShortNameGate, queuedStatus, shortNameRetryDelayMs, toJobRound, type JobRound,
 } from "@/lib/flow-jobs";
+import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
   failurePolicy, previewUnsaved, roundFailed, isAutoContinueFailure, staleRender, staleRunning, staleUpscale,
@@ -100,17 +101,46 @@ async function markJobFailedImmediately(jobId: string, e: unknown): Promise<void
 }
 
 /**
+ * งานรอบ 1–2 ที่ย่อชื่อไม่สำเร็จ: jobId → เวลาที่จะลองใหม่ + จำนวนครั้งที่พลาด — อยู่ในหน่วยความจำของโปรเซสนี้เท่านั้น
+ * (ไม่มีคอลัมน์ใหม่ เปิดบอทใหม่ = ลองใหม่ทันที) · ลืมเองเมื่องานไม่อยู่ในคิวแล้ว
+ */
+const shortNameWait = new Map<string, { until: number; failures: number }>();
+
+/**
+ * ด่านชื่อสั้นก่อนหยิบงานรอบ 1–2 (ticket 07): ชื่อยังเป็นชื่อเต็มของร้าน → ย่อเอง (ensureShortName ตัวเดียวกับที่ย่อเบื้องหลัง)
+ * สำเร็จ = หยิบได้ · ไม่สำเร็จ = false — **ไม่ใช่งานพัง**: ไม่แตะงาน (ยัง queued) ไม่ pause ไม่นับเพดาน ไม่ลง FlowActivity (ไม่ใช่
+ * คำขอถึง Flow) แค่จำเวลาลองใหม่ (shortNameRetryDelayMs) ให้ claimSequence ข้ามงานนี้ไปก่อน · ไม่มีทางตัดชื่อเอง
+ */
+async function shortNameReady(job: { id: string; entryId: string }): Promise<boolean> {
+  const r = await ensureShortName(job.entryId);
+  if (r.outcome !== "failed") {
+    shortNameWait.delete(job.id);
+    if (r.outcome !== "not_needed") log(`ย่อชื่อสินค้าของงาน ${job.id} แล้ว → "${r.name ?? ""}"`);
+    return true;
+  }
+  const failures = (shortNameWait.get(job.id)?.failures ?? 0) + 1;
+  const delay = shortNameRetryDelayMs(failures);
+  shortNameWait.set(job.id, { until: Date.now() + delay, failures });
+  log(`งาน ${job.id} ชื่อยังเป็นชื่อเต็มของร้าน ย่อไม่สำเร็จ (ครั้งที่ ${failures}: ${r.error ?? ""}) — ข้ามไปงานอื่นก่อน ลองใหม่ใน ${delay / 60_000} นาที`);
+  return false;
+}
+
+/**
  * หยิบงานตามลำดับรอบใน `rounds` (claimOrder: โหลด 1080p → รอบ 2 → Render → รอบ 1 ตัดรอบที่ครบเพดานออกแล้ว)
- * ในรอบเดียวกันเรียงตามเวลาเข้าคิว — claim ด้วย updateMany กันหยิบซ้ำ
+ * ในรอบเดียวกันเรียงตามเวลาเข้าคิว — claim ด้วย updateMany กันหยิบซ้ำ · งานรอบ 1–2 ต้องผ่านด่านชื่อสั้นก่อน (ไม่ผ่าน = ข้ามไปงาน
+ * ถัดไป) · ทุกงานรอชื่ออยู่ = null บอทว่างเหมือนคิวว่าง
  */
 async function claimNextJob(rounds: JobRound[]) {
-  for (const round of rounds) {
-    const candidate = await prisma.flowJob.findFirst({
-      where: { status: queuedStatus(round) },
-      orderBy: { createdAt: "asc" },
-      select: { id: true },
-    });
-    if (!candidate) continue;
+  const queued = await prisma.flowJob.findMany({
+    where: { status: { in: rounds.map(queuedStatus) } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, status: true, entryId: true },
+  });
+  for (const id of [...shortNameWait.keys()]) if (!queued.some((j) => j.id === id)) shortNameWait.delete(id);
+  const waitingUntil = new Map([...shortNameWait].map(([id, w]) => [id, w.until] as const));
+  for (const { id, round } of claimSequence(rounds, queued, waitingUntil, Date.now())) {
+    const candidate = queued.find((j) => j.id === id) as (typeof queued)[number];
+    if (needsShortNameGate(round) && !(await shortNameReady(candidate))) continue;
     const claimed = await applyBulk(claim(round, new Date()), { id: candidate.id });
     if (claimed === 1) {
       try {
@@ -294,6 +324,11 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       return true;
     }
 
+    // ด่านสุดท้ายก่อนพิมพ์ชื่อลงพรอมต์ Flow (buildFlowPrompt) — claimNextJob ย่อชื่อแล้วก่อนหยิบ ถึงตรงนี้ได้แค่ถ้าชื่อถูกเปลี่ยนกลับ
+    // เป็นชื่อร้านระหว่างด่านกับการหยิบ (แทบเป็นไปไม่ได้) · หยุดก่อนแตะหน้า Flow ดีกว่าพิมพ์ชื่อร้านจน Flow ใส่ตัวหนังสือในรูป
+    if (isUnshortenedName(job.entry, await linkedShopTitles(job.entryId))) {
+      throw new FlowStepError("open-flow", "worker_crash", "ชื่อสินค้ายังเป็นชื่อเต็มของร้าน — บอทไม่พิมพ์ชื่อนี้ลงพรอมต์ Flow (แก้ชื่อสินค้าในหน้า entry แล้วกดรันต่อ)");
+    }
     const drawn = await drawImages(flow, {
       round,
       productName: job.entry.productName,

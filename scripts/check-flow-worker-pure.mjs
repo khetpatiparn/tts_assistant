@@ -478,5 +478,30 @@ try {
   check("flow-driver / flow-session ไม่ถือสถานะของการโหลดคลิปเองแล้ว", /foundTiles|lastDirectVideoUuid/.test(driver + session), false);
 }
 
+// ticket 07: บอทไม่วาดรอบ 1–2 ด้วยชื่อเต็มของร้าน — ย่อเองก่อนหยิบ ไม่ได้ = ข้ามไปงานถัดไป งานยังอยู่ในคิว (ไม่ pause ไม่นับงานพัง
+// ไม่เสียเพดาน ไม่ลง FlowActivity) · ลำดับ/การรอเป็น pure (claimSequence/shortNameRetryDelayMs ตรวจใน check-flow-jobs.mjs)
+{
+  const index = readFileSync("worker/index.ts", "utf8").replace(/\r\n/g, "\n");
+  const fnBody = (sig) => {
+    const at = index.indexOf(sig);
+    return at < 0 ? "" : index.slice(at, index.indexOf("\n}\n", at));
+  };
+  const claimFn = fnBody("async function claimNextJob(");
+  const gateFn = fnBody("async function shortNameReady(");
+  check("claimNextJob เลือกงานด้วย claimSequence (ข้ามงานที่รอชื่อ)", claimFn.includes("claimSequence("), true);
+  const gateAt = claimFn.indexOf("shortNameReady(");
+  const claimAt = claimFn.indexOf("applyBulk(claim(");
+  check("claimNextJob: ด่านชื่อสั้น (รอบ 1–2) อยู่ก่อน claim — งานที่ย่อไม่ได้ไม่ถูกแตะ ยัง queued", gateAt >= 0 && claimAt > gateAt && /needsShortNameGate\(round\)/.test(claimFn), true);
+  check("ด่านชื่อสั้นใช้ ensureShortName ตัวเดียวกับเบื้องหลัง + จำเวลาลองใหม่ด้วย shortNameRetryDelayMs", gateFn.includes("ensureShortName(") && gateFn.includes("shortNameRetryDelayMs("), true);
+  check("ย่อไม่ได้ ≠ งานพัง: ไม่ pause ไม่เขียนงาน ไม่ลง FlowActivity", /pauseWorker\(|applyPlan\(|applyBulk\(|logActivity\(|markJobFailed/.test(gateFn), false);
+  check("claimNextJob ไม่ pause / ไม่ลง FlowActivity", /pauseWorker\(|logActivity\(/.test(claimFn), false);
+  // พรอมต์ Flow ไม่มีทางได้ชื่อเต็ม: drawImages (ที่เดียวที่พิมพ์ productName ผ่าน buildFlowPrompt) ถูกเรียกครั้งเดียว และมีด่านสุดท้ายก่อนหน้า
+  const drawCalls = index.split("await drawImages(").length - 1;
+  const drawAt = index.indexOf("await drawImages(");
+  const backstopAt = index.lastIndexOf("isUnshortenedName(job.entry", drawAt);
+  check("drawImages ถูกเรียกที่เดียวใน worker", drawCalls, 1);
+  check("processJob ตรวจ isUnshortenedName ของชื่อที่จะพิมพ์ (job.entry) ก่อน drawImages", backstopAt > index.indexOf("async function processJob(") && backstopAt < drawAt, true);
+}
+
 if (failed > 0) { console.log(`\n${failed} check(s) failed`); process.exit(1); }
 console.log("\nall checks passed");

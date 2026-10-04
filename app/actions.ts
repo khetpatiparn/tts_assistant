@@ -22,7 +22,6 @@ import {
   extractCandidateRows,
   suggestAngleOptions,
   isGeminiModelId,
-  shortenProductName,
 } from "@/lib/gemini";
 import {
   collectFamily,
@@ -47,16 +46,13 @@ import { createHash } from "crypto";
 import type { ImportKind } from "@/lib/import-log";
 import {
   FLOW_STATUS,
-  acceptShortName,
-  SHORT_NAME_TIMEOUT_MS,
-  withTimeout,
-  FULL_TITLE_PREFIX,
   flowProjectUrl,
   pickBackupBrowserProfile,
   EXTRA_PROMPT_MAX,
   sourceFilename,
 } from "@/lib/flow-jobs";
 import { autoSourceFilename, isAutoSourceImage } from "@/lib/auto-source-image";
+import { shortenInBackground } from "@/lib/short-name-db";
 import { removeAutoSourceFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
 import {
   approveRender,
@@ -1104,22 +1100,6 @@ export async function deleteCandidateBatch(batchId: string): Promise<void> {
 }
 
 /**
- * ชื่อสินค้าที่จะใช้สร้าง entry จากชื่อร้าน (Showcase/หาสินค้า) — ย่อด้วย Gemini ให้เหลือ 2–5 คำ เหมือนเส้นทางแคปเอง
- * เพราะบอทพิมพ์ productName ลงพรอมต์วาดรูปของ Flow ทันที ชื่อ SEO ยาวที่มีคุณสมบัติทำให้รูปมีตัวหนังสือ (เจอจริง 2026-10-02)
- * ชื่อเต็มเก็บไว้ใน productInfo ให้ 10-part prompt ยังเห็นข้อมูลครบ · ล้มเหลวทุกแบบ (รวมเกิน SHORT_NAME_TIMEOUT_MS) = ใช้ชื่อเต็มเหมือนเดิม
- * ห้ามทำให้สร้างงานพัง · ผู้เรียกที่มีเช็กกันสร้างซ้ำต้องเรียกก่อนเช็กนั้น (ดู startShowcaseProduct)
- */
-async function shortNameForEntry(fullTitle: string): Promise<{ productName: string; productInfo: string }> {
-  let name = fullTitle;
-  try {
-    name = acceptShortName(await withTimeout(shortenProductName(fullTitle), SHORT_NAME_TIMEOUT_MS, "ย่อชื่อสินค้า"), fullTitle);
-  } catch (e) {
-    console.error("ย่อชื่อสินค้าไม่สำเร็จ ใช้ชื่อเต็ม:", e instanceof Error ? e.message : e);
-  }
-  return { productName: name, productInfo: name === fullTitle ? "" : `${FULL_TITLE_PREFIX}${fullTitle}` };
-}
-
-/**
  * สร้าง PromptEntry จากสินค้าที่เลือก แล้วผูกกลับมาที่ candidate
  * ทำตามแบบ createEntryFromOrder — สร้าง entry ขั้นต่ำแล้วให้ผู้ใช้ไปกรอกต่อในหน้า entry
  */
@@ -1134,9 +1114,11 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
     where: { isActive: true, kind: "core" },
   });
 
+  // ชื่อร้านก่อน แล้วย่อเบื้องหลัง (ไม่ให้ผู้ใช้รอ Gemini) — ดู startShowcaseProduct
   const created = await prisma.promptEntry.create({
     data: {
-      ...(await shortNameForEntry(candidate.name)),
+      productName: candidate.name,
+      productInfo: "",
       riskModule: "",
       extraNotes: "",
       images: "[]",
@@ -1148,6 +1130,7 @@ export async function createEntryFromCandidate(id: string): Promise<string> {
     where: { id },
     data: { linkedEntryId: created.id },
   });
+  void shortenInBackground(created.id);
 
   revalidatePath("/products");
   // หน้า Showcase ใช้ทางนี้ด้วยกับสินค้าที่โหลดรูปของร้านไม่ได้สักรูป (ไม่มีอะไรให้เลือก/ครอป)
@@ -1172,10 +1155,7 @@ export async function startShowcaseProduct(
 
   const candidate = await prisma.productCandidate.findUnique({ where: { id: candidateId } });
   if (!candidate || candidate.sourceProductId === null) throw new Error("ไม่พบสินค้าที่เลือก");
-  // ย่อชื่อ (เรียก Gemini สูงสุด SHORT_NAME_TIMEOUT_MS) ก่อนเช็กกันซ้ำ — ช่วงระหว่าง guard กับ create ต้องสั้นที่สุด
-  // ไม่งั้นกดซ้ำ/สองแท็บระหว่างรอ Gemini จะผ่าน guard ทั้งคู่แล้วได้งานซ้ำ
-  const naming = await shortNameForEntry(candidate.name);
-  // กดซ้ำ/เปิดสองแท็บ — ห้ามสร้างงานซ้ำให้สินค้าตัวเดียว
+  // กดซ้ำ/เปิดสองแท็บ — ห้ามสร้างงานซ้ำให้สินค้าตัวเดียว · ช่วง guard → create ต้องไม่มีการรอ Gemini คั่น (ชื่อย่อเบื้องหลังหลังสร้าง)
   if (candidate.linkedEntryId !== null) {
     const existing = await prisma.promptEntry.findUnique({ where: { id: candidate.linkedEntryId }, select: { id: true } });
     if (existing) throw new Error("สินค้าตัวนี้เริ่มทำไปแล้ว");
@@ -1183,9 +1163,12 @@ export async function startShowcaseProduct(
 
   const active = await prisma.corePrompt.findFirst({ where: { isActive: true, kind: "core" } });
 
+  // ชื่อสั้น (Short name) ย่อเบื้องหลังหลังสร้าง ไม่ให้ผู้ใช้รอ Gemini (เดิมรอสูงสุด 8 วิ แล้วกดหลายตัวติดกันเกินเวลาจนได้ชื่อร้าน
+  // 13/20 งาน — ticket 07) · บอทไม่วาดรอบ 1–2 ด้วยชื่อร้าน: ย่อเองก่อนหยิบงาน ไม่ได้ = ข้ามไปงานอื่นก่อน (worker/index.ts)
   const created = await prisma.promptEntry.create({
     data: {
-      ...naming,
+      productName: candidate.name,
+      productInfo: "",
       riskModule: "",
       extraNotes: "",
       images: "[]",
@@ -1197,6 +1180,8 @@ export async function startShowcaseProduct(
     where: { id: candidateId },
     data: { linkedEntryId: created.id },
   });
+  // หลังผูก linkedEntryId แล้ว (isUnshortenedName เทียบกับชื่อของแถวที่ผูก) · ไม่ await ไม่ throw ลองซ้ำเอง
+  void shortenInBackground(created.id);
 
   // เข้าคิว Flow — entry ต้องถูกสร้างสำเร็จไปแล้วเสมอไม่ว่าขั้นนี้จะพังหรือไม่ (เช่น enqueueFlowJobCore
   // validate ไม่ผ่านเพราะไฟล์ใหญ่เกิน 10MB หรือชนิดไฟล์ไม่รองรับ) — ผู้ใช้

@@ -46,6 +46,25 @@ try {
   check("มี .. ไม่นับ", S.isAutoSourceImage("auto-source-..jpg"), false);
 
   check("caption ของรูปอัตโนมัติไม่ว่าง (ส่งให้ Gemini เป็นคำกำกับรูป)", typeof S.AUTO_SOURCE_CAPTION === "string" && S.AUTO_SOURCE_CAPTION.trim().length > 0, true);
+
+  // ticket 07: สคริปต์ย้อนหลังใส่รูปต้นทางอัตโนมัติให้งานที่ยังอยู่รอบ 1–2 (ยังไม่ได้เลือกรอบ 2) และยังไม่มีรูปต้นทางอัตโนมัติ
+  {
+    const src0 = { kind: "source", round: 0, index: 0, chosen: false, filename: "source-0.jpg", mimeType: "image/jpeg" };
+    const src1 = { kind: "source", round: 0, index: 1, chosen: false, filename: "source-1.png", mimeType: "image/png" };
+    const r1Chosen = { kind: "candidate", round: 1, index: 2, chosen: true, filename: "r1-a1-2.png", mimeType: "image/png" };
+    const r2Chosen = { kind: "candidate", round: 2, index: 0, chosen: true, filename: "r2-a1-0.png", mimeType: "image/png" };
+    const r2NotChosen = { kind: "candidate", round: 2, index: 1, chosen: false, filename: "r2-a1-1.png", mimeType: "image/png" };
+    const pick = (status, images, productImages = []) => S.autoSourceBackfillPick({ status, images }, productImages);
+    const want0 = { filename: "source-0.jpg", mimeType: "image/jpeg" };
+    for (const status of ["queued_r1", "running_r1", "review_r1", "queued_r2", "running_r2", "review_r2", "failed"]) {
+      check(`${status} ยังไม่ได้เลือกรอบ 2 → ใส่รูปต้นทางรูปแรก`, pick(status, [src1, src0, r1Chosen, r2NotChosen]), want0);
+    }
+    check("เลือกรอบ 2 แล้ว (awaiting_prompt / Render) → ไม่ใส่ (รูปที่ Flow วาดเป็นรูปสินค้าแล้ว)", [pick("awaiting_prompt", [src0, r1Chosen, r2Chosen]), pick("queued_r3", [src0, r2Chosen]), pick("failed", [src0, r2Chosen])], [null, null, null]);
+    check("งานจบแล้ว (done/skipped) → ไม่ใส่", [pick("done", [src0]), pick("skipped", [src0])], [null, null]);
+    check("มีรูปต้นทางอัตโนมัติแล้ว → ไม่ใส่ซ้ำ (idempotent)", pick("review_r1", [src0], ["0b6a2c1e-4f1d-4c4e-9a51-3f0b1e2d7c11.jpg", "auto-source-abc.jpg"]), null);
+    check("มีแต่รูปที่ผู้ใช้เพิ่มเอง → ยังใส่ (เหมือนตอนเข้าคิว)", pick("review_r1", [src0], ["0b6a2c1e-4f1d-4c4e-9a51-3f0b1e2d7c11.jpg"]), want0);
+    check("ไม่มีรูปต้นทางในงาน → ไม่ใส่", pick("queued_r1", [r1Chosen]), null);
+  }
 } finally {
   rmSync(out, { recursive: true, force: true });
 }

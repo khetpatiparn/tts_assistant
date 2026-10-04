@@ -95,6 +95,39 @@ export function claimOrder(imagesAllowed: boolean, rendersAllowed: boolean): Job
   return order;
 }
 
+/**
+ * ลำดับงานที่บอทลองหยิบ: เรียงรอบตาม `rounds` (claimOrder) ในรอบเดียวกันตามลำดับของ `queued` (ส่งมาเรียงเวลาเข้าคิวแล้ว)
+ * · ตัดงานที่ยังไม่ถึงเวลาลองชื่อสั้นใหม่ (`waitingUntil` = jobId → epoch ms เก็บในหน่วยความจำของบอท) — งานยังอยู่ในคิว
+ * ไม่ถูกแตะ งานถัดไปขึ้นมาแทน · ทุกงานรออยู่ = รายการว่าง บอทว่างเหมือนไม่มีงาน (ไม่วนเรียกตัวย่อชื่อถี่ๆ)
+ */
+export function claimSequence(
+  rounds: JobRound[],
+  queued: { id: string; status: string }[],
+  waitingUntil: ReadonlyMap<string, number>,
+  now: number,
+): { id: string; round: JobRound }[] {
+  const out: { id: string; round: JobRound }[] = [];
+  for (const round of rounds) {
+    for (const j of queued) {
+      if (j.status !== queuedStatus(round)) continue;
+      if ((waitingUntil.get(j.id) ?? 0) > now) continue;
+      out.push({ id: j.id, round });
+    }
+  }
+  return out;
+}
+
+/** รอบที่บอทพิมพ์ productName ลงพรอมต์ Flow (buildFlowPrompt) = ต้องมีชื่อสั้นก่อนหยิบ · Render/โหลด 1080p ไม่ใช้ชื่อ */
+export function needsShortNameGate(round: JobRound): boolean {
+  return round === 1 || round === 2;
+}
+
+/** บอทย่อชื่อไม่สำเร็จครั้งที่ n (นับจาก 1) → รอนานเท่านี้ก่อนลองงานนั้นใหม่: 2 → 5 → 15 → 30 นาที (คงที่ 30 ต่อจากนั้น) */
+export function shortNameRetryDelayMs(failures: number): number {
+  const minutes = [2, 5, 15, 30];
+  return minutes[Math.min(Math.max(failures, 1), minutes.length) - 1] * 60_000;
+}
+
 /** ยังไม่จบ = entry นี้มีงานค้าง ห้ามเข้าคิวซ้ำ */
 export function isOpenStatus(status: string): boolean {
   return status !== FLOW_STATUS.DONE && status !== FLOW_STATUS.SKIPPED;
@@ -172,13 +205,43 @@ export const FULL_TITLE_PREFIX = "ชื่อเต็มจากร้าน:
  * ชื่อ SEO ยาวของร้าน (มีคุณสมบัติ/คำโฆษณา) ทำให้ Flow ใส่ตัวหนังสือลงในรูป — เจอจริง 2026-10-02
  */
 export function acceptShortName(candidate: string, fullTitle: string): string {
-  const t = candidate.replace(/\s+/g, " ").trim();
-  if (t === "" || t.length > 60 || /[\r\n]/.test(candidate.trim()) || t.length >= fullTitle.trim().length) return fullTitle;
-  return t;
+  return shortNameOutcome(candidate, fullTitle)?.name ?? fullTitle;
 }
 
-/** เพดานเวลาย่อชื่อสินค้าด้วย Gemini ตอนสร้าง entry — เกินนี้ใช้ชื่อเต็ม (ผู้ใช้กดปุ่มรออยู่) */
-export const SHORT_NAME_TIMEOUT_MS = 8000;
+/**
+ * ผลของคำตอบจากตัวย่อชื่อ — `null` = ไม่สำเร็จ ต้องลองใหม่ (ว่าง / เกิน 60 / หลายบรรทัด) · ไม่สั้นกว่าชื่อร้าน = ชื่อร้านสั้นพอ
+ * อยู่แล้ว ใช้ชื่อร้านได้ (สำเร็จ — ไม่งั้นงานของสินค้าที่ชื่อร้านสั้นอยู่แล้วจะรอชื่อสั้นตลอดไป)
+ */
+export function shortNameOutcome(answer: string, fullTitle: string): { name: string } | null {
+  const t = answer.replace(/\s+/g, " ").trim();
+  if (t === "" || t.length > 60 || /[\r\n]/.test(answer.trim())) return null;
+  return { name: t.length >= fullTitle.trim().length ? fullTitle : t };
+}
+
+const sameTitle = (a: string, b: string) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+
+/**
+ * **ที่เดียวที่ตัดสินว่า "ชื่อยังเป็นชื่อเต็มของร้าน"** (ticket 07) — บอทไม่วาดรอบ 1–2 ของ entry ที่ยังเป็นแบบนี้ (พิมพ์ลงพรอมต์
+ * Flow แล้ว Flow ใส่ตัวหนังสือในรูป) · `shopTitles` = ชื่อของ ProductCandidate ที่ผูก entry นี้ (linkedEntryId) · productInfo มี
+ * FULL_TITLE_PREFIX = ตัดสินไปแล้ว (ย่อแล้ว / ชื่อร้านสั้นพอ) ไม่ย่อซ้ำ · entry ที่ไม่ได้มาจากร้าน (ไม่มีชื่อผูก) ไม่เข้าข่าย
+ */
+export function isUnshortenedName(entry: { productName: string; productInfo: string }, shopTitles: string[]): boolean {
+  if (entry.productInfo.includes(FULL_TITLE_PREFIX)) return false;
+  return shopTitles.some((t) => sameTitle(t, entry.productName));
+}
+
+/** productInfo หลังย่อชื่อสำเร็จ — เก็บชื่อเต็มของร้านไว้ให้ 10-part prompt · ไม่ทับสิ่งที่ผู้ใช้เขียนไว้ (ต่อบรรทัดใหม่) */
+export function productInfoWithFullTitle(productInfo: string, fullTitle: string): string {
+  if (productInfo.includes(FULL_TITLE_PREFIX)) return productInfo;
+  const line = `${FULL_TITLE_PREFIX}${fullTitle}`;
+  return productInfo.trim() === "" ? line : `${productInfo}\n${line}`;
+}
+
+/**
+ * เวลารอสูงสุดของการเรียกตัวย่อชื่อแต่ละครั้ง (เบื้องหลัง/บอท) — ไม่ใช่เพดานที่ผู้ใช้รอ (ไม่มีใครรอแล้ว) แค่กันคำขอที่ค้าง
+ * ไม่ตอบเลยทำให้ไม่ได้ลองใหม่ / บอทค้าง
+ */
+export const SHORT_NAME_ATTEMPT_TIMEOUT_MS = 60_000;
 
 /** รอ promise ไม่เกิน ms — เกินแล้วโยน Error ที่มี label (ไม่ยกเลิกงานเดิม แค่เลิกรอ) · งานล้มเองส่ง error เดิมต่อ */
 export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {

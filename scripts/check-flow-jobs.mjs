@@ -71,6 +71,32 @@ try {
   check("ชื่อสั้นเกิน 60 → ชื่อเต็ม", f.acceptShortName("ก".repeat(61), "ข".repeat(80)), "ข".repeat(80));
   check("ชื่อสั้นหลายบรรทัด → ชื่อเต็ม", f.acceptShortName("ผ้า\nเช็ดตัว", "ผ้าเช็ดตัวสัตว์เลี้ยงหนานุ่ม"), "ผ้าเช็ดตัวสัตว์เลี้ยงหนานุ่ม");
   check("ชื่อสั้นยาวพอๆ ชื่อเต็ม → ชื่อเต็ม (ไม่ได้ย่อจริง)", f.acceptShortName("ตะขอแขวน", "ตะขอแขวน"), "ตะขอแขวน");
+
+  // ticket 07: "ชื่อยังเป็นชื่อเต็มของร้าน" ตัดสินที่ isUnshortenedName ที่เดียว (บอท/ย่อเบื้องหลัง/สคริปต์ย้อนหลังใช้ตัวเดียวกัน)
+  {
+    const shop = "Jaotoob ผ้าเช็ดตัวสัตว์เลี้ยง สำหรับสุนัขและแมว หนานุ่มพิเศษ ซึมซับดี";
+    const un = (productName, productInfo, titles) => f.isUnshortenedName({ productName, productInfo }, titles);
+    check("ชื่อ = ชื่อร้านที่ผูกอยู่ + ไม่มีชื่อเต็มใน productInfo → ยังไม่ย่อ", un(shop, "", [shop]), true);
+    check("ช่องว่างต่างกันนิดหน่อยก็ยังนับเป็นชื่อร้าน", un(`  ${shop.replace(" ", "  ")} `, "", [shop]), true);
+    check("ย่อแล้ว (ชื่อไม่ตรงชื่อร้าน) → ไม่ต้องย่อ", un("ผ้าเช็ดตัวสัตว์เลี้ยง", `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), false);
+    check("ชื่อตรงชื่อร้าน แต่ productInfo มีชื่อเต็มแล้ว (ตัดสินแล้วว่าชื่อร้านสั้นพอ / ผู้ใช้ตั้งเอง) → ไม่ต้องย่อ", un(shop, `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), false);
+    check("ไม่ได้มาจาก Showcase/หาสินค้า (ไม่มีชื่อร้านผูก) → ไม่ต้องย่อ", un(shop, "", []), false);
+    check("productInfo ที่ผู้ใช้เขียนเอง (ไม่มีชื่อเต็ม) ไม่ทำให้พ้น", un(shop, "ผ้าฝ้าย 100%", [shop]), true);
+    check("ผูกหลายแถว ตรงแถวใดแถวหนึ่งก็นับ", un(shop, "", ["อย่างอื่น", shop]), true);
+
+    const o = (answer, full) => JSON.stringify(f.shortNameOutcome(answer, full));
+    check("outcome: ย่อได้ → ชื่อสั้น", o("  ผ้าเช็ดตัวสัตว์เลี้ยง ", shop), JSON.stringify({ name: "ผ้าเช็ดตัวสัตว์เลี้ยง" }));
+    check("outcome: คำตอบว่าง → ไม่สำเร็จ (ลองใหม่)", o("", shop), "null");
+    check("outcome: เกิน 60 → ไม่สำเร็จ", o("ก".repeat(61), "ข".repeat(80)), "null");
+    check("outcome: หลายบรรทัด → ไม่สำเร็จ", o("ผ้า\nเช็ดตัว", shop), "null");
+    check("outcome: ไม่สั้นลง = ชื่อร้านสั้นพออยู่แล้ว → ใช้ชื่อร้าน (สำเร็จ ไม่วนย่อซ้ำ)", o("ตะขอแขวน", "ตะขอแขวน"), JSON.stringify({ name: "ตะขอแขวน" }));
+
+    const p = (info) => f.productInfoWithFullTitle(info, shop);
+    check("productInfo ว่าง → ชื่อเต็มของร้าน", p(""), `${f.FULL_TITLE_PREFIX}${shop}`);
+    check("productInfo มีชื่อเต็มแล้ว → ไม่แตะ", p(`${f.FULL_TITLE_PREFIX}เดิม`), `${f.FULL_TITLE_PREFIX}เดิม`);
+    check("productInfo ที่ผู้ใช้เขียนเอง → คงไว้ ต่อชื่อเต็มบรรทัดใหม่", p("ผ้าฝ้าย 100%"), `ผ้าฝ้าย 100%\n${f.FULL_TITLE_PREFIX}${shop}`);
+    check("หลังย่อ/ตัดสินแล้ว isUnshortenedName = false เสมอ", un(shop, p(""), [shop]), false);
+  }
   check("flowProjectUrl ปกติ", f.flowProjectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"), "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   check("flowProjectUrl ว่าง = ''", f.flowProjectUrl(""), "");
   check("flowProjectUrl มีอักขระแปลก = ''", f.flowProjectUrl("abc/../x?y"), "");
@@ -94,6 +120,31 @@ try {
   check("claimOrder ครบเพดานคลิป: ยังวาดรูปได้", f.claimOrder(true, false).join(","), "4,2,1");
   check("claimOrder ครบเพดานรูป: ยัง Render ได้", f.claimOrder(false, true).join(","), "4,3");
   check("claimOrder ครบทั้งคู่: เหลือแค่โหลด 1080p (ไม่เสียเครดิต)", f.claimOrder(false, false).join(","), "4");
+
+  // ticket 07: งานที่รอชื่อสั้นไม่ขวางคิว — ข้ามไปงานถัดไป งานนั้นยังอยู่ในคิว ลองใหม่เมื่อถึงเวลา
+  {
+    // queued เรียงตามเวลาเข้าคิวแล้ว (DB orderBy createdAt asc)
+    const queued = [
+      { id: "a", status: "queued_r1" }, { id: "b", status: "queued_r3" }, { id: "c", status: "queued_r1" },
+      { id: "d", status: "queued_r2" }, { id: "e", status: "queued_upscale" },
+    ];
+    const seq = (rounds, waiting, now = 1000) => f.claimSequence(rounds, queued, new Map(Object.entries(waiting)), now).map((j) => `${j.id}${j.round}`).join(",");
+    check("claimSequence ตามลำดับรอบของ claimOrder · ในรอบเดียวกันตามเวลาเข้าคิว", seq([4, 2, 3, 1], {}), "e4,d2,b3,a1,c1");
+    check("claimSequence ตัดรอบที่ไม่อยู่ใน rounds (ครบเพดาน)", seq([4, 3], {}), "e4,b3");
+    check("งานที่ยังไม่ถึงเวลาลองชื่อใหม่ไม่อยู่ในรายการ งานถัดไปในรอบเดียวกันขึ้นมาแทน", seq([4, 2, 3, 1], { a: 5000, d: 5000 }), "e4,b3,c1");
+    check("ถึงเวลาแล้ว → กลับมาอยู่ในรายการ (ลำดับเดิมตามเวลาเข้าคิว)", seq([4, 2, 3, 1], { a: 1000 }), "e4,d2,b3,a1,c1");
+    check("ทุกงานรอชื่อ = รายการว่าง (บอทว่างเหมือนไม่มีงาน)", f.claimSequence([1], [{ id: "a", status: "queued_r1" }], new Map([["a", 9999]]), 1000).length, 0);
+
+    check("ต้องมีชื่อสั้นก่อน: รอบ 1", f.needsShortNameGate(1), true);
+    check("ต้องมีชื่อสั้นก่อน: รอบ 2", f.needsShortNameGate(2), true);
+    check("Render / โหลด 1080p ไม่พิมพ์ชื่อ → ไม่รอชื่อ", f.needsShortNameGate(3) || f.needsShortNameGate(4), false);
+
+    const d = (n) => f.shortNameRetryDelayMs(n) / 60_000;
+    check("ลองชื่อใหม่: พลาดครั้งแรกรอ 2 นาที", d(1), 2);
+    check("ลองชื่อใหม่: ครั้งที่ 2 รอ 5 นาที", d(2), 5);
+    check("ลองชื่อใหม่: ครั้งที่ 3 รอ 15 นาที", d(3), 15);
+    check("ลองชื่อใหม่: ตั้งแต่ครั้งที่ 4 รอ 30 นาที (ไม่ยาวขึ้นอีก)", d(4) === 30 && d(50) === 30, true);
+  }
   check("FINAL_VIDEO_FILENAME", f.FINAL_VIDEO_FILENAME, "r3-final.mp4");
 
   const s = f.summarizeQueue([
@@ -164,9 +215,10 @@ try {
   check("STEP_LABELS has click-generate", typeof f.STEP_LABELS["click-generate"], "string");
   check("DEFAULT_CAPTIONS round 1", f.DEFAULT_CAPTIONS[1], "สินค้า พื้นหลังขาว");
 
-  // B4: ย่อชื่อด้วย Gemini ต้องมีเพดานเวลา และต้องเรียกก่อนเช็กกันสร้างงานซ้ำ (ช่อง guard→create สั้นเหมือนเดิม)
+  // ticket 07: กดสร้างงานไม่รอ Gemini อีก — สร้าง entry ด้วยชื่อร้าน + เข้าคิวทันที แล้วย่อเบื้องหลัง (ไม่ await) · กันสร้างซ้ำ
+  // (guard → create ติดกันโดยไม่มีการรอตัวย่อคั่น) ยังทำงาน · withTimeout ยังใช้กับการเรียกตัวย่อแต่ละครั้ง (lib/short-name-db.ts)
   {
-    check("SHORT_NAME_TIMEOUT_MS = 8 วิ", f.SHORT_NAME_TIMEOUT_MS, 8000);
+    check("ไม่มีเพดาน 8 วิ (SHORT_NAME_TIMEOUT_MS) แล้ว", f.SHORT_NAME_TIMEOUT_MS, undefined);
     const fast = await f.withTimeout(new Promise((r) => setTimeout(() => r("ok"), 10)), 500, "ย่อชื่อ");
     check("เสร็จก่อนหมดเวลา → ได้ค่า", fast, "ok");
     let msg = null;
@@ -184,13 +236,20 @@ try {
       const end = src.indexOf("\nexport async function ", at + 1);
       return at < 0 ? "" : src.slice(at, end < 0 ? undefined : end);
     };
+    const waitsForName = (code) => /await\s+(shortenProductName|ensureShortName|shortenInBackground|shortNameForEntry)\(/.test(code);
+    check("ไม่มี shortNameForEntry (ตัวที่ทำให้ผู้ใช้รอ Gemini) แล้ว", src.includes("shortNameForEntry"), false);
+    for (const name of ["startShowcaseProduct", "createEntryFromCandidate"]) {
+      const fn = body(name);
+      const createAt = fn.indexOf("promptEntry.create");
+      const bgAt = fn.indexOf("shortenInBackground(created.id)");
+      check(`${name} ไม่ await การย่อชื่อ`, fn !== "" && !waitsForName(fn), true);
+      check(`${name} สร้าง entry ด้วยชื่อร้าน (candidate.name)`, /productName:\s*candidate\.name/.test(fn.slice(createAt)), true);
+      check(`${name} ย่อเบื้องหลังหลังสร้าง entry`, createAt >= 0 && bgAt > createAt, true);
+    }
     const showcase = body("startShowcaseProduct");
-    const nameAt = showcase.indexOf("shortNameForEntry(");
     const guardAt = showcase.indexOf("linkedEntryId !== null");
-    check("startShowcaseProduct ย่อชื่อก่อนเช็กกันสร้างซ้ำ", nameAt >= 0 && guardAt >= 0 && nameAt < guardAt, true);
-    check("startShowcaseProduct ไม่เรียก Gemini ระหว่าง guard กับ create", showcase.slice(guardAt, showcase.indexOf("promptEntry.create")).includes("shortNameForEntry("), false);
-    const helperAt = src.indexOf("async function shortNameForEntry(");
-    check("shortNameForEntry ครอบ Gemini ด้วย withTimeout", src.slice(helperAt, src.indexOf("\n}\n", helperAt)).includes("withTimeout("), true);
+    const between = showcase.slice(guardAt, showcase.indexOf("promptEntry.create"));
+    check("startShowcaseProduct: ช่อง guard → create ไม่มีการเรียกตัวย่อชื่อ (กดซ้ำไม่ได้งานซ้ำ)", guardAt >= 0 && !/shorten|ShortName/.test(between), true);
   }
 } finally {
   rmSync(out, { recursive: true, force: true });
