@@ -6,10 +6,12 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { parseExportDetail } from "@/lib/clip-export";
 import { clipExportRoot, exportClip } from "@/lib/clip-export-fs";
+import { readPostsPerDay, writePostsPerDay } from "@/lib/tts-settings";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
 import { logUserActivity, waitedMsSince } from "@/lib/flow-user-activity";
+import { getProductIdsByEntry, getTookOverJobIds } from "@/lib/flow-queries";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
 import {
@@ -1553,23 +1555,47 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
 
 /**
  * "ทำต่อเอง" (Manual takeover) — ผู้ใช้รับงานไปทำเองใน Flow บัญชีหลัก ได้ทุกขั้นที่บอทไม่ได้กำลังทำอยู่ · กดครั้งเดียว
- * งานจบ (done) ทันที บอทไม่แตะอีก · ใช้ทั้งปุ่ม "ทำต่อเอง" ของหน้า /flow และปุ่มปิดงานของแผงทำคลิปเอง
+ * งานจบ (done) ทันที บอทไม่แตะอีก · ใช้ทั้งปุ่ม "ทำต่อเอง" ของหน้า /flow และปุ่มของแผงทำคลิปเอง
  * เขียนด้วย applyTakeOver (where status กันแข่งกับบอท) — 0 แถว = บอทหยิบงานนี้ไปก่อนแล้ว
+ * จากนั้นสร้างโฟลเดอร์ TTS ของสินค้านี้ให้ทันที (ไม่ต้องมีคลิป: รูปต้นทาง + รูปที่เลือก + ข้อความที่มี) แล้วเปิด Explorer ·
+ * export ล้ม = งานยังเป็น "ทำเอง" ตามเดิม คืน exportError ให้หน้าเว็บโชว์ (กด "ส่งเข้าโฟลเดอร์ TTS" ลองใหม่ได้)
+ * ทำต่อเองไม่ได้ (บอทหยิบไปก่อน/งานจบแล้ว) คืน taken=false พร้อมข้อความไทย แทน throw — ข้อความ throw จาก server action
+ * ถูกซ่อนใน production build ผู้ใช้จึงจะไม่เห็นว่าฝั่งไหนชนะ
  */
-export async function takeOverFlowJob(jobId: string): Promise<void> {
+export async function takeOverFlowJob(
+  jobId: string
+): Promise<{ taken: boolean; message: string | null; exportPath: string | null; exportError: string | null }> {
   const job = await prisma.flowJob.findUnique({ where: { id: jobId } });
   if (!job) throw new Error("ไม่พบงาน Flow");
-  const changed = await applyTakeOver(jobId, takeOver(job, new Date()));
-  if (changed === 0) throw new Error("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
+  const refused = (message: string) => {
+    revalidatePath("/flow");
+    return { taken: false, message, exportPath: null, exportError: null };
+  };
+  let plan;
+  try {
+    plan = takeOver(job, new Date());
+  } catch (e) {
+    return refused(e instanceof Error ? e.message : "ทำต่อเองไม่ได้");
+  }
+  const changed = await applyTakeOver(jobId, plan);
+  if (changed === 0) return refused("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
   await logUserActivity({
     kind: "user_take_over",
     jobId,
     round: job.round,
     detail: { fromStatus: job.status, round: job.round, waitedMs: waitedMsSince(job.updatedAt) },
   });
+  let exportPath: string | null = null;
+  let exportError: string | null = null;
+  try {
+    exportPath = (await exportJobToFolder(jobId, { allowNoClip: true })).path;
+  } catch (e) {
+    exportError = e instanceof Error ? e.message : "ส่งเข้าโฟลเดอร์ TTS ไม่สำเร็จ";
+  }
   revalidatePath("/flow");
   revalidatePath("/showcase");
   revalidatePath(`/entry/${job.entryId}`);
+  return { taken: true, message: null, exportPath, exportError };
 }
 
 function openInExplorer(dir: string): void {
@@ -1612,12 +1638,14 @@ export async function openFlowProjectInBackupProfile(jobId: string): Promise<voi
 }
 
 /**
- * "ส่งเข้าโฟลเดอร์ TTS" — งานดิสก์ทั้งชุด (ตัดสินส่งซ้ำ/เลขช่อง/ก๊อป/ลบคลิปอีกขนาด/rollback) อยู่ exportClip ใน
- * lib/clip-export-fs.ts · ที่นี่แค่หางาน อ่านแถว user_export_clip ล่าสุด บันทึกแถวใหม่ และเปิด Explorer
- * (เซิร์ฟเวอร์รันเครื่องเดียวกับผู้ใช้) · already = เปิดโฟลเดอร์เดิม ไม่บันทึกแถวใหม่
+ * งานหาข้อมูล + ส่งเข้าโฟลเดอร์ TTS ของงานเดียว (ใช้ทั้งปุ่ม "ส่งเข้าโฟลเดอร์ TTS" และ takeOverFlowJob) — งานดิสก์ทั้งชุด
+ * (ตัดสินส่งซ้ำ/วันโพสต์/เลขช่อง/ก๊อป/ลบคลิปอีกขนาด/rollback) อยู่ exportClip ใน lib/clip-export-fs.ts · ที่นี่แค่หางาน
+ * อ่านแถว user_export_clip ล่าสุด อ่านโควต้าต่อวัน บันทึกแถวใหม่ (เมื่อไม่ใช่ already) และเปิด Explorer ·
+ * งานที่เคยทำต่อเอง (หรือ allowNoClip) ส่งโดยไม่มีคลิปได้ · Product ID มาจากแถว Showcase ที่ผูกกับ entry
  */
-export async function exportClipToFolder(
-  jobId: string
+async function exportJobToFolder(
+  jobId: string,
+  opts: { allowNoClip?: boolean } = {}
 ): Promise<{ path: string; alreadyExported: boolean; updated: boolean; files: string[] }> {
   const job = await prisma.flowJob.findUnique({
     where: { id: jobId },
@@ -1628,11 +1656,18 @@ export async function exportClipToFolder(
   });
   if (!job) throw new Error("ไม่พบงาน Flow");
 
-  const latest = await prisma.flowActivity.findFirst({ where: { kind: "user_export_clip", jobId }, orderBy: { at: "desc" } });
+  const [latest, tookOver, productIds, perDay] = await Promise.all([
+    prisma.flowActivity.findFirst({ where: { kind: "user_export_clip", jobId }, orderBy: { at: "desc" } }),
+    getTookOverJobIds([jobId]),
+    getProductIdsByEntry([job.entryId]),
+    readPostsPerDay(),
+  ]);
   const result = await exportClip({
     root: clipExportRoot(),
     now: new Date(),
-    job: { ...job.entry, flowDir: joinPath(UPLOAD_ROOT, job.entryId, "flow"), images: job.images },
+    perDay,
+    allowNoClip: opts.allowNoClip === true || tookOver.has(jobId),
+    job: { ...job.entry, productId: productIds.get(job.entryId) ?? null, flowDir: joinPath(UPLOAD_ROOT, job.entryId, "flow"), images: job.images },
     prev: latest === null ? null : parseExportDetail(latest.detail),
   });
   if (result.outcome !== "already") {
@@ -1640,6 +1675,20 @@ export async function exportClipToFolder(
   }
   openInExplorer(result.path);
   return { path: result.path, alreadyExported: result.outcome === "already", updated: result.outcome === "updated", files: result.files };
+}
+
+/** "ส่งเข้าโฟลเดอร์ TTS" — already = เปิดโฟลเดอร์เดิม ไม่บันทึกแถวใหม่ (รายละเอียดดู exportJobToFolder) */
+export async function exportClipToFolder(
+  jobId: string
+): Promise<{ path: string; alreadyExported: boolean; updated: boolean; files: string[] }> {
+  return exportJobToFolder(jobId);
+}
+
+/** ตั้ง "โพสต์วันละกี่คลิป" (1–20) จากหน้า /flow — เก็บใน tts-settings.json ไม่ต้อง build ใหม่ · มีผลกับการส่งครั้งถัดไป */
+export async function setPostsPerDay(value: number): Promise<number> {
+  const n = await writePostsPerDay(value);
+  revalidatePath("/flow");
+  return n;
 }
 
 /**

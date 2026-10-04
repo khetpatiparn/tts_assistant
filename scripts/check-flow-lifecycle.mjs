@@ -317,7 +317,8 @@ try {
   check("ข้อความ 'ได้ 720p' มีแค่ใน lib/flow-lifecycle.ts", sources.filter((f) => strip(f).includes("ได้ 720p")), []);
   const detail = strip("components/flow-job-detail.tsx");
   check("หน้า /flow ใช้ isInRenderStage/canTakeOver (ไม่มีรายการสถานะซ้ำ)", detail.includes("isInRenderStage(") && detail.includes("canTakeOver(") && !detail.includes("job.round >= 3"), true);
-  check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", /export async function takeOverFlowJob[^]*?applyTakeOver\([^]*?takeOver\(/.test(strip("app/actions.ts")), true);
+  const takeOverBody = (strip("app/actions.ts").match(/export async function takeOverFlowJob[^]*?\n}\n/) ?? [""])[0];
+  check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", takeOverBody.includes(" takeOver(") && takeOverBody.includes("applyTakeOver("), true);
   check("ไม่มี finishRenderManually/finishManually/canFinishManually เหลือ", ["app/actions.ts", "lib/flow-lifecycle.ts", "components/flow-job-detail.tsx", "components/manual-render-panel.tsx"].filter((f) => /finishRenderManually|finishManually|canFinishManually/.test(strip(f))), []);
 }
 

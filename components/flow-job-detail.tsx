@@ -93,7 +93,7 @@ export function FlowJobDetail({
       : []
   );
 
-  function run(action: () => Promise<void>) {
+  function run(action: () => Promise<unknown>) {
     setError(null);
     startTransition(async () => {
       try {

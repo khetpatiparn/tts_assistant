@@ -87,3 +87,6 @@ showcase-extension/dist-release/
 showcase-extension/dist-zip/
 showcase-extension/coverage/
 showcase-extension/test-results/
+
+# TTS folder settings (posting-days quota, edited from /flow)
+/tts-settings.json

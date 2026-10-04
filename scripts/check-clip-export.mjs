@@ -15,6 +15,8 @@ function check(name, actual, expected) {
   if (!ok) console.log(`      ได้ ${JSON.stringify(actual)} ควรได้ ${JSON.stringify(expected)}`);
 }
 
+const checkJ = (name, actual, expected) => check(name, JSON.stringify(actual), JSON.stringify(expected));
+
 try {
   execFileSync("npx", ["tsc", "lib/clip-export.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"], { stdio: "inherit", shell: true });
   const c = await import(pathToFileURL(join(out, "clip-export.js")).href);
@@ -62,6 +64,44 @@ try {
   check("hint: คลิปเดิม → ไม่มี", c.exportStaleHint("r3-final.mp4", "r3-final.mp4", "r3-final.mp4"), null);
   check("hint: แถวเก่าไม่รู้ video → ไม่มี (ไม่เดา)", c.exportStaleHint(null, "r3-final.mp4", "r3-final.mp4"), null);
   check("hint: ไม่มีคลิปตอนนี้ → ไม่มี", c.exportStaleHint("r3-a1.mp4", null, "r3-final.mp4"), null);
+
+  // ---------- โฟลเดอร์ตามวันโพสต์ (posting-day) ----------
+  const dayKey = (d) => c.exportDateParts(d).day;
+  const t = (y, m, d) => new Date(y, m - 1, d);
+  check("tomorrowOf: 2 ต.ค. 2026 10:00 → 3-10-69 (เที่ยงคืนท้องถิ่น)", `${dayKey(c.tomorrowOf(new Date(2026, 9, 2, 10)))} ${c.tomorrowOf(new Date(2026, 9, 2, 10)).getHours()}`, "3-10-69 0");
+  check("tomorrowOf: 23:59 ก็ยังเป็นพรุ่งนี้ของวันนั้น", dayKey(c.tomorrowOf(new Date(2026, 9, 2, 23, 59))), "3-10-69");
+  check("tomorrowOf: สิ้นเดือน 31 ต.ค. → 1-11-69", dayKey(c.tomorrowOf(t(2026, 10, 31))), "1-11-69");
+  check("tomorrowOf: สิ้นปี 31 ธ.ค. 2026 → 1-1-70", dayKey(c.tomorrowOf(t(2026, 12, 31))), "1-1-70");
+  const tm = t(2026, 10, 3); // พรุ่งนี้ = 3 ต.ค. 2026 (3-10-69)
+  const pick = (counts, n = 4, from = tm) => dayKey(c.pickPostingDay(counts, from, n));
+  check("pick: ยังไม่มีโฟลเดอร์เลย → พรุ่งนี้", pick({}), "3-10-69");
+  check("pick: พรุ่งนี้มี 3 จาก 4 → ยังพรุ่งนี้", pick({ "3-10-69": 3 }), "3-10-69");
+  check("pick: พรุ่งนี้เต็ม 4 → มะรืน", pick({ "3-10-69": 4 }), "4-10-69");
+  check("pick: เต็มเกิน (ผู้ใช้ทำเองเพิ่ม 6) ก็ข้าม", pick({ "3-10-69": 6 }), "4-10-69");
+  check("pick: พรุ่งนี้เต็ม มะรืนมี 2 → มะรืน", pick({ "3-10-69": 4, "4-10-69": 2 }), "4-10-69");
+  check("pick: เต็มสองวันติด → วันที่สาม", pick({ "3-10-69": 4, "4-10-69": 4 }), "5-10-69");
+  check("pick: วันถัดไปไกลๆ มีที่ว่างแต่ใกล้กว่าเต็ม → เอาวันที่ใกล้สุดที่ว่าง", pick({ "3-10-69": 4, "4-10-69": 4, "5-10-69": 4, "7-10-69": 0 }), "6-10-69");
+  check("pick: วันที่ผ่านไปแล้วไม่นับ (ว่างก็ไม่เลือก)", pick({ "1-10-69": 0, "2-10-69": 1 }), "3-10-69");
+  check("pick: วันที่ผ่านไปแล้วเต็มก็ไม่กระทบ", pick({ "2-10-69": 9 }), "3-10-69");
+  check("pick: ข้ามเดือน — 31 ต.ค. เต็ม → 1 พ.ย.", pick({ "31-10-69": 4 }, 4, t(2026, 10, 31)), "1-11-69");
+  check("pick: ข้ามปี — 31 ธ.ค. เต็ม → 1-1-70", pick({ "31-12-69": 4 }, 4, t(2026, 12, 31)), "1-1-70");
+  check("pick: N=1 วันละคลิป", pick({ "3-10-69": 1, "4-10-69": 1 }, 1), "5-10-69");
+  check("pick: N=20", pick({ "3-10-69": 19 }, 20), "3-10-69");
+  check("pick: คืน Date ท้องถิ่นเที่ยงคืน (ไม่เลื่อนตาม timezone)", c.pickPostingDay({ "3-10-69": 4 }, tm, 4).getHours(), 0);
+
+  check("quota: ค่าเริ่มต้น 4", c.DEFAULT_POSTS_PER_DAY, 4);
+  check("quota: 6 → 6", c.normalizePostsPerDay(6), 6);
+  checkJ("quota: ขอบ 1 และ 20", [c.normalizePostsPerDay(1), c.normalizePostsPerDay(20)], [1, 20]);
+  checkJ("quota: 0 / 21 / ติดลบ → ค่าเริ่มต้น", [0, 21, -3].map((v) => c.normalizePostsPerDay(v)), [4, 4, 4]);
+  checkJ("quota: ทศนิยม / NaN / ข้อความ / null / undefined → ค่าเริ่มต้น", [2.5, NaN, "abc", null, undefined, {}].map((v) => c.normalizePostsPerDay(v)), [4, 4, 4, 4, 4, 4]);
+  check("quota: ข้อความตัวเลข \"7\" → 7", c.normalizePostsPerDay("7"), 7);
+
+  check("post: มี product ID → บรรทัด Product ID ท้ายข้อความ", c.buildPostText({ productName: "A", caption: "B", hashtags: "#c", productId: "1729" }), "A\n\nB\n\n#c\n\nProduct ID: 1729");
+  checkJ("post: ไม่มี product ID (null/ว่าง/ไม่ส่ง) → ไม่มีบรรทัด", [c.buildPostText({ productName: "A", caption: "", hashtags: "", productId: null }), c.buildPostText({ productName: "A", caption: "", hashtags: "", productId: "  " }), c.buildPostText({ productName: "A", caption: "", hashtags: "" })], ["A", "A", "A"]);
+  check("post: product ID ถูกตัดช่องว่าง", c.buildPostText({ productName: "", caption: "", hashtags: "", productId: " 99 " }), "Product ID: 99");
+  checkJ("รูปต้นทาง: ชื่อไฟล์ตามนามสกุลเดิม", [c.sourcePhotoName(".png"), c.sourcePhotoName(".jpg")], ["รูปต้นทาง.png", "รูปต้นทาง.jpg"]);
+  check("exportAction: งานไม่มีคลิป (ส่ง video ว่าง) — แถวเดิม video=null → update เสมอ", c.exportAction({ path: "C:/TTS/1_a", video: null }, true, ""), "update");
+  check("exportAction: งานไม่มีคลิป — โฟลเดอร์ถูกลบ → new", c.exportAction({ path: "C:/TTS/1_a", video: null }, false, ""), "new");
 } finally {
   rmSync(out, { recursive: true, force: true });
 }

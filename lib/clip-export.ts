@@ -2,7 +2,7 @@
  * ตรรกะ pure ของปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ห้าม import node:* (ทดสอบด้วย scripts/check-clip-export.mjs)
  * ส่วนที่แตะดิสก์อยู่ใน lib/clip-export-fs.ts (exportClip) — server action exportClipToFolder แค่เรียกแล้วเปิด Explorer
  */
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+export const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** เดือนอังกฤษ + "d-m-yy" (yy = ปี พ.ศ. 2 หลัก, ไม่เติม 0 นำหน้า) ตามวันที่ท้องถิ่นของ d */
 export function exportDateParts(d: Date): { month: string; day: string } {
@@ -42,12 +42,60 @@ export function slotFolderName(n: number, shortName: string): string {
   return `${n}_${shortName}`;
 }
 
-/** ข้อความโพสต์: ชื่อสินค้า / แคปชัน / แฮชแท็ก คั่นบรรทัดว่าง ข้ามส่วนที่ว่าง */
-export function buildPostText(args: { productName: string; caption: string; hashtags: string }): string {
-  return [args.productName, args.caption, args.hashtags]
+/**
+ * ข้อความโพสต์: ชื่อสินค้า / แคปชัน / แฮชแท็ก คั่นบรรทัดว่าง ข้ามส่วนที่ว่าง · productId (เฉพาะสินค้าจาก Showcase)
+ * ต่อท้ายเป็นบรรทัด "Product ID: …" ไว้ค้นตอนปักตะกร้า — ไม่มี/ว่าง = ไม่มีบรรทัด
+ */
+export function buildPostText(args: { productName: string; caption: string; hashtags: string; productId?: string | null }): string {
+  const id = (args.productId ?? "").trim();
+  return [args.productName, args.caption, args.hashtags, id === "" ? "" : `Product ID: ${id}`]
     .map((s) => s.trim())
     .filter((s) => s !== "")
     .join("\n\n");
+}
+
+/** ชื่อไฟล์รูปต้นทาง (รูปแคปที่ผู้ใช้ใส่ตอนเข้าคิว) ในโฟลเดอร์ TTS ของงานที่ทำต่อเอง · ext มีจุดนำหน้า เช่น ".png" */
+export function sourcePhotoName(ext: string): string {
+  return `รูปต้นทาง${ext}`;
+}
+
+// ---------------------------------------------------------------------------
+// โฟลเดอร์ตามวันโพสต์: วันที่ใน <เดือน>\<d-m-yy> = วันที่จะโพสต์ ไม่ใช่วันที่กดส่ง
+// ---------------------------------------------------------------------------
+
+/** จำนวนคลิปต่อวันโพสต์ที่ใช้เมื่อไม่ได้ตั้งค่า (เป้าของผู้ใช้ 3–5 คลิป/วัน) */
+export const DEFAULT_POSTS_PER_DAY = 4;
+export const MIN_POSTS_PER_DAY = 1;
+export const MAX_POSTS_PER_DAY = 20;
+
+/** คลิปต่อวัน: จำนวนเต็ม 1–20 (รับข้อความตัวเลขด้วย) นอกนั้น = null */
+export function parsePostsPerDay(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= MIN_POSTS_PER_DAY && n <= MAX_POSTS_PER_DAY ? n : null;
+}
+
+/** parsePostsPerDay แต่ค่าที่ใช้ไม่ได้ = ค่าเริ่มต้น 4 */
+export function normalizePostsPerDay(value: unknown): number {
+  return parsePostsPerDay(value) ?? DEFAULT_POSTS_PER_DAY;
+}
+
+/** เที่ยงคืนท้องถิ่นของพรุ่งนี้ — วันแรกที่คลิปที่ส่งวันนี้จะลงได้ */
+export function tomorrowOf(now: Date): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+}
+
+/**
+ * วันโพสต์ของคลิปที่กำลังจะส่ง: ไล่จาก tomorrow ไปข้างหน้า วันแรกที่มีโฟลเดอร์ย่อยน้อยกว่า perDay ชนะ
+ * countsByDay = จำนวนโฟลเดอร์ย่อยที่มีอยู่จริงของแต่ละวัน key เป็นชื่อโฟลเดอร์วัน ("d-m-yy" จาก exportDateParts) —
+ * นับรวมโฟลเดอร์ที่ผู้ใช้สร้างเอง · วันก่อน tomorrow ไม่เคยถูกพิจารณา (วันที่ผ่านไปแล้วไม่รับคลิปใหม่)
+ */
+export function pickPostingDay(countsByDay: Readonly<Record<string, number>>, tomorrow: Date, perDay: number): Date {
+  for (let i = 0; i < 3660; i++) {
+    const day = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate() + i);
+    if ((countsByDay[exportDateParts(day).day] ?? 0) < perDay) return day;
+  }
+  // ไม่เกิดขึ้นจริง (10 ปีเต็มทุกวัน) — กันลูปไม่รู้จบ
+  return tomorrow;
 }
 
 /** สิ่งที่จำไว้จากแถว FlowActivity `user_export_clip` — video = ชื่อไฟล์คลิปของงานตอนส่ง (null = แถวก่อนเก็บค่านี้) */

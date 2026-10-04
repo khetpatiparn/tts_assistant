@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { loadWorkerConfig } from "@/worker/config";
-import { summarizeActivity } from "@/lib/flow-activity";
+import { isTakeoverKind, summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
 
@@ -21,8 +21,39 @@ export type FlowImageRow = {
 /** ภาพจุดเช็กที่บอทถ่ายไว้ระหว่างทำงาน (worker/flow-session.ts checkpoint) — path ใต้ uploads/ สำหรับ /api/uploads */
 export type FlowCheckpoint = { label: string; path: string };
 
+/**
+ * Product ID ของสินค้าจาก Showcase ที่ผูกกับ entry (ProductCandidate.linkedEntryId → sourceProductId) — ไม่มีคอลัมน์ใหม่
+ * entry ที่ไม่ได้มาจาก Showcase ไม่มีในผลลัพธ์ · แถวผูกซ้ำใช้แถวล่าสุด
+ */
+export async function getProductIdsByEntry(entryIds: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (entryIds.length === 0) return map;
+  const rows = await prisma.productCandidate.findMany({
+    where: { linkedEntryId: { in: entryIds }, sourceProductId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { linkedEntryId: true, sourceProductId: true },
+  });
+  for (const r of rows) {
+    if (r.linkedEntryId !== null && r.sourceProductId !== null && !map.has(r.linkedEntryId)) map.set(r.linkedEntryId, r.sourceProductId);
+  }
+  return map;
+}
+
+/** งานไหนเคย "ทำต่อเอง" (แถว FlowActivity user_take_over หรือ user_finish_manual ของปุ่มเก่า) — ป้าย "ทำเอง" มาจากตรงนี้ ไม่มีคอลัมน์ในงาน */
+export async function getTookOverJobIds(jobIds: string[]): Promise<Set<string>> {
+  if (jobIds.length === 0) return new Set();
+  const rows = await prisma.flowActivity
+    .findMany({ where: { jobId: { in: jobIds }, kind: { in: ["user_take_over", "user_finish_manual"] } }, select: { jobId: true, kind: true } })
+    .catch(() => [] as { jobId: string | null; kind: string }[]);
+  return new Set(rows.filter((r) => r.jobId !== null && isTakeoverKind(r.kind)).map((r) => r.jobId as string));
+}
+
 export type FlowJobRow = {
   id: string;
+  /** เคยกด "ทำต่อเอง" (ป้าย "ทำเอง") */
+  tookOver: boolean;
+  /** Product ID จาก Showcase (null = ไม่ได้มาจาก Showcase) — แสดงพร้อมปุ่มคัดลอก */
+  productId: string | null;
   /** โฟลเดอร์ใน TTS ที่ส่งคลิปไปแล้ว (จาก FlowActivity user_export_clip ล่าสุด) · null = ยังไม่เคยส่ง */
   exportedPath: string | null;
   /** ชื่อไฟล์คลิปของงานตอนส่งครั้งล่าสุด (เทียบกับ video.filename เพื่อชวนอัปเดต) · null = ไม่เคยส่ง/แถวเก่าที่ไม่ได้เก็บ */
@@ -153,6 +184,11 @@ export async function getFlowQueueData(): Promise<{
     }),
   ]);
 
+  const [tookOverIds, productIds] = await Promise.all([
+    getTookOverJobIds(raw.map((j) => j.id)),
+    getProductIdsByEntry([...new Set(raw.map((j) => j.entryId))]),
+  ]);
+
   const jobs: FlowJobRow[] = raw
     .map((j) => {
       const imgs: FlowImageRow[] = j.images.map((i) => ({
@@ -161,6 +197,8 @@ export async function getFlowQueueData(): Promise<{
       }));
       return {
         id: j.id,
+        tookOver: tookOverIds.has(j.id),
+        productId: productIds.get(j.entryId) ?? null,
         exportedPath: null as string | null,
         exportedVideo: null as string | null,
         entryId: j.entryId,
