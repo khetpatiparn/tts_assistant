@@ -501,6 +501,15 @@ try {
   const backstopAt = index.lastIndexOf("isUnshortenedName(job.entry", drawAt);
   check("drawImages ถูกเรียกที่เดียวใน worker", drawCalls, 1);
   check("processJob ตรวจ isUnshortenedName ของชื่อที่จะพิมพ์ (job.entry) ก่อน drawImages", backstopAt > index.indexOf("async function processJob(") && backstopAt < drawAt, true);
+  // ด่านสุดท้ายเจอชื่อร้าน = คืนงานเข้าคิว (lifecycle + applyBulk กันแข่ง) ไม่ใช่งานพัง: ไม่ throw/pause/FlowActivity · main ไม่นับเพดาน/round_ok
+  const backstop = backstopAt < 0 ? "" : index.slice(backstopAt, drawAt);
+  check("ด่านสุดท้าย: คืนงานด้วย applyBulk(releaseForShortName(round), { id: job.id }) แล้ว return \"released\"",
+    /applyBulk\(releaseForShortName\(round\), \{ id: job\.id \}\)/.test(backstop) && backstop.includes('return "released"'), true);
+  check("ด่านสุดท้าย: ไม่ throw / ไม่ pause / ไม่ลง FlowActivity", /throw |pauseWorker\(|logActivity\(/.test(backstop), false);
+  const loop = fnBody("async function main(");
+  const releasedAt = loop.indexOf('ok === "released"');
+  check("main: งานที่คืนเข้าคิวข้ามไปก่อนนับ round_ok / เพดาน / พักระหว่างสินค้า",
+    releasedAt >= 0 && releasedAt < loop.indexOf('kind: "round_ok"') && releasedAt < loop.indexOf("todayBatches: { increment") && releasedAt < loop.indexOf('why: "between"'), true);
 }
 
 // ticket 05 (เปลี่ยนรูปต้นทาง): งานมีแถว source ได้หลายแถว — รอบ 1 ต้องแนบรูปต้นทางล่าสุด (attempt สูงสุด, index ต่ำสุดใน attempt นั้น)

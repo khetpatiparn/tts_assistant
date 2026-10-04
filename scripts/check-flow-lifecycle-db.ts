@@ -1050,6 +1050,40 @@ async function takeovers() {
 }
 
 /**
+ * ด่านสุดท้ายของบอทก่อน drawImages (ticket 07): ชื่อกลายเป็นชื่อเต็มของร้านหลังหยิบงาน → คืนงานเข้าคิวรอบเดิม ไม่ใช่งานพัง
+ * (ไม่ failed ไม่ปลด/ไม่ตั้ง pause ไม่ลง FlowActivity) · where = running ของรอบนั้น (สถานะเปลี่ยนไปแล้ว = 0 แถว ไม่แตะ)
+ */
+async function shortNameReleases() {
+  console.log("\n== คืนงานเข้าคิวเมื่อชื่อยังเป็นชื่อร้าน ==");
+  for (const round of [1, 2] as FlowRound[]) {
+    const p = await makePair({ status: queuedStatus(round), round, attempt: 3, extraPrompt: "keep", flowProjectId: round === 2 ? "proj" : "" });
+    await NEW.claim(p.b, round);
+    const claimed = await snapJob(p.b);
+    await pauseForTest();
+    const w0 = JSON.stringify(await snapWorker());
+    const acts0 = await prisma.flowActivity.count({ where: { jobId: p.b } });
+    const n = await db.applyBulk(L.releaseForShortName(round), { id: p.b });
+    const j = await snapJob(p.b);
+    check(
+      `releaseForShortName รอบ ${round}: running_r${round} → queued_r${round} · round/attempt/extraPrompt/project คงเดิม · ไม่มีร่องรอยพัง · การหยุดไม่เปลี่ยน · ไม่มี FlowActivity`,
+      n === 1 && j.status === queuedStatus(round) && JSON.stringify({ ...j, status: claimed.status }) === JSON.stringify(claimed) &&
+        j.errorKind === "" && j.failedStep === "" && JSON.stringify(await snapWorker()) === w0 &&
+        (await prisma.flowActivity.count({ where: { jobId: p.b } })) === acts0,
+      JSON.stringify({ n, j, claimed }),
+    );
+    const again = await db.applyBulk(L.claim(round, new Date()), { id: p.b });
+    check(`คืนแล้วบอทหยิบงานเดิมได้อีก (รอบ ${round})`, again === 1, String(again));
+  }
+  // กันแข่ง: สถานะไม่ใช่ running ของรอบนั้นแล้ว (เช่น stale sweep ตีเป็น failed) → 0 แถว ไม่แตะ
+  {
+    const p = await makePair({ status: FLOW_STATUS.FAILED, round: 1, attempt: 1, failedStep: "x", errorKind: "worker_crash" });
+    const before = JSON.stringify(await snapJob(p.b));
+    const n = await db.applyBulk(L.releaseForShortName(1), { id: p.b });
+    check("releaseForShortName บนงานที่ไม่ใช่ running_r1 → 0 แถว ไม่แตะงาน", n === 0 && before === JSON.stringify(await snapJob(p.b)), String(n));
+  }
+}
+
+/**
  * แก้ 10-part prompt ที่ /flow (ticket 03) — ไม่มีของเดิมให้เทียบ จึงเช็กแถว PromptEntry / FlowJob / FlowJobImage ตรงๆ
  * "บันทึกแล้วเรนเดอร์ใหม่" = บันทึกพรอมต์ + transition เรนเดอร์ใหม่ใน transaction เดียว · running_r3 = บันทึกแต่ไม่แตะงาน
  */
@@ -1521,6 +1555,7 @@ async function main() {
     await branches();
     await sweeps();
     await takeovers();
+    await shortNameReleases();
     await promptSaves();
     await changeSources();
     await newJobAttempts();

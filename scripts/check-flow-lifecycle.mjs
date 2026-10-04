@@ -309,6 +309,10 @@ try {
   check("claim รอบ 4 → running_upscale", L.claim(4, now).job.status, "running_upscale");
   check("claimCrashed → failed/unknown/worker_crash ตัด 2000 · ไม่แตะ failureDir", L.claimCrashed("x".repeat(3000)),
     { job: { status: "failed", failedStep: "unknown", errorKind: "worker_crash", errorMessage: "x".repeat(2000) } });
+  // ด่านสุดท้ายก่อน drawImages: ชื่อกลายเป็นชื่อเต็มของร้าน → คืนงานเข้าคิวรอบเดิม (ไม่พัง ไม่ pause) · where = running ของรอบนั้น (กันแข่ง)
+  check("releaseForShortName รอบ 1 → running_r1 กลับ queued_r1 · ไม่แตะช่องอื่น · ไม่ปลด/ไม่สั่ง pause",
+    L.releaseForShortName(1), { where: { status: "running_r1" }, job: { status: "queued_r1" } });
+  check("releaseForShortName รอบ 2 → running_r2 กลับ queued_r2", L.releaseForShortName(2), { where: { status: "running_r2" }, job: { status: "queued_r2" } });
 
   check("imagesReady รอบ 2: แถว candidate (jpg = jpg นอกนั้น png) + review_r2 + project",
     L.imagesReady(2, { attempt: 2, extraPrompt: "บนโต๊ะ" }, ["png", "jpg", ""], "proj"),

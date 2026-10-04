@@ -14,7 +14,7 @@ import {
 import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
-  failurePolicy, previewUnsaved, roundFailed, isAutoContinueFailure, staleRender, staleRunning, staleUpscale,
+  failurePolicy, previewUnsaved, releaseForShortName, roundFailed, isAutoContinueFailure, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
 import { applyBulk, applyPlan, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -247,8 +247,11 @@ async function decideFailurePolicy(cfg: WorkerConfig, round: JobRound, step: str
   }
 }
 
-/** true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · false = หยุดคิวแล้ว */
-async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped"> {
+/**
+ * true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · "released" = คืนงานเข้าคิวโดยไม่ได้แตะ Flow (ชื่อยังเป็น
+ * ชื่อเต็มของร้าน — ไม่นับเพดาน/round_ok) · false = หยุดคิวแล้ว
+ */
+async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped" | "released"> {
   const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
   const stepLog = new StepLog(true);
@@ -328,9 +331,13 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     }
 
     // ด่านสุดท้ายก่อนพิมพ์ชื่อลงพรอมต์ Flow (buildFlowPrompt) — claimNextJob ย่อชื่อแล้วก่อนหยิบ ถึงตรงนี้ได้แค่ถ้าชื่อถูกเปลี่ยนกลับ
-    // เป็นชื่อร้านระหว่างด่านกับการหยิบ (แทบเป็นไปไม่ได้) · หยุดก่อนแตะหน้า Flow ดีกว่าพิมพ์ชื่อร้านจน Flow ใส่ตัวหนังสือในรูป
+    // เป็นชื่อร้านระหว่างด่านกับการหยิบ (แทบเป็นไปไม่ได้) · ไม่แตะหน้า Flow: คืนงานเข้าคิวรอบเดิม (ไม่ใช่งานพัง ไม่ pause ไม่นับเพดาน
+    // ไม่ลง FlowActivity) แล้วไปงานถัดไป — รอบหน้าด่านชื่อสั้นของ claimNextJob ย่อใหม่/ข้ามไปก่อนตามปกติ
     if (isUnshortenedName(job.entry, await linkedShopTitles(job.entryId))) {
-      throw new FlowStepError("open-flow", "worker_crash", "ชื่อสินค้ายังเป็นชื่อเต็มของร้าน — บอทไม่พิมพ์ชื่อนี้ลงพรอมต์ Flow (แก้ชื่อสินค้าในหน้า entry แล้วกดรันต่อ)");
+      await upsertState({ currentJobId: null });
+      const released = await applyBulk(releaseForShortName(round), { id: job.id });
+      log(`งาน ${job.id} ชื่อยังเป็นชื่อเต็มของร้าน — ไม่วาด ${released === 1 ? "คืนงานเข้าคิวแล้ว" : "สถานะงานเปลี่ยนไปแล้ว ไม่แตะ"} ไปงานถัดไป`);
+      return "released";
     }
     const drawn = await drawImages(flow, {
       round,
@@ -596,6 +603,8 @@ async function main() {
       }
       continue;
     }
+    // คืนงานเข้าคิวโดยไม่ได้ยิงขอ Flow (ชื่อยังเป็นชื่อร้าน) — ไม่นับเพดาน/streak ไม่ลง round_ok ไม่พักระหว่างสินค้า
+    if (ok === "released") continue;
 
     lastBatchAt = Date.now();
     const doneRound = toJobRound(job.round);

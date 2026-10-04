@@ -439,6 +439,14 @@ export function claim(round: JobRound, now: Date): BulkPlan {
   return { where: { status: queuedStatus(round) }, job: { status: runningStatus(round), startedAt: now, ...CLEARED_FAILURE } };
 }
 
+/**
+ * ด่านสุดท้ายก่อน drawImages เจอชื่อเต็มของร้าน (ชื่อเปลี่ยนกลับระหว่างด่านชื่อสั้นกับการหยิบ — ticket 07) → คืนงานเข้าคิวรอบเดิม:
+ * ไม่ใช่งานพัง (ไม่ failed ไม่ pause ไม่นับเพดาน) · where = running ของรอบนั้น (กันแข่ง — ผู้เรียกเติม id) · ไม่แตะช่องอื่น
+ */
+export function releaseForShortName(round: FlowRound): BulkPlan {
+  return { where: { status: runningStatus(round) }, job: { status: queuedStatus(round) } };
+}
+
 /** claim สำเร็จแล้วแต่ดึงรายละเอียดงานกลับไม่ได้ — พังทันที ไม่ปล่อยค้าง running_* (main() หยุดคิวต่อเอง) */
 export function claimCrashed(message: string): Plan {
   return { job: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: message.slice(0, MESSAGE_MAX) } };
