@@ -171,6 +171,39 @@ export function isInRenderStage(status: string, round: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// แก้ 10-part prompt ที่หน้า /flow (PromptEntry.chatgptOutput — ช่องเดียวกับหน้า entry)
+// ---------------------------------------------------------------------------
+
+/**
+ * "ok" = แก้ได้ (queued_r3 / review_r3 / failed รอบ 3) · "bot_running" = บอทกำลังเรนเดอร์ (running_r3): หน้าจออ่านอย่างเดียว
+ * แต่ถ้ากดบันทึกทันเวลาที่บอทหยิบไป action ยังบันทึกให้ แล้วบอกว่ารอบนี้ใช้พรอมต์เดิม · "refused" = สถานะอื่น ไม่บันทึก
+ */
+export function promptSaveGate(status: string, round: number): "ok" | "bot_running" | "refused" {
+  if (status === FLOW_STATUS.QUEUED_R3 || status === FLOW_STATUS.REVIEW_R3) return "ok";
+  if (status === FLOW_STATUS.FAILED && round === 3) return "ok";
+  if (status === FLOW_STATUS.RUNNING_R3) return "bot_running";
+  return "refused";
+}
+
+/** "บันทึกแล้วเรนเดอร์ใหม่" ทำได้เฉพาะตอนรอดูคลิป (มีคลิปตัวอย่างให้ทิ้ง) */
+export function canRerenderWithPrompt(status: string): boolean {
+  return status === FLOW_STATUS.REVIEW_R3;
+}
+
+export const PROMPT_BOT_RUNNING_MESSAGE = "บันทึกพรอมต์แล้ว — แต่บอทเพิ่งเริ่มเรนเดอร์รอบนี้ รอบนี้ใช้พรอมต์เดิม พรอมต์ใหม่ใช้ตอนเรนเดอร์ครั้งถัดไป";
+export const PROMPT_REFUSED_MESSAGE = "งานนี้อยู่ขั้นที่แก้พรอมต์ไม่ได้แล้ว — ไม่ได้บันทึก";
+
+/** null = ใช้ได้ · ไม่ใช่ null = ข้อความไทยบอกเหตุ (พรอมต์ว่างจะทำให้บอทไม่ได้พิมพ์อะไรลง Flow) */
+export function checkPromptText(text: string): string | null {
+  return text.trim() === "" ? "พรอมต์ว่างเปล่า — ไม่ได้บันทึก" : null;
+}
+
+/** ตัดช่องว่างหัวท้าย เหมือนที่หน้า entry ทำกับ chatgptOutput */
+export function normalizePromptText(text: string): string {
+  return text.trim();
+}
+
+// ---------------------------------------------------------------------------
 // ผู้ใช้ (หน้า /flow, Showcase, หน้า entry)
 // ---------------------------------------------------------------------------
 

@@ -54,6 +54,11 @@ export function buildPostText(args: { productName: string; caption: string; hash
     .join("\n\n");
 }
 
+/** ปุ่ม "คัดลอกแคปชัน + แฮชแท็ก" ที่ /flow = ข้อความโพสต์แบบเดียวกัน (คั่นบรรทัดว่าง ข้ามส่วนว่าง) แต่ไม่มีชื่อสินค้า/Product ID */
+export function buildCaptionHashtagsText(args: { caption: string; hashtags: string }): string {
+  return buildPostText({ productName: "", caption: args.caption, hashtags: args.hashtags });
+}
+
 /** ชื่อไฟล์รูปต้นทาง (รูปแคปที่ผู้ใช้ใส่ตอนเข้าคิว) ในโฟลเดอร์ TTS ของงานที่ทำต่อเอง · ext มีจุดนำหน้า เช่น ".png" */
 export function sourcePhotoName(ext: string): string {
   return `รูปต้นทาง${ext}`;

@@ -159,6 +159,22 @@ try {
     [["awaiting_prompt", 3], ["queued_r3", 3], ["review_r3", 3], ["failed", 3], ["failed", 4], ["running_r3", 3], ["failed", 2], ["review_r2", 2]].map(([s, r]) => L.isInRenderStage(s, r)),
     [true, true, true, true, true, false, false, false]);
 
+  // แก้ 10-part prompt ที่ /flow (ticket 03): gate ต่อสถานะ — queued_r3 / review_r3 / failed รอบ 3 แก้ได้ · running_r3 อ่านอย่างเดียว
+  // (action ยังบันทึกให้ + บอกว่ารอบนี้ใช้ของเดิม) · สถานะอื่นปฏิเสธ
+  const GATE_CASES = [
+    ["queued_r3", 3, "ok"], ["review_r3", 3, "ok"], ["failed", 3, "ok"],
+    ["running_r3", 3, "bot_running"],
+    ["failed", 4, "refused"], ["failed", 2, "refused"], ["failed", 1, "refused"],
+    ["awaiting_prompt", 3, "refused"], ["queued_r1", 1, "refused"], ["review_r2", 2, "refused"], ["running_r1", 1, "refused"],
+    ["queued_upscale", 4, "refused"], ["running_upscale", 4, "refused"], ["done", 4, "refused"], ["skipped", 3, "refused"],
+  ];
+  check("promptSaveGate ต่อสถานะ/รอบ", GATE_CASES.map(([s, r]) => L.promptSaveGate(s, r)), GATE_CASES.map(([, , want]) => want));
+  check("canRerenderWithPrompt: เฉพาะ review_r3", ["queued_r3", "review_r3", "failed", "running_r3", "done"].map((s) => L.canRerenderWithPrompt(s)), [false, true, false, false, false]);
+  check("PROMPT_BOT_RUNNING_MESSAGE บอกว่ารอบนี้ใช้พรอมต์เดิม", typeof L.PROMPT_BOT_RUNNING_MESSAGE === "string" && L.PROMPT_BOT_RUNNING_MESSAGE.includes("พรอมต์เดิม"), true);
+  check("checkPromptText: ว่าง/ช่องว่างล้วน = ข้อความผิดพลาด · มีเนื้อหา = null", [L.checkPromptText(""), L.checkPromptText("  " + String.fromCharCode(10) + " "), L.checkPromptText("1) A")].map((m) => m === null ? null : "err"), ["err", "err", null]);
+  const NL = String.fromCharCode(10);
+  check("normalizePromptText: ตัดช่องว่างหัวท้าย (เหมือนหน้า entry) คงบรรทัดกลางไว้", L.normalizePromptText("  a" + NL + NL + "b " + NL), "a" + NL + NL + "b");
+
   // ---------- บอท ----------
   check("claim รอบ 2 → running_r2 + startedAt + ล้างร่องรอยพัง (where กันหยิบซ้ำ)", L.claim(2, now),
     { where: { status: "queued_r2" }, job: { status: "running_r2", startedAt: now, ...cleared } });
@@ -328,6 +344,9 @@ try {
   check("ข้อความ 'บอทเพิ่งเริ่มทำงานนี้' มีแค่ใน lib/flow-lifecycle.ts", ["app/actions.ts", "components/flow-job-detail.tsx", "lib/flow-lifecycle-db.ts"].filter((f) => strip(f).includes("บอทเพิ่งเริ่มทำงานนี้")), []);
   const takeOverBody = (strip("app/actions.ts").match(/export async function takeOverFlowJob[^]*?\n}\n/) ?? [""])[0];
   check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", takeOverBody.includes(" takeOver(") && takeOverBody.includes("applyTakeOver("), true);
+  const saveBody = (strip("app/actions.ts").match(/export async function saveFlowPrompt[^]*?\n}\n/) ?? [""])[0];
+  check("saveFlowPrompt ใช้ applyPromptSave (gate+เขียนใน transaction เดียว) และ log user_edit_prompt", saveBody.includes("applyPromptSave(") && saveBody.includes('"user_edit_prompt"') && saveBody.includes("rerender: r.rerendered"), true);
+  check("หน้า /flow ใช้ promptSaveGate (ไม่เช็กสถานะแก้พรอมต์เอง)", detail.includes("promptSaveGate("), true);
   check("ไม่มี finishRenderManually/finishManually/canFinishManually เหลือ", ["app/actions.ts", "lib/flow-lifecycle.ts", "components/flow-job-detail.tsx", "components/manual-render-panel.tsx"].filter((f) => /finishRenderManually|finishManually|canFinishManually/.test(strip(f))), []);
 }
 

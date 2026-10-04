@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, Copy, Download, FolderInput, X } from "lucide-react";
+import { Check, Copy, Download, FolderInput, RotateCcw, Save, X } from "lucide-react";
 
-import { exportClipToFolder } from "@/app/actions";
+import { exportClipToFolder, saveFlowPrompt } from "@/app/actions";
 import { FINAL_VIDEO_FILENAME, videoDownloadName } from "@/lib/flow-jobs";
-import { exportStaleHint } from "@/lib/clip-export";
+import { buildCaptionHashtagsText, exportStaleHint } from "@/lib/clip-export";
 import type { FlowCheckpoint, FlowJobRow } from "@/lib/flow-queries";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -254,7 +254,7 @@ function ImageViewer({ item, onClose }: { item: FlowCheckpoint; onClose: () => v
   );
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({ text, label, buttonText = "คัดลอก" }: { text: string; label: string; buttonText?: string }) {
   const [copied, setCopied] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -276,7 +276,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <div className="flex items-center gap-2">
       <Button type="button" variant="outline" size="sm" disabled={text === ""} aria-label={`คัดลอก${label}`} onClick={copy}>
-        {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />} คัดลอก
+        {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />} {buttonText}
       </Button>
       <span role="status" className="text-xs leading-relaxed text-muted-foreground">
         {copied ? "คัดลอกแล้ว" : failed ? "คัดลอกไม่ได้ — เลือกข้อความแล้วกด Ctrl+C" : ""}
@@ -319,6 +319,7 @@ export function ReadyToPostCard({ job }: { job: FlowJobRow }) {
       ) : (
         <>
           <ClaimWarnings tenPart={job.prompt} caption={job.caption} hashtags={job.hashtags} />
+          <CopyButton text={buildCaptionHashtagsText({ caption: job.caption, hashtags: job.hashtags })} label="แคปชันและแฮชแท็ก" buttonText="คัดลอกแคปชัน + แฮชแท็ก" />
           <ReadOnlyBox id={`caption-${job.id}`} label="แคปชัน" value={job.caption} rows={5} />
           <ReadOnlyBox id={`hashtags-${job.id}`} label="แฮชแท็ก" value={job.hashtags} rows={2} />
         </>
@@ -332,15 +333,67 @@ export function ReadyToPostCard({ job }: { job: FlowJobRow }) {
   );
 }
 
-/** การ์ด "พรอมต์ที่ใช้ทำคลิปนี้" — 10-part prompt อ่านอย่างเดียว เลื่อนดูได้ + ข้อความเพิ่มเติมที่ต่อท้าย */
-export function PromptCard({ job, usedExtra }: { job: FlowJobRow; usedExtra: string }) {
+/**
+ * การ์ด 10-part prompt ของงาน — mode "edit" = แก้ได้ (queued_r3 / review_r3 / failed รอบ 3) · "readonly" = บอทกำลังเรนเดอร์ (running_r3)
+ * ช่องเดียวกับหน้า entry (PromptEntry.chatgptOutput) · ตัวตรวจคำต้องห้ามอ่านข้อความที่กำลังพิมพ์ทันที
+ * canRerender = ตอนรอดูคลิป: โชว์ "บันทึกแล้วเรนเดอร์ใหม่ · 15 เครดิต" (ปุ่ม "เรนเดอร์ใหม่" แบบเดิมอยู่ที่แผงกลางตามเดิม)
+ * usedExtra: null = ไม่โชว์บรรทัดข้อความต่อท้าย · standalone = วางเดี่ยวนอก ClipLayout (ความสูงช่องคงที่)
+ */
+export function PromptCard({
+  job,
+  usedExtra = null,
+  mode = "readonly",
+  canRerender = false,
+  extraPrompt,
+  disabled = false,
+  standalone = false,
+}: {
+  job: FlowJobRow;
+  usedExtra?: string | null;
+  mode?: "edit" | "readonly";
+  canRerender?: boolean;
+  extraPrompt?: string;
+  disabled?: boolean;
+  standalone?: boolean;
+}) {
+  const [draft, setDraft] = useState(job.prompt);
+  const [synced, setSynced] = useState(job.prompt);
+  const [result, setResult] = useState<{ text: string; ok: boolean } | null>(null);
+  const [pending, startTransition] = useTransition();
+  // พรอมต์ใน DB เปลี่ยน (บันทึกสำเร็จ/แก้จากหน้า entry) → ตามไปถ้าผู้ใช้ยังไม่ได้พิมพ์ค้างไว้
+  if (job.prompt !== synced) {
+    setSynced(job.prompt);
+    if (draft === synced) setDraft(job.prompt);
+  }
+  const editing = mode === "edit";
+  const shown = editing ? draft : job.prompt;
+  const dirty = editing && draft.trim() !== job.prompt.trim();
+  const busy = pending || disabled;
+
+  function save(rerender: boolean) {
+    setResult(null);
+    startTransition(async () => {
+      try {
+        const r = await saveFlowPrompt(job.id, draft, rerender, rerender ? extraPrompt : undefined);
+        if (!r.saved) setResult({ text: r.message ?? "บันทึกไม่สำเร็จ", ok: false });
+        else if (r.message !== null) setResult({ text: r.message, ok: false });
+        else setResult({ text: r.rerendered ? "บันทึกแล้ว และสั่งเรนเดอร์ใหม่" : "บันทึกแล้ว", ok: true });
+      } catch (e) {
+        setResult({ text: e instanceof Error ? e.message : "บันทึกไม่สำเร็จ", ok: false });
+      }
+    });
+  }
+
   return (
     <section
-      className="flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 leading-relaxed min-[1400px]:h-full"
-      aria-label="พรอมต์ที่ใช้ทำคลิปนี้"
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border border-border bg-surface p-3 leading-relaxed",
+        standalone ? "max-w-3xl" : "min-[1400px]:h-full"
+      )}
+      aria-label={editing ? "แก้พรอมต์ 10 ส่วน" : "พรอมต์ที่ใช้ทำคลิปนี้"}
     >
-      <h3 className="text-base font-semibold text-foreground">พรอมต์ที่ใช้ทำคลิปนี้</h3>
-      {job.prompt.trim() === "" ? (
+      <h3 className="text-base font-semibold text-foreground">{editing ? "พรอมต์ 10 ส่วน (แก้ได้)" : "พรอมต์ที่ใช้ทำคลิปนี้"}</h3>
+      {!editing && job.prompt.trim() === "" ? (
         <p className="text-sm text-muted-foreground">ยังไม่มี 10-part prompt</p>
       ) : (
         <>
@@ -349,15 +402,49 @@ export function PromptCard({ job, usedExtra }: { job: FlowJobRow; usedExtra: str
           </label>
           <textarea
             id={`prompt-${job.id}`}
-            readOnly
-            value={job.prompt}
-            className="h-64 w-full resize-none rounded-md border border-border-interactive bg-background p-2 text-sm leading-relaxed text-foreground min-[1400px]:h-auto min-[1400px]:min-h-0 min-[1400px]:flex-1"
+            readOnly={!editing}
+            value={shown}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={editing && busy}
+            className={cn(
+              "w-full resize-y rounded-md border border-border-interactive bg-background p-2 text-sm leading-relaxed text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+              !editing && "resize-none",
+              standalone ? "h-48" : "h-64",
+              !standalone && "min-[1400px]:h-auto min-[1400px]:min-h-0 min-[1400px]:flex-1"
+            )}
           />
         </>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        {usedExtra === "" ? "ไม่มีข้อความเพิ่มเติมต่อท้าย" : `ข้อความเพิ่มเติมที่ต่อท้าย: “${usedExtra}”`}
-      </p>
+      <ClaimWarnings tenPart={shown} caption={job.caption} hashtags={job.hashtags} />
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={busy || !dirty} onClick={() => save(false)}>
+              <Save data-icon="inline-start" /> {pending ? "กำลังบันทึก…" : "บันทึก"}
+            </Button>
+            {canRerender && (
+              <Button type="button" size="sm" disabled={busy || !dirty} onClick={() => save(true)}>
+                <RotateCcw data-icon="inline-start" /> บันทึกแล้วเรนเดอร์ใหม่ · 15 เครดิต
+              </Button>
+            )}
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {canRerender
+              ? "บันทึกอย่างเดียว = ใช้ตอนเรนเดอร์ครั้งหน้า"
+              : "บอทใช้พรอมต์ฉบับที่บันทึกตอนเริ่มเรนเดอร์ · ข้อความเดียวกับหน้า entry"}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs leading-relaxed text-muted-foreground">บอทกำลังเรนเดอร์ — แก้พรอมต์ไม่ได้ตอนนี้</p>
+      )}
+      <div role="status" className="text-sm leading-relaxed">
+        {result !== null && <p className={result.ok ? "text-muted-foreground" : "font-medium text-foreground"}>{result.text}</p>}
+      </div>
+      {usedExtra !== null && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {usedExtra === "" ? "ไม่มีข้อความเพิ่มเติมต่อท้าย" : `ข้อความเพิ่มเติมที่ต่อท้าย: “${usedExtra}”`}
+        </p>
+      )}
     </section>
   );
 }

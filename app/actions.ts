@@ -60,8 +60,12 @@ import { autoSourceFilename, isAutoSourceImage } from "@/lib/auto-source-image";
 import { removeAutoSourceFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
 import {
   approveRender,
+  checkPromptText,
   choose,
   enqueue,
+  normalizePromptText,
+  PROMPT_BOT_RUNNING_MESSAGE,
+  PROMPT_REFUSED_MESSAGE,
   promptReady,
   redo,
   resume,
@@ -70,7 +74,7 @@ import {
   takeOver,
   TAKEOVER_BOT_BUSY_MESSAGE,
 } from "@/lib/flow-lifecycle";
-import { addImage, applyBulk, applyPlan, applyTakeOver, createJob } from "@/lib/flow-lifecycle-db";
+import { addImage, applyBulk, applyPlan, applyPromptSave, applyTakeOver, createJob } from "@/lib/flow-lifecycle-db";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -1741,6 +1745,37 @@ export async function redoFlowRound(jobId: string, extraPrompt?: string): Promis
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
+}
+
+/**
+ * แก้ 10-part prompt ที่หน้า /flow — เขียนช่องเดียวกับหน้า entry (PromptEntry.chatgptOutput) · gate ตามสถานะ "ตอนเขียน" อยู่ใน applyPromptSave:
+ * queued_r3 / review_r3 / failed รอบ 3 บันทึกได้ · running_r3 (บอทเพิ่งหยิบ) บันทึกแต่บอกว่ารอบนี้ใช้พรอมต์เดิม · สถานะอื่นไม่บันทึก
+ * rerender (ปุ่ม "บันทึกแล้วเรนเดอร์ใหม่ · 15 เครดิต") ทำเฉพาะตอน review_r3 ในทรานแซกชันเดียวกับการบันทึก ·
+ * ไม่ throw กับกรณีที่ผู้ใช้ต้องรู้ผล (บอทหยิบไปก่อน/ปฏิเสธ) — ข้อความ throw ของ server action ถูกซ่อนใน production build
+ * @param extraPrompt ข้อความต่อท้ายของปุ่มเรนเดอร์ใหม่ (ใช้เฉพาะ rerender) · undefined = ใช้ค่าเดิมของงาน
+ */
+export async function saveFlowPrompt(
+  jobId: string,
+  text: string,
+  rerender: boolean,
+  extraPrompt?: string
+): Promise<{ saved: boolean; rerendered: boolean; message: string | null }> {
+  const clean = normalizePromptText(text);
+  const invalid = checkPromptText(clean);
+  if (invalid !== null) return { saved: false, rerendered: false, message: invalid };
+  const r = await applyPromptSave({ jobId, text: clean, rerender, extraPrompt });
+  if (!r.saved) return { saved: false, rerendered: false, message: PROMPT_REFUSED_MESSAGE };
+  // ลบไฟล์คลิปตัวอย่างที่แถวถูกลบไปแล้ว (เหมือน redoFlowRound) · ล้มไม่เป็นไร ไฟล์ค้างไม่มีแถวชี้
+  for (const f of r.videoFilenames) await unlink(joinPath(UPLOAD_ROOT, r.entryId, "flow", f)).catch(() => undefined);
+  await logUserActivity({
+    kind: "user_edit_prompt",
+    jobId,
+    round: r.round,
+    detail: { stage: r.stage, lengthBefore: r.lengthBefore, lengthAfter: r.lengthAfter, rerender: r.rerendered },
+  });
+  revalidatePath("/flow");
+  revalidatePath(`/entry/${r.entryId}`);
+  return { saved: true, rerendered: r.rerendered, message: r.botRunning ? PROMPT_BOT_RUNNING_MESSAGE : null };
 }
 
 /** "รันต่อ (หลังซ่อม)" — งานที่พังกลับเข้าคิวรอบเดิม และปลดการหยุดของ worker */

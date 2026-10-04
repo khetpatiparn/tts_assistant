@@ -29,7 +29,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canApproveRender, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canApproveRender, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -152,6 +152,10 @@ export function FlowJobDetail({
   const clipFile = job.video?.filename ?? null;
   const clipLayout =
     clipFile !== null && (isRenderReview || isUpscale || job.status === FLOW_STATUS.DONE);
+
+  // ช่องแก้ 10-part prompt: แก้ได้ (queued_r3 / review_r3 / failed รอบ 3) · running_r3 อ่านอย่างเดียว · ตัวที่ review_r3 มีคลิปอยู่ใน ClipLayout (โซนขวา)
+  const promptGate = promptSaveGate(job.status, job.round);
+  const showStandalonePrompt = promptGate !== "refused" && !(isRenderReview && clipLayout) && !(!renderEnabled && isStuckInRender);
 
   const approveButtons = (
     <div className="flex flex-wrap items-center gap-2">
@@ -322,7 +326,7 @@ export function FlowJobDetail({
                 <BotSteps checkpoints={job.checkpoints} />
               </>
             }
-            right={<PromptCard job={job} usedExtra={usedExtra} />}
+            right={<PromptCard job={job} usedExtra={usedExtra} mode="edit" canRerender={canRerenderWithPrompt(job.status)} extraPrompt={extra} disabled={isPending} />}
           />
         )}
 
@@ -577,6 +581,17 @@ export function FlowJobDetail({
               )}
             </div>
           </div>
+        )}
+
+        {showStandalonePrompt && (
+          <PromptCard
+            job={job}
+            mode={promptGate === "ok" ? "edit" : "readonly"}
+            canRerender={canRerenderWithPrompt(job.status)}
+            extraPrompt={extra}
+            disabled={isPending}
+            standalone
+          />
         )}
 
         {!isUpscale && (isWaitingForBot(job.status) || isBotWorking(job.status)) && (

@@ -1049,6 +1049,125 @@ async function takeovers() {
   }
 }
 
+/**
+ * แก้ 10-part prompt ที่ /flow (ticket 03) — ไม่มีของเดิมให้เทียบ จึงเช็กแถว PromptEntry / FlowJob / FlowJobImage ตรงๆ
+ * "บันทึกแล้วเรนเดอร์ใหม่" = บันทึกพรอมต์ + transition เรนเดอร์ใหม่ใน transaction เดียว · running_r3 = บันทึกแต่ไม่แตะงาน
+ */
+async function promptSaves() {
+  console.log("\n== แก้พรอมต์ที่ /flow ==");
+  const OLD_TEXT = "พรอมต์เดิม 1) ...";
+  const NEW_TEXT = "พรอมต์ใหม่ที่แก้แล้ว 1) ...";
+  const entryText = async (id: string) => (await prisma.promptEntry.findUniqueOrThrow({ where: { id } })).chatgptOutput;
+  async function seed(job: Record<string, unknown> & { status: string }, images: ImgSeed[] = []) {
+    const p = await makePair(job, images);
+    await prisma.promptEntry.update({ where: { id: p.entryB }, data: { chatgptOutput: OLD_TEXT } });
+    return p;
+  }
+
+  // แก้ได้: queued_r3 / failed รอบ 3 — บันทึกอย่างเดียว งานไม่ขยับ ไม่สร้างคลิป
+  for (const [status, round] of [[FLOW_STATUS.QUEUED_R3, 3], [FLOW_STATUS.FAILED, 3]] as [string, number][]) {
+    const p = await seed({ status, round, attempt: 2, extraPrompt: "keep", failedStep: status === FLOW_STATUS.FAILED ? "x" : "", errorKind: status === FLOW_STATUS.FAILED ? "flow_error" : "" });
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: false }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    check(
+      `บันทึกพรอมต์ ${status} r${round}: ช่อง chatgptOutput ของ entry เปลี่ยน · งานไม่เปลี่ยน · คืน stage/ความยาวก่อน-หลัง`,
+      r.ok && (await entryText(p.entryB)) === NEW_TEXT && before === JSON.stringify(await snapJob(p.b)) &&
+        v?.saved === true && v.rerendered === false && v.botRunning === false && v.stage === status &&
+        v.lengthBefore === OLD_TEXT.length && v.lengthAfter === NEW_TEXT.length,
+      JSON.stringify({ r }),
+    );
+  }
+
+  // review_r3 บันทึกอย่างเดียว: คลิปตัวอย่างยังอยู่ งานยังรอดูคลิป
+  {
+    const p = await seed({ status: FLOW_STATUS.REVIEW_R3, round: 3, attempt: 1 }, [VIDEO_720]);
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: false }));
+    check("review_r3 + บันทึกอย่างเดียว: พรอมต์เปลี่ยน · คลิป/สถานะ/attempt ไม่เปลี่ยน", r.ok && (await entryText(p.entryB)) === NEW_TEXT && before === JSON.stringify(await snapJob(p.b)), JSON.stringify(r));
+  }
+
+  // review_r3 + เรนเดอร์ใหม่: พรอมต์ + transition เดียวกับปุ่ม "เรนเดอร์ใหม่" (เทียบ NEW.redo ของงานคู่ที่ไม่ได้แก้พรอมต์)
+  {
+    const p = await seed({ status: FLOW_STATUS.REVIEW_R3, round: 3, attempt: 1, extraPrompt: "เก่า" }, [VIDEO_720]);
+    await prisma.promptEntry.update({ where: { id: p.entryA }, data: { chatgptOutput: OLD_TEXT } });
+    await NEW.redo(p.a, "ต่อท้ายใหม่");
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: true, extraPrompt: "ต่อท้ายใหม่" }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    const sa = await snapJob(p.a);
+    const sb = await snapJob(p.b);
+    check(
+      "review_r3 + เรนเดอร์ใหม่: งานเหมือน redo ปกติ (queued_r3, attempt+1, คลิปเก่าหาย, extraPrompt) · พรอมต์ใหม่บันทึกพร้อมกัน",
+      r.ok && JSON.stringify(sa) === JSON.stringify(sb) && sb.status === FLOW_STATUS.QUEUED_R3 && sb.attempt === 2 && sb.images.length === 0 &&
+        (await entryText(p.entryB)) === NEW_TEXT && v?.rerendered === true && v.saved === true && v.videoFilenames.join() === VIDEO_720.filename,
+      JSON.stringify({ r, sa, sb }),
+    );
+  }
+
+  // transaction เดียวจริง: เขียนงานล้ม (trigger ชั่วคราวบนสำเนา DB) → พรอมต์ต้องไม่ถูกบันทึก คลิปตัวอย่างต้องไม่ถูกลบ
+  {
+    const p = await seed({ status: FLOW_STATUS.REVIEW_R3, round: 3, attempt: 1 }, [VIDEO_720]);
+    const before = JSON.stringify(await snapJob(p.b));
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER check_prompt_save_boom BEFORE UPDATE ON FlowJob WHEN NEW.id = '${p.b}' BEGIN SELECT RAISE(ABORT, 'boom'); END`);
+    let r: Outcome;
+    try {
+      r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: true }));
+    } finally {
+      await prisma.$executeRawUnsafe("DROP TRIGGER IF EXISTS check_prompt_save_boom");
+    }
+    check("บันทึก+เรนเดอร์ใหม่ล้มกลางทาง → ไม่มีอะไรถูกเขียน (พรอมต์เดิม · คลิปยังอยู่ · สถานะเดิม)", !r.ok && (await entryText(p.entryB)) === OLD_TEXT && before === JSON.stringify(await snapJob(p.b)), JSON.stringify(r));
+  }
+
+  // บอทหยิบงานไปแล้ว (running_r3): พรอมต์ยังบันทึก · งานไม่ถูกแตะแม้ขอเรนเดอร์ใหม่ · บอกว่า botRunning
+  for (const rerender of [false, true]) {
+    const p = await seed({ status: FLOW_STATUS.RUNNING_R3, round: 3, attempt: 1 });
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    check(
+      `running_r3 (rerender=${rerender}): พรอมต์ถูกบันทึก · งานไม่ถูกแตะ · botRunning=true rerendered=false`,
+      r.ok && (await entryText(p.entryB)) === NEW_TEXT && before === JSON.stringify(await snapJob(p.b)) && v?.saved === true && v.botRunning === true && v.rerendered === false,
+      JSON.stringify({ r }),
+    );
+  }
+
+  // แข่งกับบอท: ผู้ใช้เห็น queued_r3 แล้วกดบันทึก แต่บอทหยิบก่อน action อ่านงาน → บันทึกแล้วบอกว่ารอบนี้ใช้พรอมต์เดิม
+  {
+    const p = await seed({ status: FLOW_STATUS.QUEUED_R3, round: 3, attempt: 1 });
+    await NEW.claim(p.b, 3);
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: false }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    check("แข่งกับบอท: บอทหยิบ queued_r3 ก่อนกดบันทึก → พรอมต์บันทึก + botRunning · งานยัง running_r3", r.ok && (await entryText(p.entryB)) === NEW_TEXT && v?.botRunning === true && (await snapJob(p.b)).status === FLOW_STATUS.RUNNING_R3, JSON.stringify(r));
+  }
+
+  // แข่งอีกแบบ: หน้าจอเห็น review_r3 แล้วกด "บันทึกแล้วเรนเดอร์ใหม่" แต่อีกแท็บเรนเดอร์ใหม่ไปแล้ว (queued_r3) → บันทึกพรอมต์ ไม่เรนเดอร์ซ้ำ (attempt ไม่เพิ่มอีก)
+  {
+    const p = await seed({ status: FLOW_STATUS.QUEUED_R3, round: 3, attempt: 2 });
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: true }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    check("เรนเดอร์ใหม่ตอนงานไม่ใช่ review_r3 แล้ว: พรอมต์บันทึก · rerendered=false · attempt ไม่เพิ่ม", r.ok && (await entryText(p.entryB)) === NEW_TEXT && v?.rerendered === false && before === JSON.stringify(await snapJob(p.b)), JSON.stringify(r));
+  }
+
+  // สถานะอื่น: ปฏิเสธ ไม่แตะพรอมต์/งาน
+  for (const [status, round] of [
+    [FLOW_STATUS.AWAITING_PROMPT, 3], [FLOW_STATUS.DONE, 4], [FLOW_STATUS.SKIPPED, 3], [FLOW_STATUS.FAILED, 2], [FLOW_STATUS.FAILED, 4],
+    [FLOW_STATUS.REVIEW_R1, 1], [FLOW_STATUS.QUEUED_UPSCALE, 4],
+  ] as [string, number][]) {
+    const p = await seed({ status, round, attempt: 1 });
+    const before = JSON.stringify(await snapJob(p.b));
+    const r = await capture(() => db.applyPromptSave({ jobId: p.b, text: NEW_TEXT, rerender: true }));
+    const v = r.ok ? (r.value as Awaited<ReturnType<typeof db.applyPromptSave>>) : null;
+    check(`${status} r${round}: ปฏิเสธ — พรอมต์/งานไม่เปลี่ยน · saved=false`, r.ok && v?.saved === false && (await entryText(p.entryB)) === OLD_TEXT && before === JSON.stringify(await snapJob(p.b)), JSON.stringify(r));
+  }
+
+  // ไม่มีงาน → error
+  {
+    const r = await capture(() => db.applyPromptSave({ jobId: "no-such-job", text: NEW_TEXT, rerender: false }));
+    check("ไม่พบงาน → error", !r.ok, JSON.stringify(r));
+  }
+}
+
 /** applyPlan หลายขั้นต้องเป็นทรานแซกชันเดียว: ล้มกลางทาง = ไม่มีอะไรถูกเขียน */
 async function atomicity() {
   console.log("\n== ทรานแซกชัน ==");
@@ -1082,6 +1201,7 @@ async function main() {
     await branches();
     await sweeps();
     await takeovers();
+    await promptSaves();
     await atomicity();
   } finally {
     const jobs = await prisma.flowJob.findMany({ where: { entryId: { in: createdEntries } }, select: { id: true } });

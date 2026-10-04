@@ -98,6 +98,9 @@ try {
 
   check("post: มี product ID → บรรทัด Product ID ท้ายข้อความ", c.buildPostText({ productName: "A", caption: "B", hashtags: "#c", productId: "1729" }), "A\n\nB\n\n#c\n\nProduct ID: 1729");
   checkJ("post: ไม่มี product ID (null/ว่าง/ไม่ส่ง) → ไม่มีบรรทัด", [c.buildPostText({ productName: "A", caption: "", hashtags: "", productId: null }), c.buildPostText({ productName: "A", caption: "", hashtags: "", productId: "  " }), c.buildPostText({ productName: "A", caption: "", hashtags: "" })], ["A", "A", "A"]);
+  check("copy: แคปชัน บรรทัดว่าง แฮชแท็ก (ไม่มีชื่อสินค้า/Product ID)", c.buildCaptionHashtagsText({ caption: "B", hashtags: "#c #d" }), "B\n\n#c #d");
+  check("copy: ข้ามส่วนที่ว่าง + ตัดช่องว่างหัวท้าย", [c.buildCaptionHashtagsText({ caption: "  B  ", hashtags: " " }), c.buildCaptionHashtagsText({ caption: "", hashtags: "#c" }), c.buildCaptionHashtagsText({ caption: "", hashtags: "" })].join("|"), "B|#c|");
+  check("copy: แคปชันหลายบรรทัดคงบรรทัดภายในไว้", c.buildCaptionHashtagsText({ caption: "บรรทัด 1\nบรรทัด 2", hashtags: "#c" }), "บรรทัด 1\nบรรทัด 2\n\n#c");
   check("post: product ID ถูกตัดช่องว่าง", c.buildPostText({ productName: "", caption: "", hashtags: "", productId: " 99 " }), "Product ID: 99");
   checkJ("รูปต้นทาง: ชื่อไฟล์ตามนามสกุลเดิม", [c.sourcePhotoName(".png"), c.sourcePhotoName(".jpg")], ["รูปต้นทาง.png", "รูปต้นทาง.jpg"]);
   check("exportAction: งานไม่มีคลิป (ส่ง video ว่าง) — แถวเดิม video=null → update เสมอ", c.exportAction({ path: "C:/TTS/1_a", video: null }, true, ""), "update");

@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
-import { type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
+import { canRerenderWithPrompt, promptSaveGate, redo, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -73,6 +73,51 @@ export async function applyTakeOver(jobId: string, plan: Plan, fromStatus: strin
     });
     if (res.count > 0 && plan.unpauseWorker) await unpauseWorker(tx);
     return res.count;
+  });
+}
+
+export type PromptSaveResult = {
+  /** false = สถานะของงานแก้พรอมต์ไม่ได้ (promptSaveGate "refused") — ไม่ได้เขียนอะไร */
+  saved: boolean;
+  /** บอทกำลังเรนเดอร์งานนี้ — พรอมต์บันทึกแล้วแต่รอบนี้ใช้ของเดิม */
+  botRunning: boolean;
+  /** ทำ transition เรนเดอร์ใหม่ในทรานแซกชันเดียวกับการบันทึกแล้ว */
+  rerendered: boolean;
+  /** สถานะของงาน "ก่อน" เขียน (อ่านใน transaction เดียวกับที่เขียน) */
+  stage: string;
+  round: number;
+  entryId: string;
+  lengthBefore: number;
+  lengthAfter: number;
+  /** ไฟล์คลิปตัวอย่างที่แถวถูกลบเพราะเรนเดอร์ใหม่ — ผู้เรียกลบไฟล์บนดิสก์เอง */
+  videoFilenames: string[];
+};
+
+/**
+ * บันทึก 10-part prompt (PromptEntry.chatgptOutput — ช่องเดียวกับหน้า entry) ของงาน Flow · อ่านงานและเขียนในทรานแซกชันเดียว
+ * จึงตัดสินจากสถานะ "ตอนเขียน" ไม่ใช่สถานะที่หน้าจอเห็น: running_r3 → บันทึกแต่ไม่แตะงาน (botRunning) · สถานะที่แก้ไม่ได้ → ไม่เขียน
+ * rerender + review_r3 → ใช้ redo() ชุดเดียวกับปุ่ม "เรนเดอร์ใหม่" (attempt+1, ลบแถวคลิปตัวอย่าง) ในทรานแซกชันนี้ ·
+ * rerender แต่งานไม่ใช่ review_r3 แล้ว (อีกแท็บเรนเดอร์ไปก่อน) → บันทึกอย่างเดียว ไม่เรนเดอร์ซ้ำ
+ */
+export async function applyPromptSave(args: { jobId: string; text: string; rerender: boolean; extraPrompt?: string }): Promise<PromptSaveResult> {
+  return prisma.$transaction(async (tx) => {
+    const job = await tx.flowJob.findUnique({ where: { id: args.jobId }, include: { images: true } });
+    if (!job) throw new Error("ไม่พบงาน Flow");
+    const base = { stage: job.status, round: job.round, entryId: job.entryId, videoFilenames: [] as string[] };
+    const gate = promptSaveGate(job.status, job.round);
+    const entry = await tx.promptEntry.findUniqueOrThrow({ where: { id: job.entryId }, select: { chatgptOutput: true } });
+    const lengthBefore = entry.chatgptOutput.length;
+    if (gate === "refused") {
+      return { ...base, saved: false, botRunning: false, rerendered: false, lengthBefore, lengthAfter: lengthBefore };
+    }
+    await tx.promptEntry.update({ where: { id: job.entryId }, data: { chatgptOutput: args.text } });
+    const result = { ...base, saved: true, botRunning: gate === "bot_running", rerendered: false, lengthBefore, lengthAfter: args.text.length };
+    if (args.rerender && canRerenderWithPrompt(job.status)) {
+      const plan = redo(job, args.extraPrompt);
+      await write(tx, args.jobId, plan);
+      return { ...result, rerendered: true, videoFilenames: job.images.filter((i) => i.kind === "video").map((i) => i.filename) };
+    }
+    return result;
   });
 }
 

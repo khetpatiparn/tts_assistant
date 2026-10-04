@@ -36,6 +36,8 @@ export const ACTIVITY_KINDS = [
   "user_retry_upscale",
   /** ส่งคลิป+รูป+ข้อความเข้าโฟลเดอร์ TTS บนเครื่อง (detail.path) — ใช้กันส่งซ้ำ */
   "user_export_clip",
+  /** แก้ 10-part prompt ที่หน้า /flow (detail: { stage, lengthBefore, lengthAfter, rerender }) — การกระทำของผู้ใช้ ไม่ใช่คำขอถึง Flow */
+  "user_edit_prompt",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
