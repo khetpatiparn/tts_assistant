@@ -31,7 +31,7 @@ try {
   try {
     execFileSync(
       "npx",
-      ["tsc", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+      ["tsc", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "lib/photo-library.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
       { stdio: "pipe", shell: true },
     );
   } catch (e) {
@@ -46,6 +46,9 @@ try {
   const lcPath = join(out, "flow-lifecycle.js");
   writeFileSync(lcPath, readFileSync(lcPath, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"'));
   const L = await import(pathToFileURL(lcPath).href);
+  const plPath = join(out, "photo-library.js");
+  writeFileSync(plPath, readFileSync(plPath, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"'));
+  const PL = await import(pathToFileURL(plPath).href);
 
   const now = new Date("2026-10-02T12:00:00Z");
   const cleared = { failedStep: "", errorKind: "", errorMessage: "", failureDir: "" };
@@ -234,6 +237,70 @@ try {
       L.choose({ status: "review_r1", round: 1, attempt: 4, images: imgs }, img(1, 4), on, now).job.attempt, 4);
     check("choose รอบ 1 งานใหม่ (ไม่มีรอบ 2 เก่า) → attempt 1 เหมือนเดิม",
       L.choose({ status: "review_r1", round: 1, attempt: 3, images: [{ kind: "candidate", round: 1, attempt: 3 }] }, img(1, 3), on, now).job.attempt, 1);
+  }
+
+  // ---------- คลังรูป (lib/photo-library.ts — read model pure ส่วนเรียง/ป้าย/ธง · ไฟล์จริงตรวจใน check-flow-lifecycle-db.ts) ----------
+  {
+    const E = "entry1";
+    const t = (m) => new Date(Date.UTC(2026, 9, 4, 10, m));
+    const im = (id, kind, round, attempt, index, filename, at, chosen = false) => ({ id, kind, round, attempt, index, filename, chosen, createdAt: at });
+    const oldJob = {
+      id: "j1", status: "skipped", round: 2, createdAt: t(0),
+      images: [
+        im("s1", "source", 0, 1, 0, "source-a1-0-aa.jpg", t(0)),
+        im("a", "candidate", 1, 1, 0, "r1-a1-0.png", t(1)), im("b", "candidate", 1, 1, 1, "r1-a1-1.png", t(1), true),
+        im("c", "candidate", 2, 1, 0, "r2-a1-0.png", t(2)),
+      ],
+    };
+    const newJob = {
+      id: "j2", status: "review_r1", round: 1, createdAt: t(10),
+      images: [
+        im("s2", "source", 0, 2, 0, "source-a2-0-bb.jpg", t(10)),
+        im("d", "candidate", 1, 2, 1, "r1-a2-1.png", t(11)), im("e", "candidate", 1, 2, 0, "r1-a2-0.png", t(11)),
+        // แถวรุ่นเก่าที่ชื่อไฟล์ชนกับงานก่อน (ก่อนแก้ attempt ต่อทั้ง entry) — โชว์ไฟล์เดียว
+        im("f", "candidate", 1, 1, 0, "r1-a1-0.png", t(12)),
+        // ไฟล์หายจากดิสก์ → ไม่โชว์
+        im("g", "candidate", 1, 2, 2, "r1-a2-2.png", t(11)),
+      ],
+    };
+    const keys = new Map([
+      [`${E}/flow/source-a1-0-aa.jpg`, "k-old-src"], [`${E}/flow/source-a2-0-bb.jpg`, "k-shop2"],
+      [`${E}/flow/r1-a1-0.png`, "k-a"], [`${E}/flow/r1-a1-1.png`, "k-b"], [`${E}/flow/r2-a1-0.png`, "k-c"],
+      [`${E}/flow/r1-a2-0.png`, "k-e"], [`${E}/flow/r1-a2-1.png`, "k-d"],
+      ["_candidates/cand1/p1.jpg", "k-shop1"], ["_candidates/cand1/p2.jpg", "k-shop2"], ["_candidates/cand1/p3.jpg", "k-shop3"],
+      [`${E}/auto-source-x.jpg`, "k-shop2"], [`${E}/u1.png`, "k-b"], [`${E}/u2.png`, "k-zzz"],
+    ]);
+    const input = {
+      entryId: E,
+      shopPhotos: [{ id: "p1", candidateId: "cand1", filename: "p1.jpg" }, { id: "p2", candidateId: "cand1", filename: "p2.jpg" }, { id: "gone", candidateId: "cand1", filename: "gone.jpg" }, { id: "p3", candidateId: "cand1", filename: "p3.jpg" }],
+      jobs: [oldJob, newJob],
+      productImageFilenames: ["auto-source-x.jpg", "u1.png", "u2.png"],
+      contentKeys: keys,
+    };
+    const lib = PL.buildPhotoLibrary(input);
+    check("คลังรูป: รูปจากร้านตามลำดับเดิม · ไฟล์ที่หายไม่โชว์ · src ผ่าน /api/uploads",
+      lib.shopPhotos.map((p) => [p.key, p.src]),
+      [["shop:p1", "/api/uploads/_candidates/cand1/p1.jpg"], ["shop:p2", "/api/uploads/_candidates/cand1/p2.jpg"], ["shop:p3", "/api/uploads/_candidates/cand1/p3.jpg"]]);
+    check("คลังรูป: รูปที่ Flow วาดทุกงาน/รอบ/attempt ใหม่ก่อน (ในชุดเดียวกันเรียงตาม index) · ชื่อไฟล์ซ้ำโชว์ครั้งเดียว · ไฟล์หายไม่โชว์ · ไม่มีรูปต้นทาง",
+      lib.flowImages.map((p) => p.key), ["flow:f", "flow:e", "flow:d", "flow:c", "flow:b"]);
+    check("คลังรูป: ป้ายรอบ/ครั้ง + ป้ายที่เลือก",
+      lib.flowImages.map((p) => [p.label, p.chosen]),
+      [["รอบ 1 · ครั้งที่ 1", false], ["รอบ 1 · ครั้งที่ 2", false], ["รอบ 1 · ครั้งที่ 2", false], ["รอบ 2 · ครั้งที่ 1", false], ["รอบ 1 · ครั้งที่ 1", true]]);
+    check("คลังรูป: รูปต้นทางตอนนี้ = รูปต้นทาง attempt ล่าสุดของงานล่าสุด (ธงที่รูปที่เนื้อไฟล์ตรงกัน) · รูปสินค้าแล้ว = เนื้อไฟล์ตรงกับรูปสินค้าแถวใดก็ได้",
+      [...lib.shopPhotos, ...lib.flowImages].filter((p) => p.isCurrentSource || p.inProductImages).map((p) => [p.key, p.isCurrentSource, p.inProductImages]),
+      [["shop:p2", true, true], ["flow:b", false, true]]);
+    check("คลังรูป: รูปต้นทางตอนนี้แสดงเสมอ (แม้ครอปแล้วไม่ตรงรูปไหน)", lib.currentSource, { src: `/api/uploads/${E}/flow/source-a2-0-bb.jpg` });
+    check("คลังรูป: ใช้เป็นรูปต้นทางใหม่ได้ = canChangeSource ของงานล่าสุด", lib.sourceChange, { jobId: "j2", allowed: true, reason: null });
+    const busy = PL.buildPhotoLibrary({ ...input, jobs: [oldJob, { ...newJob, status: "running_r1" }] }).sourceChange;
+    check("คลังรูป: บอทกำลังทำงานล่าสุด → กดไม่ได้ + เหตุผล (ไม่ใช่ hover)", [busy.allowed, busy.reason], [false, L.CHANGE_SOURCE_BOT_BUSY_MESSAGE]);
+    const rendering = PL.buildPhotoLibrary({ ...input, jobs: [oldJob, { ...newJob, status: "review_r3", round: 3 }] }).sourceChange;
+    check("คลังรูป: เริ่มเรนเดอร์แล้ว → กดไม่ได้ + เหตุผล", [rendering.allowed, rendering.reason], [false, L.CHANGE_SOURCE_REFUSED_MESSAGE]);
+    const none = PL.buildPhotoLibrary({ ...input, jobs: [], shopPhotos: [] });
+    check("คลังรูป: ไม่มีงาน Flow + ไม่ได้มาจาก Showcase → ว่าง ไม่มีรูปต้นทาง ไม่มีปุ่มเปลี่ยน", [none.shopPhotos, none.flowImages, none.currentSource, none.sourceChange], [[], [], null, null]);
+    check("คลังรูป: path ที่ต้องอ่านเนื้อไฟล์ = รูปในคลัง + รูปต้นทางตอนนี้ + รูปสินค้า",
+      PL.libraryFilePaths({ ...input, jobs: [newJob] }),
+      { items: ["_candidates/cand1/p1.jpg", "_candidates/cand1/p2.jpg", "_candidates/cand1/gone.jpg", "_candidates/cand1/p3.jpg", `${E}/flow/r1-a2-1.png`, `${E}/flow/r1-a2-0.png`, `${E}/flow/r1-a1-0.png`, `${E}/flow/r1-a2-2.png`],
+        targets: [`${E}/flow/source-a2-0-bb.jpg`, `${E}/auto-source-x.jpg`, `${E}/u1.png`, `${E}/u2.png`] });
   }
 
   // ---------- บอท ----------

@@ -26,6 +26,8 @@ import { ProductSpecPanel } from "@/components/product-spec-panel";
 import { ProductionPanel } from "@/components/production-panel";
 import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
+import { PhotoLibraryPanel } from "@/components/photo-library";
+import type { PhotoLibrary } from "@/lib/photo-library";
 import type { EntryRow } from "@/lib/entry-rows";
 
 export type CorePromptRecord = {
@@ -89,6 +91,7 @@ export function EntryWorkspace({
   flowJob,
   renderVideo = null,
   productId = null,
+  photoLibrary = null,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
@@ -98,6 +101,8 @@ export function EntryWorkspace({
   renderVideo?: EntryRenderVideo | null;
   /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = null ไม่แสดง) */
   productId?: string | null;
+  /** คลังรูป (รูปจากร้าน + รูปที่ Flow วาด) · หน้า /entry/new ไม่มี */
+  photoLibrary?: PhotoLibrary | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -320,6 +325,9 @@ export function EntryWorkspace({
               <div className="flex flex-1 flex-col gap-5">
                 {entry !== null && (
                   <FlowEnqueuePanel entryId={entry.id} productName={form.productName} job={flowJob} />
+                )}
+                {entry !== null && photoLibrary !== null && (
+                  <PhotoLibraryPanel entryId={entry.id} productName={form.productName} library={photoLibrary} />
                 )}
                 {entry !== null && (
                   <ProductSpecPanel

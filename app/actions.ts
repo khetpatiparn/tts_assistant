@@ -52,6 +52,7 @@ import {
 } from "@/lib/flow-jobs";
 import { changeSourcePhoto } from "@/lib/flow-change-source";
 import { enqueueFlowJobFiles } from "@/lib/flow-enqueue";
+import { addPhotoToProductImages } from "@/lib/photo-library-db";
 import { autoFlowFilename, autoSourceFilename, isAutoFlowImage, isAutoSourceImage } from "@/lib/auto-source-image";
 import { shortenInBackground } from "@/lib/short-name-db";
 import { removeAutomaticImageFiles, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
@@ -1391,7 +1392,7 @@ export async function importShowcaseFile(
 // Flow image bot (spec docs/superpowers/specs/2026-09-06-flow-image-bot-design.md)
 // ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้นที่แตะ ProductImage (lib/auto-source-image-db.ts):
 // เข้าคิว (enqueueFlowJobCore) / เปลี่ยนรูปต้นทาง ใส่/แทนรูปอัตโนมัติด้วยรูปต้นทาง · chooseFlowCandidate รอบ 2 แทนรูปอัตโนมัติ
-// ด้วย 2 ไฟล์ที่ผู้ใช้เลือก (auto-flow-)
+// ด้วย 2 ไฟล์ที่ผู้ใช้เลือก (auto-flow-) · คลังรูปเพิ่มรูปสินค้าแบบผู้ใช้เพิ่มเอง (addLibraryPhotoToProductImages → lib/photo-library-db.ts)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1590,6 +1591,25 @@ export async function changeFlowSource(formData: FormData): Promise<{ changed: b
     String(formData.get("extraPrompt") ?? ""),
   );
   return r.ok ? { changed: true, message: null } : { changed: false, message: r.message };
+}
+
+/**
+ * คลังรูปในหน้า entry: "เพิ่มเข้ารูปสินค้า" — รูปจากร้าน/รูปที่ Flow วาด (ครอปแล้วหรือทั้งรูป) ส่งมาเป็นไฟล์เดียว เป็นรูปสินค้าแบบผู้ใช้เพิ่มเอง
+ * (lib/photo-library-db.ts — caption ว่าง ต่อท้าย ไม่ใช้ prefix สงวนของรูปอัตโนมัติ) · ไม่ throw กับกรณีที่ผู้ใช้ต้องรู้ผล (คืน message)
+ */
+export async function addLibraryPhotoToProductImages(formData: FormData): Promise<{ added: boolean; message: string | null }> {
+  const entryId = String(formData.get("entryId") ?? "");
+  const photo = formData.get("photo");
+  if (!(photo instanceof File) || photo.size === 0) return { added: false, message: "กรุณาเลือกรูป 1 รูป" };
+  const r = await addPhotoToProductImages({
+    root: UPLOAD_ROOT,
+    entryId,
+    image: { buffer: Buffer.from(await photo.arrayBuffer()), mimeType: photo.type },
+  });
+  if (!r.ok) return { added: false, message: r.message };
+  revalidatePath(`/entry/${entryId}`);
+  revalidatePath("/"); // รูปแรกของรายการ = ภาพย่อในหน้ารายการ (entry ที่ยังไม่มีรูป)
+  return { added: true, message: null };
 }
 
 function openInExplorer(dir: string): void {

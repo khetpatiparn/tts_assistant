@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { getEntryDetail, getEntryRows, getUsedAngles } from "@/lib/entry-queries";
 import { getOpenFlowJobForEntry, getProductIdsByEntry, getRenderVideoForEntry } from "@/lib/flow-queries";
+import { getPhotoLibrary } from "@/lib/photo-library-db";
 import { EntryWorkspace } from "@/components/entry-workspace";
 
 const RAIL_LIMIT = 15;
@@ -15,13 +16,14 @@ export default async function EntryPage({
 }) {
   const { id } = await params;
 
-  const [entry, rows, usedAngles, flowJob, renderVideo, productIds] = await Promise.all([
+  const [entry, rows, usedAngles, flowJob, renderVideo, productIds, photoLibrary] = await Promise.all([
     getEntryDetail(id),
     getEntryRows(),
     getUsedAngles(id),
     getOpenFlowJobForEntry(id),
     getRenderVideoForEntry(id),
     getProductIdsByEntry([id]),
+    getPhotoLibrary(id),
   ]);
 
   if (entry === null) notFound();
@@ -42,6 +44,7 @@ export default async function EntryPage({
       flowJob={flowJob}
       renderVideo={renderVideo}
       productId={productIds.get(id) ?? null}
+      photoLibrary={photoLibrary}
     />
   );
 }

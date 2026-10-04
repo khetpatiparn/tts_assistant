@@ -32,7 +32,7 @@ function normalize(start: { x: number; y: number }, end: { x: number; y: number 
 
 /**
  * เลือกรูปต้นทาง 1 รูป (รูปของร้าน หรือไฟล์จากเครื่องถ้า allowLocalFile) แล้วครอปถ้าต้องการ (ลากกรอบอิสระ) — ผลลัพธ์เป็นไฟล์เดียวส่งให้ onConfirm
- * ใช้ทั้ง Showcase ("ทำคลิปตัวนี้"/"เลือกรูปใหม่") และหน้า /flow ("เปลี่ยนรูปต้นทาง") · ครอปด้วย canvas ในเบราว์เซอร์ที่ความละเอียดเต็มของรูป
+ * ใช้ทั้ง Showcase ("ทำคลิปตัวนี้"/"เลือกรูปใหม่"), หน้า /flow ("เปลี่ยนรูปต้นทาง") และคลังรูปในหน้า entry ("เพิ่มเข้ารูปสินค้า"/"ใช้เป็นรูปต้นทางใหม่") · ครอปด้วย canvas ในเบราว์เซอร์ที่ความละเอียดเต็มของรูป
  * (naturalWidth) ไม่ใช่ขนาดที่โชว์บนจอ · รูปมาจาก /api/uploads (origin เดียวกัน) หรือ blob: ของไฟล์จากเครื่อง canvas จึงไม่ถูก taint ·
  * ไม่ครอป = ส่งไฟล์ต้นฉบับตรงๆ ไม่เข้ารหัสใหม่
  */
@@ -45,6 +45,7 @@ export function ShowcasePhotoPicker({
   allowLocalFile = false,
   confirmVerb = "ส่งเข้าคิว Flow",
   note,
+  showExtraPrompt = true,
 }: {
   productName: string;
   images: PickerPhoto[];
@@ -58,6 +59,8 @@ export function ShowcasePhotoPicker({
   confirmVerb?: string;
   /** บรรทัดอธิบายผลของการยืนยัน (เช่น งานกลับไปวาดรอบ 1) */
   note?: string;
+  /** ช่อง "ข้อความเพิ่มเติมถึง Flow" — ปิดเมื่อรูปไม่ได้ไปที่ Flow (คลังรูป "เพิ่มเข้ารูปสินค้า") · ปิดแล้ว extra = "" เสมอ */
+  showExtraPrompt?: boolean;
 }) {
   const [local, setLocal] = useState<PickerPhoto[]>([]);
   const all = [...images, ...local];
@@ -224,7 +227,7 @@ export function ShowcasePhotoPicker({
           </>
         )}
 
-        {chosen !== null && (
+        {chosen !== null && showExtraPrompt && (
           <div className="flex flex-col gap-1">
             <label htmlFor="showcase-extra" className="text-sm leading-relaxed text-foreground">
               ข้อความเพิ่มเติมถึง Flow (ไม่ใส่ก็ได้)

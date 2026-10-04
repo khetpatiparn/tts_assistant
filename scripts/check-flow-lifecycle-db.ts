@@ -1393,6 +1393,101 @@ async function newJobAttempts() {
   }
 }
 
+/**
+ * คลังรูป (ticket 06) — NEW-only: read model (lib/photo-library-db.ts) บน DB + โฟลเดอร์ชั่วคราว: รูปจากร้านยุบซ้ำข้ามแถว Showcase ·
+ * รูปที่ Flow วาดทุก attempt อยู่ครบหลังเปลี่ยนรูปต้นทาง · ธงรูปต้นทาง/อยู่ในรูปสินค้าแล้วตามเนื้อไฟล์ · "เพิ่มเข้ารูปสินค้า"
+ */
+async function photoLibrary() {
+  console.log("\n== คลังรูป ==");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const enq = await import("@/lib/flow-enqueue");
+  const cs = await import("@/lib/flow-change-source");
+  const lib = await import("@/lib/photo-library-db");
+  const ai = await import("@/lib/auto-source-image");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "check-photo-library-"));
+  // (batchId, sourceProductId) ไม่ซ้ำ — แถวสแกนซ้ำของสินค้าเดียวกันอยู่คนละชุดเสมอ
+  const batch = await prisma.candidateBatch.create({ data: { capturedOn: new Date() } });
+  const batch2 = await prisma.candidateBatch.create({ data: { capturedOn: new Date(Date.now() - 5000) } });
+  try {
+    const entryId = await newEntry();
+    const pid = `__lib-test-${Date.now()}`;
+    const cand = (name: string, linked: string | null, capturedOn: Date, batchId: string) =>
+      prisma.productCandidate.create({
+        data: { batchId, name, nameKey: name, price: 1, commission: 1, categoryLabel: "x", capturedOn, sourceProductId: pid, linkedEntryId: linked },
+      });
+    // แถวที่ผูกกับ entry ไม่มีรูป + แถวสแกนซ้ำ (sourceProductId เดียวกัน) ที่มีรูป 2 รูป → รูปจากร้าน = 2 รูปของแถวสแกนซ้ำ
+    await cand("ผูกแล้ว", entryId, new Date(Date.now() - 1000), batch.id);
+    const dupRow = await cand("สแกนซ้ำ", null, new Date(Date.now() - 5000), batch2.id);
+    const shopBytes: Record<string, string> = { "p1.jpg": "shop-photo-1", "p2.jpg": "shop-photo-2-xx" };
+    fs.mkdirSync(path.join(root, "_candidates", dupRow.id), { recursive: true });
+    for (const [i, [name, bytes]] of Object.entries(shopBytes).entries()) {
+      fs.writeFileSync(path.join(root, "_candidates", dupRow.id, name), bytes);
+      await prisma.candidateImage.create({ data: { candidateId: dupRow.id, filename: name, mimeType: "image/jpeg", sortOrder: i } });
+    }
+
+    // เข้าคิวด้วยรูปจากร้าน p2 ทั้งรูป (ไม่ครอป = ไบต์เดียวกัน) → รูปต้นทางอัตโนมัติในรูปสินค้า
+    const q = await enq.enqueueFlowJobFiles({ root, entryId, images: [{ buffer: Buffer.from(shopBytes["p2.jpg"]), mimeType: "image/jpeg" }], extraPrompt: "" });
+    const job = await jobWithImages(q.jobId);
+    await db.applyPlan(job.id, L.imagesReady(1, job, ["png", "png", "png", "png"], "proj"));
+    const drawn = (await jobWithImages(job.id)).images.filter((i) => i.kind === "candidate");
+    for (const d of drawn) fs.writeFileSync(path.join(root, entryId, "flow", d.filename), `drawn:${d.filename}`);
+
+    let L1 = await lib.getPhotoLibrary(entryId, root);
+    check("คลังรูป: รูปจากร้านยุบซ้ำข้ามแถว Showcase (sourceProductId เดียวกัน) = 2 รูป · รูปที่ Flow วาด 4 รูป · src ผ่าน /api/uploads",
+      L1.shopPhotos.length === 2 && L1.flowImages.length === 4 && L1.shopPhotos[0].src === `/api/uploads/_candidates/${dupRow.id}/p1.jpg` &&
+        L1.flowImages.every((f) => f.src.startsWith(`/api/uploads/${entryId}/flow/r1-a1-`)),
+      JSON.stringify(L1));
+    check("คลังรูป: รูปจากร้านที่ใช้เข้าคิวทั้งรูป = รูปต้นทางตอนนี้ + อยู่ในรูปสินค้าแล้ว · รูปอื่นไม่มีธง · ใช้เป็นรูปต้นทางใหม่ได้ (review_r1)",
+      L1.shopPhotos.map((p) => [p.isCurrentSource, p.inProductImages]).join("|") === "false,false|true,true" &&
+        L1.flowImages.every((f) => !f.isCurrentSource && !f.inProductImages) && L1.sourceChange?.allowed === true && L1.sourceChange.jobId === job.id,
+      JSON.stringify(L1));
+
+    // เปลี่ยนรูปต้นทางเป็นรูปที่ Flow วาด (ทั้งรูป) → รูปเก่ายังอยู่ในคลังครบ · ธงย้ายไปรูปนั้น
+    const pick = L1.flowImages[2];
+    const changed = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from(`drawn:${pick.filename}`), mimeType: "image/png" }, extraPrompt: "" });
+    const L2 = await lib.getPhotoLibrary(entryId, root);
+    check("คลังรูป: หลังเปลี่ยนรูปต้นทาง รูปที่ Flow วาดชุดเก่ายังถูกลิสต์ครบ 4 รูป",
+      changed.ok && L2.flowImages.length === 4 && L1.flowImages.every((a) => L2.flowImages.some((b) => b.key === a.key)), JSON.stringify(L2.flowImages));
+    check("คลังรูป: หลังเปลี่ยน ธงรูปต้นทาง/รูปสินค้าย้ายไปรูปที่ Flow วาดที่เลือก · รูปจากร้านเดิมไม่มีธงแล้ว (รูปต้นทางอัตโนมัติถูกแทน)",
+      L2.flowImages.filter((f) => f.isCurrentSource && f.inProductImages).map((f) => f.key).join() === pick.key &&
+        L2.shopPhotos.every((p) => !p.isCurrentSource && !p.inProductImages) && L2.currentSource !== null,
+      JSON.stringify(L2));
+
+    // "เพิ่มเข้ารูปสินค้า": ก๊อป (ครอปหรือไม่ก็ได้) เข้าโฟลเดอร์ของ entry + แถว caption ว่าง ต่อท้าย · ไม่ใช้ prefix สงวน
+    const before = await prisma.productImage.findMany({ where: { entryId }, orderBy: { sortOrder: "asc" } });
+    const added = await lib.addPhotoToProductImages({ root, entryId, image: { buffer: Buffer.from(shopBytes["p1.jpg"]), mimeType: "image/jpeg" } });
+    const after = await prisma.productImage.findMany({ where: { entryId }, orderBy: { sortOrder: "asc" } });
+    const row = after[after.length - 1];
+    check("เพิ่มเข้ารูปสินค้า: แถวใหม่ท้ายสุด caption ว่าง · ชื่อ <uuid>.jpg (ไม่ใช่รูปอัตโนมัติ) · ไฟล์ในโฟลเดอร์ entry เนื้อตรง",
+      added.ok && after.length === before.length + 1 && row.caption === "" && row.sortOrder > Math.max(...before.map((b) => b.sortOrder)) &&
+        !ai.isAutomaticProductImage(row.filename) && /^[0-9a-f-]{36}\.jpg$/.test(row.filename) &&
+        fs.readFileSync(path.join(root, entryId, row.filename), "utf8") === shopBytes["p1.jpg"],
+      JSON.stringify({ added, after }));
+    const L3 = await lib.getPhotoLibrary(entryId, root);
+    check("คลังรูป: รูปที่เพิ่มแล้วขึ้นธงอยู่ในรูปสินค้าแล้ว", L3.shopPhotos[0].inProductImages && !L3.shopPhotos[0].isCurrentSource, JSON.stringify(L3.shopPhotos));
+    const again = await lib.addPhotoToProductImages({ root, entryId, image: { buffer: Buffer.from(shopBytes["p1.jpg"]), mimeType: "image/jpeg" } });
+    check("เพิ่มรูปเดิมซ้ำ (เนื้อไฟล์เดียวกัน) → ok=false ข้อความไทย · ไม่มีแถว/ไฟล์ใหม่",
+      !again.ok && again.message.includes("อยู่ในรูปสินค้าแล้ว") && (await prisma.productImage.count({ where: { entryId } })) === after.length &&
+        fs.readdirSync(path.join(root, entryId)).filter((f) => f !== "flow").length === after.length,
+      JSON.stringify(again));
+    const cropped = await lib.addPhotoToProductImages({ root, entryId, image: { buffer: Buffer.from("cropped-bytes"), mimeType: "image/png" } });
+    check("เพิ่มรูปที่ครอปแล้ว (เนื้อไม่ตรงรูปไหน) → แถวใหม่ .png", cropped.ok && (await prisma.productImage.count({ where: { entryId } })) === after.length + 1, JSON.stringify(cropped));
+    const bad = await lib.addPhotoToProductImages({ root, entryId, image: { buffer: Buffer.from("x"), mimeType: "image/heic" } });
+    const noEntry = await lib.addPhotoToProductImages({ root, entryId: "no-such-entry", image: { buffer: Buffer.from("x"), mimeType: "image/png" } });
+    check("เพิ่มรูปผิดชนิด / entry ไม่มี → ok=false ไม่แตะอะไร", !bad.ok && !noEntry.ok && !fs.existsSync(path.join(root, "no-such-entry")), JSON.stringify({ bad, noEntry }));
+
+    // สินค้าที่ไม่ได้มาจาก Showcase → ไม่มีรูปจากร้าน (โชว์เฉพาะรูปที่ Flow วาด) · ไม่มีงาน = ไม่มีปุ่มเปลี่ยนรูปต้นทาง
+    const plain = await newEntry();
+    const L4 = await lib.getPhotoLibrary(plain, root);
+    check("entry ไม่ได้มาจาก Showcase + ไม่มีงาน → คลังว่าง · ไม่มีรูปต้นทาง · ไม่มีปุ่มเปลี่ยน",
+      L4.shopPhotos.length === 0 && L4.flowImages.length === 0 && L4.currentSource === null && L4.sourceChange === null, JSON.stringify(L4));
+  } finally {
+    await prisma.candidateBatch.deleteMany({ where: { id: { in: [batch.id, batch2.id] } } });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /** applyPlan หลายขั้นต้องเป็นทรานแซกชันเดียว: ล้มกลางทาง = ไม่มีอะไรถูกเขียน */
 async function atomicity() {
   console.log("\n== ทรานแซกชัน ==");
@@ -1429,6 +1524,7 @@ async function main() {
     await promptSaves();
     await changeSources();
     await newJobAttempts();
+    await photoLibrary();
     await atomicity();
   } finally {
     const jobs = await prisma.flowJob.findMany({ where: { entryId: { in: createdEntries } }, select: { id: true } });
