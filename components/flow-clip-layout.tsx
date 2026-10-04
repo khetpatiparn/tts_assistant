@@ -105,7 +105,7 @@ export function ClipLayout({
  * ปุ่ม "ส่งเข้าโฟลเดอร์ TTS" — ให้เซิร์ฟเวอร์ก๊อปคลิป+รูป+ข้อความเข้าโฟลเดอร์ของวันนี้แล้วเปิดให้
  * คลิปของงานเปลี่ยนหลังส่ง (720p → 1080p / เรนเดอร์ใหม่) = ชวนกดอีกครั้งเพื่ออัปเดตโฟลเดอร์เดิม
  */
-function ExportToFolder({
+export function ExportToFolder({
   jobId,
   exportedPath,
   exportedVideo,

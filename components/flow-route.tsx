@@ -11,6 +11,7 @@ import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { FlowJobList, type FlowListGroup } from "@/components/flow-job-list";
 import { FlowJobDetail } from "@/components/flow-job-detail";
+import { PostsPerDayControl } from "@/components/posts-per-day-control";
 
 const REFRESH_MS = 30_000;
 
@@ -62,11 +63,14 @@ export function FlowRoute({
   worker,
   summary,
   now,
+  postsPerDay,
 }: {
   jobs: FlowJobRow[];
   worker: FlowWorkerView;
   summary: ReturnType<typeof summarizeQueue>;
   now: Date;
+  /** โพสต์วันละกี่คลิป (โฟลเดอร์ TTS ตามวันโพสต์) — ตั้งได้จากแถบบนสุด */
+  postsPerDay: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -193,6 +197,7 @@ export function FlowRoute({
             </span>
           )}
         </div>
+        <PostsPerDayControl initial={postsPerDay} />
       </div>
 
       {jobs.length === 0 ? (

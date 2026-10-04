@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Check, RotateCcw, SkipForward, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Hand, RotateCcw, SkipForward, Play } from "lucide-react";
 
 import {
   approveFlowRender,
@@ -36,7 +36,8 @@ import { Button } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
-import { BotSteps, ClipLayout, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
+import { BotSteps, ClipLayout, ExportToFolder, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
+import { ProductIdCopy } from "@/components/product-id-copy";
 import { ClipPlayer, ExtraPromptField, FlowProjectLink, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
 
 /**
@@ -67,6 +68,8 @@ export function FlowJobDetail({
   const [selected, setSelected] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ผลของ "ทำต่อเอง" ครั้งนี้ — โฟลเดอร์ TTS ที่สร้างให้ หรือเหตุที่สร้างไม่สำเร็จ (งานจบแล้วเสมอ ไม่ว่าสร้างโฟลเดอร์ได้ไหม)
+  const [takeoverResult, setTakeoverResult] = useState<{ exportPath: string | null; exportError: string | null } | null>(null);
   const [isPending, startTransition] = useTransition();
   // ข้อความต่อท้ายพรอมต์ของ Flow — เริ่มจากค่าที่ใช้อยู่ของงาน (ติดจากรอบ 1 มารอบ 2 เอง) ใช้กับทั้ง "วาดใหม่"
   // และ "ใช้รูปนี้ → รอบ 2" · ล้างว่าง = กลับเป็นพรอมต์ตั้งต้นของบอท
@@ -98,6 +101,21 @@ export function FlowJobDetail({
     startTransition(async () => {
       try {
         await action();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
+      }
+    });
+  }
+
+  /** "ทำต่อเอง": จบงานทันที + สร้างโฟลเดอร์ TTS ให้ (ไม่มี confirm — กดครั้งเดียวตามที่ตกลงไว้) · บอทหยิบไปก่อน = โชว์ข้อความ */
+  function takeOverNow() {
+    setError(null);
+    setTakeoverResult(null);
+    startTransition(async () => {
+      try {
+        const r = await takeOverFlowJob(job.id);
+        if (!r.taken) setError(r.message ?? "ทำต่อเองไม่สำเร็จ");
+        else setTakeoverResult({ exportPath: r.exportPath, exportError: r.exportError });
       } catch (e) {
         setError(e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ");
       }
@@ -164,6 +182,7 @@ export function FlowJobDetail({
               {job.attempt > 1 ? ` · ครั้งที่ ${job.attempt}` : ""}
             </p>
             <FlowProjectLink jobId={job.id} flowProjectId={job.flowProjectId} status={job.status} />
+            {job.productId !== null && <ProductIdCopy productId={job.productId} />}
           </div>
           {onNext && (
             <Button type="button" variant="outline" onClick={onNext}>
@@ -178,7 +197,22 @@ export function FlowJobDetail({
             imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
           />
           <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
+          {job.tookOver && <Badge variant="neutral">ทำเอง</Badge>}
         </div>
+        {canTakeOver(job.status) ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Button type="button" variant="outline" disabled={isPending} onClick={takeOverNow}>
+              <Hand data-icon="inline-start" /> ทำต่อเอง
+            </Button>
+            <span className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">
+              ทำงานนี้เองใน Flow — จบงานทันที บอทไม่แตะอีก และสร้างโฟลเดอร์ TTS ให้
+            </span>
+          </div>
+        ) : (
+          job.status.startsWith("running_") && (
+            <p className="text-xs leading-relaxed text-muted-foreground">บอทกำลังทำงานนี้ — กด ทำต่อเอง ได้หลังบอททำเสร็จรอบนี้</p>
+          )
+        )}
       </header>
 
       <div className={cn("flex flex-col gap-4", clipLayout && "lg:min-h-0 lg:flex-1")}>
@@ -341,8 +375,8 @@ export function FlowJobDetail({
                   <RotateCcw data-icon="inline-start" /> เรนเดอร์ใหม่
                 </Button>
                 {job.video === null && (
-                  <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => takeOverFlowJob(job.id))}>
-                    <Check data-icon="inline-start" /> โหลดเองแล้ว — ปิดงานนี้
+                  <Button type="button" variant="outline" disabled={isPending} onClick={takeOverNow}>
+                    <Hand data-icon="inline-start" /> ทำต่อเอง (โหลดเองแล้ว)
                   </Button>
                 )}
               </div>
@@ -356,7 +390,7 @@ export function FlowJobDetail({
             entryId={job.entryId}
             prompt={job.prompt}
             images={manualImages}
-            onFinish={() => run(() => takeOverFlowJob(job.id))}
+            onFinish={takeOverNow}
             finishDisabled={isPending}
           />
         )}
@@ -481,7 +515,23 @@ export function FlowJobDetail({
           />
         )}
 
-        {job.status === FLOW_STATUS.DONE && !clipLayout && (renderEnabled || job.video !== null) && (
+        {job.status === FLOW_STATUS.DONE && job.tookOver && job.video === null && (
+          <section className="flex max-w-3xl flex-col gap-3 rounded-md border-l-4 border-status-success bg-surface-2 p-3 leading-relaxed" aria-label="ทำเองแล้ว">
+            <p className="text-sm font-medium text-foreground">ทำเองแล้ว — ลากรูปจากโฟลเดอร์ TTS ไปใช้ใน Flow ได้เลย</p>
+            {takeoverResult?.exportError && (
+              <p className="text-sm leading-relaxed text-destructive">
+                สร้างโฟลเดอร์ TTS ไม่สำเร็จ: {takeoverResult.exportError} — กด ส่งเข้าโฟลเดอร์ TTS เพื่อลองใหม่
+              </p>
+            )}
+            <ExportToFolder jobId={job.id} exportedPath={job.exportedPath ?? takeoverResult?.exportPath ?? null} exportedVideo={job.exportedVideo} currentVideo={null} />
+            <UsedImages job={job} />
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              ได้คลิปแล้ววางไว้ในโฟลเดอร์นั้น · มีพรอมต์/แคปชันทีหลัง กด ส่งเข้าโฟลเดอร์ TTS อีกครั้ง ข้อความจะเข้าโฟลเดอร์เดิม
+            </p>
+          </section>
+        )}
+
+        {job.status === FLOW_STATUS.DONE && !clipLayout && (renderEnabled || job.video !== null) && !(job.tookOver && job.video === null) && (
           // คลิปคือของหลัก (ซ้าย) · สถานะ/ปุ่ม/รูปที่ใช้ทำคลิปอยู่ขวา — ไม่ปล่อยพื้นที่ว่างทั้งแถว
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
             {job.video && (

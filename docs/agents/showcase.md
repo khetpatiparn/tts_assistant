@@ -22,6 +22,7 @@
 - **คนละขั้นงาน แยกด้วย `sourceProductId`** (ดู Candidate vs Showcase ใน `CONTEXT.md`): `/products` = แคปหน้าจัดอันดับ (`sourceProductId IS NULL`) ไว้เลือกว่าจะเพิ่มอะไรเข้า Showcase · `/showcase` = รายการงานที่ต้องทำ (`sourceProductId NOT NULL`) — **คิวรีของสองหน้ากรองคอลัมน์นี้เสมอ**
 - ตรรกะสถานะ (ยังไม่เริ่ม/กำลังทำ/โพสต์แล้ว/ไม่ทำแล้ว) อยู่ `lib/showcase.ts` (pure, ตรวจด้วย `node scripts/check-showcase.mjs`) คิดจาก `linkedEntryId` + `videoUrl` ของ Entry + `dismissedAt`
 - ยุบแถวซ้ำด้วย `sourceProductId` (ชื่อสินค้าซ้ำกันได้ข้ามสินค้า) · "ไม่ทำแล้ว" เซ็ต `dismissedAt` ทุกแถวของ `sourceProductId` เดียวกัน
+- **Product ID แสดงนอกหน้า Showcase ด้วย (2026-10-04)** — `getProductIdsByEntry` (`lib/flow-queries.ts`) ผูก `ProductCandidate.linkedEntryId → sourceProductId` โชว์พร้อมปุ่มคัดลอกที่หัวงาน `/flow` กับหน้า entry และเป็นบรรทัดท้าย `โพสต์.txt` ของโฟลเดอร์ TTS (ไว้ค้นตอนปักตะกร้า เพราะสินค้าเก่าถูกดันลงไป) · entry ที่ไม่ได้มาจาก Showcase ไม่มี ID ไม่แสดงอะไร · งานที่ "ทำต่อเอง" (`docs/agents/flow-bot.md`) ยังเป็น "กำลังทำ" ใน Showcase จนกว่าจะวางลิงก์คลิป — สถานะคำนวณจากลิงก์คลิปของ entry ไม่ใช่จากสถานะงาน Flow
 - `SHOWCASE_TRACKING_SINCE` ตัดชุดแรก 197 ตัวทิ้งโดยตั้งใจ (ผู้ใช้เลือกเริ่มนับใหม่)
 - งานที่พังรอบ 3–4 ของ Flow = blocked เสมอ (รายละเอียดใน `docs/agents/flow-bot.md`)
 

@@ -54,7 +54,7 @@ export function ManualRenderPanel({
   entryId: string;
   prompt: string;
   images: { id: string; src: string; label: string; downloadName: string }[];
-  /** มีเฉพาะงานที่ยังค้างอยู่ขั้นทำคลิป — กดแล้วปิดงานเป็น "เสร็จ" */
+  /** มีเฉพาะงานที่ยังค้างอยู่ขั้นทำคลิป — กดแล้ว "ทำต่อเอง" (งานจบ + โฟลเดอร์ TTS) */
   onFinish?: () => void;
   finishDisabled?: boolean;
   /** งานที่จบแล้ว (อาจทำคลิปไปแล้ว) — พับไว้ ไม่ให้หน้าคิว Flow รกด้วยแผงเต็มทุกงาน */
@@ -136,7 +136,7 @@ export function ManualRenderPanel({
       {onFinish && (
         <div>
           <Button type="button" disabled={finishDisabled} onClick={onFinish}>
-            ทำคลิปเองแล้ว — ปิดงานนี้
+            ทำต่อเอง (จบงาน + สร้างโฟลเดอร์ TTS)
           </Button>
         </div>
       )}

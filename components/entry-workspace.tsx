@@ -19,6 +19,7 @@ import { FlowEnqueuePanel, type FlowJobSummary } from "@/components/flow-enqueue
 import type { EntryRenderVideo } from "@/lib/flow-queries";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
+import { ProductIdCopy } from "@/components/product-id-copy";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductSpecPanel } from "@/components/product-spec-panel";
@@ -87,6 +88,7 @@ export function EntryWorkspace({
   usedAngles,
   flowJob,
   renderVideo = null,
+  productId = null,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
@@ -94,6 +96,8 @@ export function EntryWorkspace({
   flowJob: FlowJobSummary | null;
   /** คลิปที่บอท Render ให้ entry นี้ (แท็บผลลัพธ์) · หน้า /entry/new ไม่มี */
   renderVideo?: EntryRenderVideo | null;
+  /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = null ไม่แสดง) */
+  productId?: string | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
@@ -260,6 +264,12 @@ export function EntryWorkspace({
           />
         </div>
       </EntryHeader>
+
+      {productId !== null && (
+        <div className="mx-4 mt-3 sm:mx-6">
+          <ProductIdCopy productId={productId} />
+        </div>
+      )}
 
       {genError && (
         <p className="mx-4 mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6">
