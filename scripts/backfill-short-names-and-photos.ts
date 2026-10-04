@@ -2,8 +2,8 @@
  * สคริปต์ย้อนหลังของ ticket 07 (แทน scripts/shorten-showcase-names.ts เดิม) — idempotent รันซ้ำได้ · ไม่มี --apply = แสดงอย่างเดียว
  *   1. ชื่อสั้น: entry ที่มาจาก Showcase/หาสินค้า ยังไม่โพสต์ และชื่อยังเป็นชื่อเต็มของร้าน (isUnshortenedName) → ย่อด้วย ensureShortName
  *      (ตัวเดียวกับบอท/ย่อเบื้องหลัง เรียก Gemini) · ย่อไม่ได้ = ข้าม (บอทย่อเองก่อนวาด ไม่วาดด้วยชื่อร้าน)
- *   2. รูปต้นทางอัตโนมัติ (ticket 04): งานที่ยังเปิดและยังไม่ได้เลือกรอบ 2 ที่ entry ยังไม่มีรูปต้นทางอัตโนมัติ → ใส่รูปต้นทางรูปแรก
- *      ของงานเป็นรูปสินค้า (replaceAutoSourceImage ตัวเดียวกับตอนเข้าคิว) · ไฟล์รูปต้นทางหาย = ข้าม
+ *   2. รูปต้นทางอัตโนมัติ (ticket 04): งานที่ยังเปิดและยังไม่ได้เลือกรอบ 2 ที่ entry ยังไม่มีรูปต้นทางอัตโนมัติ → ใส่รูปต้นทาง
+ *      ปัจจุบันของงาน (currentSourceImage) เป็นรูปสินค้า (replaceAutoSourceImage ตัวเดียวกับตอนเข้าคิว) · ไฟล์รูปต้นทางหาย = ข้าม
  *
  * ผู้ใช้รันเอง (เขียน dev.db + uploads/) — หยุดบอทก่อนไม่จำเป็น:
  *   npx tsx scripts/backfill-short-names-and-photos.ts            (ดูก่อน)
@@ -56,7 +56,7 @@ async function photos(apply: boolean, root: string): Promise<number> {
     select: {
       status: true, entryId: true,
       entry: { select: { productName: true, productImages: { select: { filename: true } } } },
-      images: { select: { kind: true, round: true, index: true, chosen: true, filename: true, mimeType: true } },
+      images: { select: { kind: true, round: true, attempt: true, index: true, chosen: true, filename: true, mimeType: true } },
     },
     orderBy: { createdAt: "asc" },
   });

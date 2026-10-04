@@ -8,6 +8,7 @@
  * ส่วนที่แตะ DB/ดิสก์อยู่ lib/auto-source-image-db.ts
  * ไฟล์นี้ pure (ทดสอบด้วย scripts/check-product-image-source.mjs) — ห้าม import อะไรที่แตะ DB/ดิสก์/Next
  */
+import { currentSourceImage } from "@/lib/flow-jobs";
 
 /** ชื่อไฟล์อื่นของ ProductImage คือ `<uuid>.<ext>` เสมอ (อัปโหลดเอง / เพิ่มจากคลังรูป / ทำซ้ำ entry) จึงไม่มีทางชนกัน */
 export const AUTO_SOURCE_PREFIX = "auto-source-";
@@ -55,15 +56,16 @@ export function isAutomaticProductImage(filename: string): boolean {
 /**
  * สคริปต์ย้อนหลัง (scripts/backfill-short-names-and-photos.ts, ticket 07): งานที่เข้าคิวก่อนมีรูปต้นทางอัตโนมัติ (ticket 04)
  * ควรได้รูปไหน — งานยังเปิด (ไม่ใช่ done/skipped) · ยังไม่ได้เลือกรอบ 2 (เลือกแล้ว = รูปที่ Flow วาดเป็นรูปสินค้าแทนแล้ว ซึ่งรวม
- * awaiting_prompt และขั้น Render) · entry ยังไม่มีรูปต้นทางอัตโนมัติ (รันซ้ำไม่เพิ่ม) → รูปต้นทางรูปแรกของงาน · ไม่เข้าข่าย = null
+ * awaiting_prompt และขั้น Render) · entry ยังไม่มีรูปต้นทางอัตโนมัติ (รันซ้ำไม่เพิ่ม) → รูปต้นทางปัจจุบันของงาน (currentSourceImage —
+ * หลังเปลี่ยนรูปต้นทางคือแถวล่าสุด ไม่ใช่ index ต่ำสุด) · ไม่เข้าข่าย = null
  */
 export function autoSourceBackfillPick(
-  job: { status: string; images: { kind: string; round: number; index: number; chosen: boolean; filename: string; mimeType: string }[] },
+  job: { status: string; images: { kind: string; round: number; attempt: number; index: number; chosen: boolean; filename: string; mimeType: string }[] },
   productImageFilenames: string[],
 ): { filename: string; mimeType: string } | null {
   if (job.status === "done" || job.status === "skipped") return null;
   if (job.images.some((i) => i.kind === "candidate" && i.round === 2 && i.chosen)) return null;
   if (productImageFilenames.some(isAutoSourceImage)) return null;
-  const first = job.images.filter((i) => i.kind === "source").sort((a, b) => a.index - b.index)[0];
-  return first === undefined ? null : { filename: first.filename, mimeType: first.mimeType };
+  const current = currentSourceImage(job.images);
+  return current === null ? null : { filename: current.filename, mimeType: current.mimeType };
 }

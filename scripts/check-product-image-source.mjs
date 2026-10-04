@@ -5,7 +5,7 @@
  * รัน: node scripts/check-product-image-source.mjs
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -21,12 +21,23 @@ function check(name, actual, expected) {
 }
 
 try {
-  execFileSync(
-    "npx",
-    ["tsc", "lib/auto-source-image.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler", "--types", "node"],
-    { stdio: "pipe", shell: true },
-  );
-  const S = await import(pathToFileURL(join(out, "auto-source-image.js")).href);
+  try {
+    execFileSync(
+      "npx",
+      ["tsc", "lib/auto-source-image.ts", "lib/flow-jobs.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler", "--types", "node"],
+      { stdio: "pipe", shell: true },
+    );
+  } catch (e) {
+    // ไม่ได้ส่ง paths mapping ให้ tsc — "@/lib/flow-jobs" หาไม่เจอ (TS2307) โดยตั้งใจ แต่ยัง emit .js ให้ (exit 2) แบบ check-flow-lifecycle.mjs
+    const diag = String(e.stdout ?? "");
+    if (e.status !== 2 || diag.split("\n").some((l) => l.includes("error TS") && !l.includes("TS2307"))) {
+      console.log(diag);
+      throw e;
+    }
+  }
+  const sPath = join(out, "auto-source-image.js");
+  writeFileSync(sPath, readFileSync(sPath, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"'));
+  const S = await import(pathToFileURL(sPath).href);
 
   const a = S.autoSourceFilename("jpg");
   const b = S.autoSourceFilename("png");
@@ -67,11 +78,11 @@ try {
 
   // ticket 07: สคริปต์ย้อนหลังใส่รูปต้นทางอัตโนมัติให้งานที่ยังอยู่รอบ 1–2 (ยังไม่ได้เลือกรอบ 2) และยังไม่มีรูปต้นทางอัตโนมัติ
   {
-    const src0 = { kind: "source", round: 0, index: 0, chosen: false, filename: "source-0.jpg", mimeType: "image/jpeg" };
-    const src1 = { kind: "source", round: 0, index: 1, chosen: false, filename: "source-1.png", mimeType: "image/png" };
-    const r1Chosen = { kind: "candidate", round: 1, index: 2, chosen: true, filename: "r1-a1-2.png", mimeType: "image/png" };
-    const r2Chosen = { kind: "candidate", round: 2, index: 0, chosen: true, filename: "r2-a1-0.png", mimeType: "image/png" };
-    const r2NotChosen = { kind: "candidate", round: 2, index: 1, chosen: false, filename: "r2-a1-1.png", mimeType: "image/png" };
+    const src0 = { kind: "source", round: 0, attempt: 1, index: 0, chosen: false, filename: "source-0.jpg", mimeType: "image/jpeg" };
+    const src1 = { kind: "source", round: 0, attempt: 1, index: 1, chosen: false, filename: "source-1.png", mimeType: "image/png" };
+    const r1Chosen = { kind: "candidate", round: 1, attempt: 1, index: 2, chosen: true, filename: "r1-a1-2.png", mimeType: "image/png" };
+    const r2Chosen = { kind: "candidate", round: 2, attempt: 1, index: 0, chosen: true, filename: "r2-a1-0.png", mimeType: "image/png" };
+    const r2NotChosen = { kind: "candidate", round: 2, attempt: 1, index: 1, chosen: false, filename: "r2-a1-1.png", mimeType: "image/png" };
     const pick = (status, images, productImages = []) => S.autoSourceBackfillPick({ status, images }, productImages);
     const want0 = { filename: "source-0.jpg", mimeType: "image/jpeg" };
     for (const status of ["queued_r1", "running_r1", "review_r1", "queued_r2", "running_r2", "review_r2", "failed"]) {
@@ -82,6 +93,10 @@ try {
     check("มีรูปต้นทางอัตโนมัติแล้ว → ไม่ใส่ซ้ำ (idempotent)", pick("review_r1", [src0], ["0b6a2c1e-4f1d-4c4e-9a51-3f0b1e2d7c11.jpg", "auto-source-abc.jpg"]), null);
     check("มีแต่รูปที่ผู้ใช้เพิ่มเอง → ยังใส่ (เหมือนตอนเข้าคิว)", pick("review_r1", [src0], ["0b6a2c1e-4f1d-4c4e-9a51-3f0b1e2d7c11.jpg"]), want0);
     check("ไม่มีรูปต้นทางในงาน → ไม่ใส่", pick("queued_r1", [r1Chosen]), null);
+    // เปลี่ยนรูปต้นทางแล้ว: ใช้รูปต้นทางปัจจุบัน (currentSourceImage — attempt สูงสุด) ไม่ใช่แถว index ต่ำสุด (รูปเก่าที่เปลี่ยนทิ้งแล้ว)
+    const srcNew = { kind: "source", round: 0, attempt: 3, index: 0, chosen: false, filename: "source-a3-0-ab.png", mimeType: "image/png" };
+    check("เปลี่ยนรูปต้นทางแล้ว → รูปต้นทางล่าสุด (attempt 3) ไม่ใช่ source-0 เก่า",
+      pick("queued_r1", [src0, src1, srcNew]), { filename: "source-a3-0-ab.png", mimeType: "image/png" });
   }
 } finally {
   rmSync(out, { recursive: true, force: true });
