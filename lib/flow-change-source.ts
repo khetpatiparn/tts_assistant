@@ -4,7 +4,8 @@
  * ผู้เรียกทำ FlowActivity / revalidatePath เอง · root = UPLOAD_ROOT ของ lib/upload-paths.ts เสมอในแอป
  *
  * ลำดับ: gate (changeSource) → ตรวจไฟล์ → เขียนไฟล์ชื่อไม่ซ้ำ → เขียน DB แบบมีเงื่อนไข (applyChangeSource) → ไม่สำเร็จ = ลบไฟล์ที่เพิ่งเขียน
- * → รูปต้นทางอัตโนมัติในหน้า entry เปลี่ยนตาม (replaceAutoSourceImage — พังไม่ทำให้การเปลี่ยนรูปพัง เหมือนตอนเข้าคิว)
+ * → รูปต้นทางอัตโนมัติในหน้า entry เปลี่ยนตาม และรูปที่ Flow วาดจากรูปเก่าซึ่งเลือกรอบ 2 ไปแล้ว (auto-flow-) ออก
+ *   (replaceAutoSourceImage — พังไม่ทำให้การเปลี่ยนรูปพัง เหมือนตอนเข้าคิว)
  * ไฟล์/แถว source และ candidate เก่าไม่ถูกแตะ (คลังรูป)
  */
 import { mkdir, unlink, writeFile } from "node:fs/promises";

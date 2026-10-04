@@ -47,6 +47,24 @@ try {
 
   check("caption ของรูปอัตโนมัติไม่ว่าง (ส่งให้ Gemini เป็นคำกำกับรูป)", typeof S.AUTO_SOURCE_CAPTION === "string" && S.AUTO_SOURCE_CAPTION.trim().length > 0, true);
 
+  // รูปที่ Flow วาด 2 รูปที่เลือกรอบ 2 ก๊อปเข้ารูปสินค้า = รูปอัตโนมัติอีกแบบ (prefix สงวนของตัวเอง) — เปลี่ยนรูปต้นทาง /
+  // เลือกรอบ 2 ครั้งใหม่แทนที่ได้ ไม่งั้น Gemini ได้รูปที่วาดจากรูปต้นทางเก่าค้างอยู่
+  {
+    const f1 = S.autoFlowFilename("png");
+    const f2 = S.autoFlowFilename("jpg");
+    check("ชื่อไฟล์รูป Flow อัตโนมัติ = auto-flow-<uuid>.<ext> ไม่ซ้ำกัน", /^auto-flow-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/.test(f1) && f1 !== f2 && f2.endsWith(".jpg"), true);
+    check("รูป Flow อัตโนมัติ: isAutoFlowImage จริง · ไม่ใช่รูปต้นทางอัตโนมัติ", [S.isAutoFlowImage(f1), S.isAutoSourceImage(f1)], [true, false]);
+    check("รูปต้นทางอัตโนมัติไม่ใช่รูป Flow อัตโนมัติ", S.isAutoFlowImage(S.autoSourceFilename("jpg")), false);
+    check("isAutomaticProductImage = รูปอัตโนมัติทั้งสองแบบ", [S.isAutomaticProductImage(f1), S.isAutomaticProductImage(S.autoSourceFilename("jpg"))], [true, true]);
+    // แถวก่อนมี prefix นี้ (ก๊อปรอบ 2 เป็น <uuid>.<ext>) แยกจากรูปที่ผู้ใช้เพิ่มเองไม่ได้ → ไม่นับ ไม่ถูกแตะอัตโนมัติ
+    check("รูปผู้ใช้/รูปรอบ 2 รุ่นเก่า (uuid ล้วน) ไม่ใช่รูปอัตโนมัติแบบไหนเลย", S.isAutomaticProductImage("0b6a2c1e-4f1d-4c4e-9a51-3f0b1e2d7c11.png"), false);
+    check("ไฟล์ในโฟลเดอร์ flow/ (r2-a1-0.png) ไม่ใช่", S.isAutoFlowImage("r2-a1-0.png"), false);
+    check("auto-flow: ตัวพิมพ์ / prefix กลางชื่อ / prefix ล้วน ไม่นับ",
+      [S.isAutoFlowImage("AUTO-FLOW-x.png"), S.isAutoFlowImage("x-auto-flow-y.png"), S.isAutoFlowImage("auto-flow-")], [false, false, false]);
+    check("auto-flow: มี path (/ \\ ..) ไม่นับ",
+      [S.isAutoFlowImage("auto-flow-x/../../evil.png"), S.isAutoFlowImage("auto-flow-x\\..\\evil.png"), S.isAutoFlowImage("auto-flow-..png")], [false, false, false]);
+  }
+
   // ticket 07: สคริปต์ย้อนหลังใส่รูปต้นทางอัตโนมัติให้งานที่ยังอยู่รอบ 1–2 (ยังไม่ได้เลือกรอบ 2) และยังไม่มีรูปต้นทางอัตโนมัติ
   {
     const src0 = { kind: "source", round: 0, index: 0, chosen: false, filename: "source-0.jpg", mimeType: "image/jpeg" };

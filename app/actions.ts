@@ -54,9 +54,9 @@ import {
   sourceFilename,
 } from "@/lib/flow-jobs";
 import { changeSourcePhoto } from "@/lib/flow-change-source";
-import { autoSourceFilename, isAutoSourceImage } from "@/lib/auto-source-image";
+import { autoFlowFilename, autoSourceFilename, isAutoFlowImage, isAutoSourceImage } from "@/lib/auto-source-image";
 import { shortenInBackground } from "@/lib/short-name-db";
-import { removeAutoSourceFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
+import { removeAutomaticImageFiles, replaceAutoSourceImage, replaceAutoSourceWithFlowImages } from "@/lib/auto-source-image-db";
 import {
   approveRender,
   checkPromptText,
@@ -159,9 +159,13 @@ export async function duplicatePrompt(sourceId: string): Promise<string> {
             : image.mimeType === "image/heif"
               ? "heif"
               : "jpg";
-    // รูปต้นทางอัตโนมัติคงเป็นรูปอัตโนมัติใน entry ใหม่ (prefix เดิม) — เข้าคิว Flow ของ entry ใหม่/เลือกรอบ 2 จะแทนมันได้
-    // ไม่งั้นมันกลายเป็น "รูปที่ผู้ใช้เพิ่มเอง" ค้างอยู่ตลอดและส่งรูปของร้านให้ Gemini ต่อหลังได้รูปที่ Flow วาดแล้ว
-    const filename = isAutoSourceImage(image.filename) ? autoSourceFilename(ext) : `${crypto.randomUUID()}.${ext}`;
+    // รูปอัตโนมัติ (รูปต้นทาง / รูปที่ Flow วาดซึ่งเลือกรอบ 2) คงเป็นรูปอัตโนมัติใน entry ใหม่ (prefix เดิม) — เข้าคิว Flow ของ
+    // entry ใหม่/เลือกรอบ 2 จะแทนมันได้ ไม่งั้นมันกลายเป็น "รูปที่ผู้ใช้เพิ่มเอง" ค้างอยู่ตลอดและส่งรูปเก่าให้ Gemini ต่อ
+    const filename = isAutoSourceImage(image.filename)
+      ? autoSourceFilename(ext)
+      : isAutoFlowImage(image.filename)
+        ? autoFlowFilename(ext)
+        : `${crypto.randomUUID()}.${ext}`;
     await writeFile(joinPath(UPLOAD_ROOT, created.id, filename), data);
     await prisma.productImage.create({
       data: {
@@ -1388,8 +1392,9 @@ export async function importShowcaseFile(
 
 // ---------------------------------------------------------------------------
 // Flow image bot (spec docs/superpowers/specs/2026-09-06-flow-image-bot-design.md)
-// ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้นสองที่ที่แตะ ProductImage (lib/auto-source-image-db.ts):
-// เข้าคิว (enqueueFlowJobCore) ใส่/แทนรูปต้นทางอัตโนมัติ · chooseFlowCandidate รอบ 2 ลบรูปนั้นแล้วก๊อป 2 ไฟล์ที่ผู้ใช้เลือก
+// ทุก action ที่นี่แตะแค่ FlowJob/FlowJobImage/FlowWorkerState — ยกเว้นที่แตะ ProductImage (lib/auto-source-image-db.ts):
+// เข้าคิว (enqueueFlowJobCore) / เปลี่ยนรูปต้นทาง ใส่/แทนรูปอัตโนมัติด้วยรูปต้นทาง · chooseFlowCandidate รอบ 2 แทนรูปอัตโนมัติ
+// ด้วย 2 ไฟล์ที่ผู้ใช้เลือก (auto-flow-)
 // ---------------------------------------------------------------------------
 
 /**
@@ -1473,7 +1478,7 @@ export async function enqueueFlowJob(formData: FormData): Promise<string> {
 }
 
 /**
- * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → ลบรูปต้นทางอัตโนมัติ + ก๊อป 2 รูปที่เลือกเป็น ProductImage แล้วรอ 10-part prompt
+ * ผู้ใช้เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → ลบรูปอัตโนมัติ (รูปต้นทาง + รูปที่ Flow วาดชุดก่อน) + ก๊อป 2 รูปที่เลือกเป็น ProductImage (auto-flow-) แล้วรอ 10-part prompt
  * (awaiting_prompt, รอบ 3 = Render) · generateWithAI เป็นคนส่งต่อเข้าคิว Render
  * (caption ตั้งต้นตาม DEFAULT_CAPTIONS แก้ได้ในหน้า entry เหมือนรูปที่อัปเอง)
  */
@@ -1498,15 +1503,15 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
     // จบรอบ 2: รูปที่เลือกรอบ 1 + รูปนี้ (รอบ 2) → ProductImage 2 แถว
     const round1 = job.images.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen);
     if (!round1) throw new Error("ไม่พบรูปที่เลือกไว้ในรอบ 1");
-    // รูปต้นทางอัตโนมัติ (แถว) ออก รูปที่ Flow วาด 2 รูปเข้า — รูปที่ผู้ใช้เพิ่มเองไม่ถูกแตะ
+    // รูปอัตโนมัติ (แถว) ออก รูปที่ Flow วาด 2 รูปเข้า — รูปที่ผู้ใช้เพิ่มเองไม่ถูกแตะ
     removedAutoSource = await replaceAutoSourceWithFlowImages(tx, UPLOAD_ROOT, job.entryId, [
       { filename: round1.filename, mimeType: round1.mimeType, round: 1 },
       { filename: image.filename, mimeType: image.mimeType, round: 2 },
     ]);
     await applyPlan(jobId, plan, tx);
   });
-  // ไฟล์ของรูปต้นทางอัตโนมัติลบหลัง commit เท่านั้น — ทรานแซกชันล้ม = แถวยังอยู่ ไฟล์ต้องยังเปิดได้
-  await removeAutoSourceFiles(UPLOAD_ROOT, job.entryId, removedAutoSource);
+  // ไฟล์ของรูปอัตโนมัติชุดเก่าลบหลัง commit เท่านั้น — ทรานแซกชันล้ม = แถวยังอยู่ ไฟล์ต้องยังเปิดได้
+  await removeAutomaticImageFiles(UPLOAD_ROOT, job.entryId, removedAutoSource);
 
   await logUserActivity({
     kind: "user_choose",

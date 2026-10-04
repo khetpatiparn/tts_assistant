@@ -1267,11 +1267,13 @@ async function changeSources() {
     for (const s of SEED) fs.writeFileSync(path.join(flowDir, s.filename), `old:${s.filename}`);
     const job = await prisma.flowJob.create({ data: { entryId, status: FLOW_STATUS.REVIEW_R2, round: 2, attempt: 1 } });
     for (const im of SEED) await prisma.flowJobImage.create({ data: { jobId: job.id, mimeType: "image/png", ...im } });
-    // รูปต้นทางอัตโนมัติเดิม (ticket 04) + รูปที่ผู้ใช้เพิ่มเอง
+    // รูปต้นทางอัตโนมัติเดิม (ticket 04) + รูปที่ผู้ใช้เพิ่มเอง + รูปที่ Flow วาดซึ่งเลือกรอบ 2 ไปแล้ว (auto-flow- — ของรูปต้นทางเก่า)
     fs.writeFileSync(path.join(root, entryId, "auto-source-old.jpg"), "old-auto");
     fs.writeFileSync(path.join(root, entryId, "user.png"), "user");
+    fs.writeFileSync(path.join(root, entryId, "auto-flow-old.png"), "old-flow");
     await prisma.productImage.create({ data: { entryId, filename: "auto-source-old.jpg", mimeType: "image/jpeg", caption: "", sortOrder: 0 } });
     await prisma.productImage.create({ data: { entryId, filename: "user.png", mimeType: "image/png", caption: "", sortOrder: 1 } });
+    await prisma.productImage.create({ data: { entryId, filename: "auto-flow-old.png", mimeType: "image/png", caption: "สินค้าตอนใช้งาน", sortOrder: 2 } });
 
     const r1 = await cs.changeSourcePhoto({ root, jobId: job.id, image: { buffer: Buffer.from("new-1"), mimeType: "image/jpeg" }, extraPrompt: "" });
     const after1 = await jobWithImages(job.id);
@@ -1284,9 +1286,10 @@ async function changeSources() {
     check("changeSourcePhoto: ไฟล์ source/candidate เดิมยังอยู่ไม่ถูกเขียนทับ",
       SEED.every((s) => fs.readFileSync(path.join(flowDir, s.filename), "utf8") === `old:${s.filename}`));
     const pis = await prisma.productImage.findMany({ where: { entryId }, orderBy: { sortOrder: "asc" } });
-    check("changeSourcePhoto: รูปต้นทางอัตโนมัติในหน้า entry เปลี่ยนตาม (แถว+ไฟล์เก่าออก · รูปที่ผู้ใช้เพิ่มเองอยู่)",
+    check("changeSourcePhoto: รูปต้นทางอัตโนมัติในหน้า entry เปลี่ยนตาม (แถว+ไฟล์เก่าออก · รูป Flow อัตโนมัติของรูปเก่าออก · รูปที่ผู้ใช้เพิ่มเองอยู่)",
       pis.length === 2 && ai.isAutoSourceImage(pis[0].filename) && pis[0].filename !== "auto-source-old.jpg" && pis[1].filename === "user.png" &&
-        fs.readFileSync(path.join(root, entryId, pis[0].filename), "utf8") === "new-1" && !fs.existsSync(path.join(root, entryId, "auto-source-old.jpg")),
+        fs.readFileSync(path.join(root, entryId, pis[0].filename), "utf8") === "new-1" && !fs.existsSync(path.join(root, entryId, "auto-source-old.jpg")) &&
+        !fs.existsSync(path.join(root, entryId, "auto-flow-old.png")),
       JSON.stringify(pis));
 
     // เปลี่ยนซ้ำทันที (ยัง queued_r1) → attempt 4 ไฟล์ใหม่อีกชื่อ ของ attempt 3 ยังอยู่

@@ -12,6 +12,7 @@
 import path from "node:path";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import * as ai from "@/lib/auto-source-image";
 import { AUTO_SOURCE_CAPTION, isAutoSourceImage } from "@/lib/auto-source-image";
 
 type Prisma = (typeof import("@/lib/prisma"))["prisma"];
@@ -112,7 +113,7 @@ async function round2Choose() {
 
   const removed = await prisma.$transaction((tx) => db.replaceAutoSourceWithFlowImages(tx, root, id, picks));
   check("ไฟล์รูปต้นทางยังอยู่จนกว่าทรานแซกชัน commit แล้วผู้เรียกลบเอง", existsSync(fileAt(id, auto.filename)) && removed.length === 1 && removed[0] === auto.filename, JSON.stringify(removed));
-  await db.removeAutoSourceFiles(root, id, removed);
+  await db.removeAutomaticImageFiles(root, id, removed);
 
   const r = await rows(id);
   check(
@@ -136,6 +137,59 @@ async function round2Choose() {
   const removed2 = await prisma.$transaction((tx) => db.replaceAutoSourceWithFlowImages(tx, root, id2, seedFlowFiles(id2)));
   const r2 = await rows(id2);
   check("ไม่มีรูปต้นทางอัตโนมัติ → ไม่มีอะไรให้ลบ ได้รูปผู้ใช้ + รูป Flow 2 รูป", removed2.length === 0 && r2.length === 3 && r2[0].filename === USER_FILE, JSON.stringify({ removed2, r2 }));
+}
+
+/**
+ * เปลี่ยนรูปต้นทางหลังเลือกรอบ 2 แล้ว (awaiting_prompt / queued_r3) แล้วเลือกรอบ 2 ใหม่ — รูปที่ Flow วาดจากรูปต้นทางเก่าต้องไม่ค้าง
+ * (Gemini จะได้รูปของรูปต้นทางเก่า) · รูปที่ผู้ใช้เพิ่มเอง และรูปรอบ 2 รุ่นเก่า (ก่อนมี auto-flow- ชื่อ uuid ล้วน) ไม่ถูกแตะ
+ */
+async function automaticCopiesAreReplaced() {
+  console.log("\n== รูปที่ Flow วาด (รอบ 2) เป็นรูปอัตโนมัติ: เปลี่ยนรูปต้นทาง / เลือกรอบ 2 ใหม่ แทนที่ ==");
+  const id = await entryWithUserImage();
+  // รูปรอบ 2 รุ่นเก่า (ก๊อปก่อนมี prefix) — แยกจากรูปที่ผู้ใช้เพิ่มเองไม่ได้ ต้องไม่ถูกแตะ
+  const LEGACY = "6f1c2d3e-0000-4000-8000-000000000001.png";
+  writeFileSync(fileAt(id, LEGACY), "legacy-flow");
+  await prisma.productImage.create({ data: { entryId: id, filename: LEGACY, mimeType: "image/png", caption: "สินค้า พื้นหลังขาว", sortOrder: 1 } });
+  await db.replaceAutoSourceImage(root, id, { buffer: Buffer.from("source-1"), mimeType: "image/jpeg" });
+
+  const removed1 = await prisma.$transaction((tx) => db.replaceAutoSourceWithFlowImages(tx, root, id, seedFlowFiles(id)));
+  await db.removeAutomaticImageFiles(root, id, removed1);
+  let r = await rows(id);
+  const flow1 = r.filter((x) => ai.isAutoFlowImage(x.filename));
+  check("เลือกรอบ 2 → รูปที่ Flow วาด 2 รูปชื่อขึ้นต้น auto-flow- (caption ตั้งต้น) · ไม่มีรูปต้นทางอัตโนมัติ",
+    flow1.length === 2 && flow1[0].caption === "สินค้า พื้นหลังขาว" && flow1[1].caption === "สินค้าตอนใช้งาน" && !r.some((x) => isAutoSourceImage(x.filename)),
+    JSON.stringify(r));
+
+  // เปลี่ยนรูปต้นทาง (changeSourcePhoto เรียกตัวนี้) → รูป Flow อัตโนมัติออกทั้งแถวและไฟล์ รูปต้นทางใหม่เข้าที่ตำแหน่งแรกของรูปอัตโนมัติ
+  await db.replaceAutoSourceImage(root, id, { buffer: Buffer.from("source-2"), mimeType: "image/png" });
+  r = await rows(id);
+  const src2 = r.filter((x) => isAutoSourceImage(x.filename));
+  check("เปลี่ยนรูปต้นทางหลังเลือกรอบ 2 → รูป Flow อัตโนมัติออกหมด · รูปต้นทางใหม่ 1 แถว ที่ตำแหน่งของรูปอัตโนมัติแรก",
+    !r.some((x) => ai.isAutoFlowImage(x.filename)) && src2.length === 1 && src2[0].sortOrder === flow1[0].sortOrder &&
+      readFileSync(fileAt(id, src2[0].filename), "utf8") === "source-2",
+    JSON.stringify(r));
+  check("ไฟล์รูป Flow อัตโนมัติเก่าถูกลบ (ต้นฉบับใน flow/ ยังอยู่)",
+    flow1.every((x) => !existsSync(fileAt(id, x.filename))) && existsSync(path.join(root, id, "flow", "r1-a1-2.png")));
+  check("รูปผู้ใช้ + รูปรอบ 2 รุ่นเก่า (ไม่มี prefix) ไม่ถูกแตะ (แถว + ไฟล์ + caption)",
+    r.some((x) => x.filename === USER_FILE && x.caption === "ของผู้ใช้") && r.some((x) => x.filename === LEGACY && x.caption === "สินค้า พื้นหลังขาว") &&
+      readFileSync(fileAt(id, LEGACY), "utf8") === "legacy-flow" && readFileSync(fileAt(id, USER_FILE), "utf8") === "user-photo");
+
+  // เลือกรอบ 2 ใหม่ → รูป Flow อัตโนมัติ 2 รูปชุดใหม่เท่านั้น (ไม่สะสมเป็น 4)
+  const removed2 = await prisma.$transaction((tx) => db.replaceAutoSourceWithFlowImages(tx, root, id, seedFlowFiles(id)));
+  await db.removeAutomaticImageFiles(root, id, removed2);
+  r = await rows(id);
+  const flow2 = r.filter((x) => ai.isAutoFlowImage(x.filename));
+  check("เลือกรอบ 2 ใหม่ → รูป Flow อัตโนมัติ 2 รูป (ไม่สะสม) · รูปต้นทางอัตโนมัติออก · รวม 4 แถว (ผู้ใช้ + รุ่นเก่า + 2)",
+    flow2.length === 2 && !r.some((x) => isAutoSourceImage(x.filename)) && r.length === 4 && !existsSync(fileAt(id, src2[0].filename)),
+    JSON.stringify(r));
+
+  // เลือกรอบ 2 ซ้ำโดยไม่ได้เปลี่ยนรูปต้นทาง (งานใหม่ของ entry เดิม) → แทนชุดเดิม ไฟล์ชุดเดิมลบหลัง commit
+  const removed3 = await prisma.$transaction((tx) => db.replaceAutoSourceWithFlowImages(tx, root, id, seedFlowFiles(id)));
+  check("รูป Flow อัตโนมัติเก่า: แถวออกในทรานแซกชัน ไฟล์ยังอยู่จนผู้เรียกลบหลัง commit",
+    removed3.length === 2 && removed3.every((f) => ai.isAutoFlowImage(f) && existsSync(fileAt(id, f))), JSON.stringify(removed3));
+  await db.removeAutomaticImageFiles(root, id, removed3);
+  r = await rows(id);
+  check("หลังลบ: รูป Flow อัตโนมัติ 2 รูปชุดล่าสุด · ไฟล์ชุดก่อนหาย", r.filter((x) => ai.isAutoFlowImage(x.filename)).length === 2 && removed3.every((f) => !existsSync(fileAt(id, f))));
 }
 
 async function round2Rollback() {
@@ -166,9 +220,9 @@ async function neverTouchesOthers() {
   console.log("\n== ลบไฟล์ได้เฉพาะรูปต้นทางอัตโนมัติในโฟลเดอร์ของ entry ==");
   const id = await entryWithUserImage();
   writeFileSync(path.join(root, "outside.jpg"), "outside");
-  await db.removeAutoSourceFiles(root, id, [USER_FILE, "../outside.jpg", "auto-source-x/../../outside.jpg"]);
+  await db.removeAutomaticImageFiles(root, id, [USER_FILE, "../outside.jpg", "auto-source-x/../../outside.jpg", "auto-flow-x/../../outside.jpg"]);
   check("ชื่อที่ไม่มี prefix / มี path → ไม่ลบอะไรเลย", existsSync(fileAt(id, USER_FILE)) && existsSync(path.join(root, "outside.jpg")));
-  await db.removeAutoSourceFiles(root, id, ["auto-source-missing.jpg"]);
+  await db.removeAutomaticImageFiles(root, id, ["auto-source-missing.jpg"]);
   check("ไฟล์รูปต้นทางที่หายไปแล้วไม่ทำให้พัง", true);
 }
 
@@ -191,6 +245,7 @@ async function main() {
   try {
     await enqueueReplaces();
     await round2Choose();
+    await automaticCopiesAreReplaced();
     await round2Rollback();
     await neverTouchesOthers();
   } catch (e) {
