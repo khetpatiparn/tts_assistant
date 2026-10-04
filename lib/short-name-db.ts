@@ -16,7 +16,7 @@ export type Shortener = (fullTitle: string) => Promise<string>;
 
 /**
  * not_needed = ชื่อไม่ใช่ชื่อเต็มของร้าน (ย่อแล้ว / ผู้ใช้ตั้งเอง / ไม่ได้มาจากร้าน / entry ไม่มีแล้ว) · shortened = เพิ่งย่อ
- * · kept_full = ชื่อร้านสั้นพออยู่แล้ว (บันทึกว่าตัดสินแล้ว) · failed = ย่อไม่ได้รอบนี้ ชื่อยังเป็นชื่อร้าน — ไม่มีการตัดชื่อเอง
+ * · kept_full = ชื่อร้านสั้นอยู่แล้ว ≤ 30 ตัว (บันทึกว่าตัดสินแล้ว) · failed = ย่อไม่ได้รอบนี้ ชื่อยังเป็นชื่อร้าน — ไม่มีการตัดชื่อเอง
  */
 export type ShortNameOutcome = "not_needed" | "shortened" | "kept_full" | "failed";
 

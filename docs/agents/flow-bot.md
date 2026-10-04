@@ -86,7 +86,7 @@ spec/แผนรอบแรก: `docs/superpowers/specs/2026-09-06-flow-image-
 ## รอบ 1–2: วาดรูปอ้างอิง
 
 - **บอทไม่พิมพ์ชื่อเต็มของร้านลงพรอมต์ Flow เด็ดขาด (ticket 07, 2026-10-04 · Short name ใน `CONTEXT.md`)** — ก่อนหยิบงานรอบ 1–2 (`needsShortNameGate`) `claimNextJob` เรียก `shortNameReady` → `ensureShortName` (`lib/short-name-db.ts` ตัวเดียวกับที่ server action ย่อเบื้องหลัง · ตัดสิน "ยังเป็นชื่อร้าน" ด้วย `isUnshortenedName` ใน `lib/flow-jobs.ts` ที่เดียว — กติกาอยู่ `docs/agents/showcase.md`):
-  - ย่อสำเร็จ / ชื่อร้านสั้นพออยู่แล้ว / ไม่ต้องย่อ → หยิบงานตามปกติ
+  - ย่อสำเร็จ / ชื่อร้านสั้นอยู่แล้ว (≤ 30 ตัว บรรทัดเดียว — ชื่อร้านยาวที่ตัวย่อคืนมาเท่าเดิม = ย่อไม่สำเร็จ) / ไม่ต้องย่อ → หยิบงานตามปกติ
   - **ย่อไม่สำเร็จ = ไม่ใช่งานพัง:** ไม่ claim (งานยัง `queued_r*` ไม่ถูกแตะ) ไม่ pause ไม่นับเพดาน/streak ไม่ลง `FlowActivity` (ไม่ใช่คำขอถึง Flow) ไม่ตัดชื่อเอง → จำเวลาลองใหม่ในหน่วยความจำ (`shortNameWait`, `shortNameRetryDelayMs` 2 → 5 → 15 → 30 นาที) แล้วลองงานถัดไป (`claimSequence` ตัดงานที่ยังไม่ถึงเวลาออกจากลำดับ `claimOrder`) · ทุกงานรอชื่ออยู่ = `claimNextJob` คืน null บอทว่างเหมือนคิวว่าง (โพลแค่ DB ไม่เรียก Gemini ถี่) · เปิดบอทใหม่ = ลืมเวลารอ ลองใหม่ทันที · log `ชื่อยังเป็นชื่อเต็มของร้าน ย่อไม่สำเร็จ…` ใน `flow-worker.log`
   - ด่านสุดท้ายใน `processJob` ก่อน `drawImages` (ที่เดียวที่พิมพ์ชื่อ): `isUnshortenedName(job.entry, …)` ของชื่อที่กำลังจะพิมพ์ → `open-flow`/`worker_crash` ก่อนแตะหน้า (ถึงได้แค่ถ้าชื่อถูกเปลี่ยนกลับเป็นชื่อร้านระหว่างด่านกับการหยิบ) · ตรวจลำดับใน `scripts/check-flow-worker-pure.mjs`
   - worker import `lib/short-name-db.ts` → `lib/gemini.ts` (ไม่มี Next) ใช้ `GEMINI_API_KEY` จาก `.env` ผ่าน `dotenv/config`

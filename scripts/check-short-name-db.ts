@@ -87,6 +87,14 @@ async function ensure() {
   const r7 = await mod.ensureShortName(shortId, { shorten: same });
   check("kept_full แล้วไม่วนย่อซ้ำ", r7.outcome === "not_needed" && same.calls === 1, JSON.stringify({ r7, calls: same.calls }));
 
+  // พรอมต์ Flow ไม่เคยใช้ชื่อเต็มของร้าน: ชื่อร้านยาว (> 30 ตัว) ที่ตัวย่อตอบกลับมาเท่าเดิม = ไม่สำเร็จ ไม่ใช่ kept_full
+  const midTitle = `${TEST_TAG}ผ้าเช็ดตัวสัตว์เลี้ยง หนานุ่ม`;
+  const midId = await shopEntry(midTitle);
+  const echo = counting(async (t) => t);
+  const r11 = await mod.ensureShortName(midId, { shorten: echo });
+  e = await entry(midId);
+  check("ชื่อร้านยาว ตัวย่อตอบชื่อเดิม → failed · entry ไม่ถูกแตะ (ยังรอชื่อสั้น)", r11.outcome === "failed" && e.productName === midTitle && e.productInfo === "", JSON.stringify({ r11, e }));
+
   const manualId = await shopEntry(SHOP, false);
   const never = counting(async () => "x");
   const r8 = await mod.ensureShortName(manualId, { shorten: never });

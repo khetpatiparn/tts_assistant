@@ -236,14 +236,23 @@ export function acceptShortName(candidate: string, fullTitle: string): string {
   return shortNameOutcome(candidate, fullTitle)?.name ?? fullTitle;
 }
 
+/** ชื่อร้านที่สั้นอยู่แล้ว (≤ 30 ตัว บรรทัดเดียว) — ใช้เป็นชื่อในพรอมต์ Flow ได้เลยโดยไม่ต้องย่อ */
+const SHOP_TITLE_SHORT_MAX = 30;
+function isShortShopTitle(fullTitle: string): boolean {
+  const t = fullTitle.trim();
+  return !/[\r\n]/.test(t) && Array.from(t.replace(/\s+/g, " ")).length <= SHOP_TITLE_SHORT_MAX;
+}
+
 /**
- * ผลของคำตอบจากตัวย่อชื่อ — `null` = ไม่สำเร็จ ต้องลองใหม่ (ว่าง / เกิน 60 / หลายบรรทัด) · ไม่สั้นกว่าชื่อร้าน = ชื่อร้านสั้นพอ
- * อยู่แล้ว ใช้ชื่อร้านได้ (สำเร็จ — ไม่งั้นงานของสินค้าที่ชื่อร้านสั้นอยู่แล้วจะรอชื่อสั้นตลอดไป)
+ * ผลของคำตอบจากตัวย่อชื่อ — `null` = ไม่สำเร็จ ต้องลองใหม่ (ว่าง / เกิน 60 / หลายบรรทัด) · ไม่สั้นกว่าชื่อร้าน = ใช้ชื่อร้าน
+ * ได้**เฉพาะเมื่อชื่อร้านสั้นอยู่แล้ว** (≤ 30 ตัว บรรทัดเดียว — ไม่งั้นงานของสินค้าที่ชื่อร้านสั้นจะรอชื่อสั้นตลอดไป) · ชื่อร้าน
+ * ยาวที่ได้คืนมาเท่าเดิม = ไม่สำเร็จ (ลองใหม่ งานรอ) — พรอมต์ Flow ไม่เคยใช้ชื่อเต็มของร้าน (Short name ใน CONTEXT.md)
  */
 export function shortNameOutcome(answer: string, fullTitle: string): { name: string } | null {
   const t = answer.replace(/\s+/g, " ").trim();
   if (t === "" || t.length > 60 || /[\r\n]/.test(answer.trim())) return null;
-  return { name: t.length >= fullTitle.trim().length ? fullTitle : t };
+  if (t.length < fullTitle.trim().length) return { name: t };
+  return isShortShopTitle(fullTitle) ? { name: fullTitle } : null;
 }
 
 const sameTitle = (a: string, b: string) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
