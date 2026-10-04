@@ -34,7 +34,7 @@ export type ClipExportJob = {
   images: { kind: string; round: number; chosen: boolean; filename: string; index?: number }[];
 };
 
-/** already = คลิปเดิม โฟลเดอร์ยังอยู่ ไม่ก๊อปอะไร · updated = เขียนทับในโฟลเดอร์เดิม · new = ช่องใหม่ของวันโพสต์ */
+/** already = คลิปเดิม โฟลเดอร์ยังอยู่ ไม่ก๊อปคลิป (ข้อความ/รูปเขียนใหม่) · updated = เขียนทับในโฟลเดอร์เดิม · new = ช่องใหม่ของวันโพสต์ */
 export type ClipExportOutcome = "already" | "updated" | "new";
 
 export type ClipExportResult = {
@@ -112,33 +112,36 @@ export async function exportClip(args: {
 
   // งานไม่มีคลิปส่ง "" (ไม่เท่ากับ video ของแถวเดิมเลย) → ส่งซ้ำเป็น update เสมอ
   const action = exportAction(prev, prev !== null && (await isDir(prev.path)), video?.filename ?? "");
-  if (action === "already" && prev !== null) {
-    const files = await readdir(prev.path).catch(() => [] as string[]);
-    return { path: prev.path, outcome: "already", files, record: { ...record, path: prev.path } };
-  }
 
-  /** เขียนของทั้งชุดลง dir — ใช้ทั้งส่งใหม่และอัปเดตโฟลเดอร์เดิม (ไฟล์ชื่อเดิมถูกเขียนทับ) */
-  async function writeContents(dir: string): Promise<string[]> {
+  /**
+   * เขียนของทั้งชุดลง dir — ใช้ทั้งส่งใหม่ อัปเดต และกดซ้ำโดยคลิปไม่เปลี่ยน (ไฟล์ชื่อเดิมถูกเขียนทับ)
+   * copyClip=false (กดซ้ำคลิปเดิม) ข้ามแค่การก๊อปคลิป/ลบคลิปอีกขนาด · รูปต้นทาง รูปที่เลือก ข้อความเขียนใหม่เสมอ
+   */
+  async function writeContents(dir: string, copyClip = true): Promise<string[]> {
     const files: string[] = [];
     if (video !== null) {
       const isFinal = video.filename === FINAL_VIDEO_FILENAME;
       const clipName = exportClipName(isFinal);
-      await copyFile(video.src, path.join(dir, clipName));
-      files.push(clipName);
-      // อัปเดต 720p → 1080p: ห้ามเหลือคลิปอีกขนาดค้างไว้ให้หยิบผิดตัวไปโพสต์
-      await rm(path.join(dir, otherExportClipName(isFinal)), { force: true });
-    } else {
-      // ไม่มีคลิป (ทำต่อเอง): รูปต้นทางคือของที่ต้องลากเข้า Flow — ใส่เสมอ
-      const source = job.images
-        .filter((i) => i.kind === "source")
-        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))[0];
-      if (source) {
-        const src = joinPath(job.flowDir, source.filename);
-        if (await isFile(src)) {
-          const name = sourcePhotoName(path.extname(source.filename));
-          await copyFile(src, path.join(dir, name));
-          files.push(name);
-        }
+      if (copyClip) {
+        await copyFile(video.src, path.join(dir, clipName));
+        // อัปเดต 720p → 1080p: ห้ามเหลือคลิปอีกขนาดค้างไว้ให้หยิบผิดตัวไปโพสต์
+        await rm(path.join(dir, otherExportClipName(isFinal)), { force: true });
+        files.push(clipName);
+      } else if (await isFile(path.join(dir, clipName))) {
+        files.push(clipName); // กดซ้ำคลิปเดิม: ไม่ก๊อปทับ แต่คลิปยังอยู่ในรายการไฟล์
+      }
+    }
+
+    // รูปต้นทางอยู่ในทุกโฟลเดอร์ (งานบอทและทำต่อเอง) — ของที่ต้องลากเข้า Flow ถ้าจะเรนเดอร์ใหม่เอง
+    const source = job.images
+      .filter((i) => i.kind === "source")
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))[0];
+    if (source) {
+      const src = joinPath(job.flowDir, source.filename);
+      if (await isFile(src)) {
+        const name = sourcePhotoName(path.extname(source.filename));
+        await copyFile(src, path.join(dir, name));
+        files.push(name);
       }
     }
 
@@ -168,10 +171,10 @@ export async function exportClip(args: {
     return files;
   }
 
-  if (action === "update" && prev !== null) {
+  if ((action === "update" || action === "already") && prev !== null) {
     try {
-      const files = await writeContents(prev.path);
-      return { path: prev.path, outcome: "updated", files, record: { ...record, path: prev.path } };
+      const files = await writeContents(prev.path, action === "update");
+      return { path: prev.path, outcome: action === "update" ? "updated" : "already", files, record: { ...record, path: prev.path } };
     } catch (err) {
       // โฟลเดอร์นี้เป็นของที่ผู้ใช้ส่งไว้แล้ว — ห้ามลบทิ้งตอนอัปเดตพัง
       throw friendlyError(err);

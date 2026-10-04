@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
-import { TAKEOVER_STATUSES, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
+import { type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -60,14 +60,15 @@ export async function applyBulk(bulk: BulkPlan, scope: { id?: string; entryId?: 
 }
 
 /**
- * เขียนแผน "ทำต่อเอง" แบบมีเงื่อนไข: อัปเดตเฉพาะถ้าสถานะยังเป็นหนึ่งในสถานะที่ทำต่อเองได้ (TAKEOVER_STATUSES) —
- * ถ้าบอทหยิบงานไประหว่างที่ผู้ใช้กดปุ่ม (queued_* → running_*) จะไม่มีแถวถูกแก้ คืน 0 และไม่ปลดการหยุดของบอท
+ * เขียนแผน "ทำต่อเอง" แบบมีเงื่อนไข: อัปเดตเฉพาะถ้าสถานะยังเป็น fromStatus ตรงตัว (สถานะที่ผู้เรียกอ่านแล้วสร้างแผนจากมัน) —
+ * แผนมีการปลดการหยุดเฉพาะตอนอ่านได้ failed จึงต้องตรงสถานะจริงเสมอ · ถ้าสถานะเปลี่ยนระหว่างอ่านกับเขียน
+ * (บอทหยิบ queued_* → running_* หรือผู้ใช้อีกแท็บกด "รันต่อ") จะไม่มีแถวถูกแก้ คืน 0 และไม่ปลดการหยุดของบอท
  * (ผู้เรียกแปลง 0 เป็นข้อความไทย) · ปลดการหยุดอยู่ในทรานแซกชันเดียวกับการจบงาน
  */
-export async function applyTakeOver(jobId: string, plan: Plan): Promise<number> {
+export async function applyTakeOver(jobId: string, plan: Plan, fromStatus: string): Promise<number> {
   return prisma.$transaction(async (tx) => {
     const res = await tx.flowJob.updateMany({
-      where: { id: jobId, status: { in: [...TAKEOVER_STATUSES] } },
+      where: { id: jobId, status: fromStatus },
       data: plan.job satisfies JobPatch,
     });
     if (res.count > 0 && plan.unpauseWorker) await unpauseWorker(tx);

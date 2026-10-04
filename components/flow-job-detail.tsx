@@ -29,7 +29,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canApproveRender, canRetryUpscale, canTakeOver, isInRenderStage } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canApproveRender, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,7 +79,7 @@ export function FlowJobDetail({
   const isImageReview = job.status === FLOW_STATUS.REVIEW_R1 || job.status === FLOW_STATUS.REVIEW_R2;
   const isRenderReview = job.status === FLOW_STATUS.REVIEW_R3;
   const isUpscale = job.status === FLOW_STATUS.QUEUED_UPSCALE || job.status === FLOW_STATUS.RUNNING_UPSCALE;
-  const stalled = !workerAlive && job.status.startsWith("running_");
+  const stalled = !workerAlive && isBotWorking(job.status);
   const source = job.sources[0] ?? null;
   const selectedId = job.candidates.some((c) => c.id === selected) ? selected : null;
   // ค้างขั้นทำคลิปแบบที่บอทไม่ได้ทำอยู่ — ตอนปิด Render อัตโนมัติ งานพวกนี้ไม่มีใครมาหยิบต่อ ผู้ใช้ต้องทำเองแล้วปิดงาน
@@ -209,7 +209,7 @@ export function FlowJobDetail({
             </span>
           </div>
         ) : (
-          job.status.startsWith("running_") && (
+          isBotWorking(job.status) && (
             <p className="text-xs leading-relaxed text-muted-foreground">บอทกำลังทำงานนี้ — กด ทำต่อเอง ได้หลังบอททำเสร็จรอบนี้</p>
           )
         )}
@@ -488,6 +488,13 @@ export function FlowJobDetail({
           <ManualRenderPanel entryId={job.entryId} prompt={job.prompt} images={manualImages} collapsed />
         )}
 
+        {/* ทำต่อเองแล้วสร้างโฟลเดอร์ TTS ไม่สำเร็จ — ทุกกรณี (มีคลิปหรือไม่) · ปุ่ม ส่งเข้าโฟลเดอร์ TTS ของหน้านี้กดลองใหม่ได้ */}
+        {job.status === FLOW_STATUS.DONE && takeoverResult?.exportError && (
+          <p className="text-sm leading-relaxed text-destructive" role="alert">
+            สร้างโฟลเดอร์ TTS ไม่สำเร็จ: {takeoverResult.exportError} — กด ส่งเข้าโฟลเดอร์ TTS เพื่อลองใหม่
+          </p>
+        )}
+
         {job.status === FLOW_STATUS.DONE && clipLayout && clipFile !== null && (
           <ClipLayout
             job={job}
@@ -518,11 +525,6 @@ export function FlowJobDetail({
         {job.status === FLOW_STATUS.DONE && job.tookOver && job.video === null && (
           <section className="flex max-w-3xl flex-col gap-3 rounded-md border-l-4 border-status-success bg-surface-2 p-3 leading-relaxed" aria-label="ทำเองแล้ว">
             <p className="text-sm font-medium text-foreground">ทำเองแล้ว — ลากรูปจากโฟลเดอร์ TTS ไปใช้ใน Flow ได้เลย</p>
-            {takeoverResult?.exportError && (
-              <p className="text-sm leading-relaxed text-destructive">
-                สร้างโฟลเดอร์ TTS ไม่สำเร็จ: {takeoverResult.exportError} — กด ส่งเข้าโฟลเดอร์ TTS เพื่อลองใหม่
-              </p>
-            )}
             <ExportToFolder jobId={job.id} exportedPath={job.exportedPath ?? takeoverResult?.exportPath ?? null} exportedVideo={job.exportedVideo} currentVideo={null} />
             <UsedImages job={job} />
             <p className="text-xs leading-relaxed text-muted-foreground">
@@ -577,9 +579,9 @@ export function FlowJobDetail({
           </div>
         )}
 
-        {!isUpscale && (job.status.startsWith("queued_") || job.status.startsWith("running_")) && (
+        {!isUpscale && (isWaitingForBot(job.status) || isBotWorking(job.status)) && (
           <p className="text-sm leading-relaxed text-muted-foreground">
-            {job.status.startsWith("running_") ? (stalled ? "ค้างอยู่ (บอทไม่ได้เปิด)" : "บอทกำลังทำอยู่ตอนนี้") : "รอบอทหยิบงาน"}
+            {isBotWorking(job.status) ? (stalled ? "ค้างอยู่ (บอทไม่ได้เปิด)" : "บอทกำลังทำอยู่ตอนนี้") : "รอบอทหยิบงาน"}
           </p>
         )}
 

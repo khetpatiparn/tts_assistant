@@ -133,6 +133,7 @@ try {
 
   // ทำต่อเอง (takeOver) แทน finishManually — ได้ทุกสถานะเปิดที่บอทไม่ได้กำลังทำอยู่ · งานพัง = ปลดการหยุด
   const TAKE = ["queued_r1", "review_r1", "queued_r2", "review_r2", "awaiting_prompt", "queued_r3", "review_r3", "queued_upscale", "failed"];
+  const ALL_STATUSES = [...TAKE, "running_r1", "running_r2", "running_r3", "running_upscale", "done", "skipped"];
   const NOT_TAKE = ["running_r1", "running_r2", "running_r3", "running_upscale", "done", "skipped"];
   check("canTakeOver: ทุกสถานะเปิดที่ไม่ใช่ running ได้", TAKE.map((s) => L.canTakeOver(s)), TAKE.map(() => true));
   check("canTakeOver: running_* / done / skipped ไม่ได้", NOT_TAKE.map((s) => L.canTakeOver(s)), NOT_TAKE.map(() => false));
@@ -148,6 +149,12 @@ try {
     checkThrows(`takeOver ${s} throws (บอทกำลังทำ)`, () => L.takeOver({ status: s }, now), "บอทเพิ่งเริ่มทำงานนี้");
   }
   for (const s of ["done", "skipped"]) checkThrows(`takeOver ${s} throws (จบแล้ว)`, () => L.takeOver({ status: s }, now), "งานนี้จบแล้ว");
+  // สถานะที่ทำต่อเองได้มาจากที่เดียว: ตัวช่วยของหน้าจอ + ข้อความปฏิเสธเป็นค่าคงที่เดียว (review fix)
+  check("isBotWorking: เฉพาะ running_*", ["running_r1", "running_r2", "running_r3", "running_upscale", "queued_r1", "failed", "done"].map((s) => L.isBotWorking(s)), [true, true, true, true, false, false, false]);
+  check("isWaitingForBot: เฉพาะ queued_*", ["queued_r1", "queued_r2", "queued_r3", "queued_upscale", "running_r1", "awaiting_prompt", "failed"].map((s) => L.isWaitingForBot(s)), [true, true, true, true, false, false, false]);
+  check("TAKEOVER_STATUSES = ทุกสถานะเปิดที่ไม่ใช่ running (ไม่มีรายการเขียนซ้ำ)", [...L.TAKEOVER_STATUSES].sort(), ALL_STATUSES.filter((x) => x !== "done" && x !== "skipped" && !L.isBotWorking(x)).sort());
+  check("ข้อความปฏิเสธบอทกำลังทำ = ค่าคงที่เดียว", typeof L.TAKEOVER_BOT_BUSY_MESSAGE === "string" && L.TAKEOVER_BOT_BUSY_MESSAGE.includes("บอทเพิ่งเริ่มทำงานนี้"), true);
+  checkThrows("takeOver running_* ใช้ค่าคงที่นั้น", () => L.takeOver({ status: "running_r3" }, now), L.TAKEOVER_BOT_BUSY_MESSAGE ?? "undefined-constant");
   check("isInRenderStage: awaiting_prompt/queued_r3/review_r3/failed≥3 ใช่ · running_r3/failed รอบ 2/review_r2 ไม่",
     [["awaiting_prompt", 3], ["queued_r3", 3], ["review_r3", 3], ["failed", 3], ["failed", 4], ["running_r3", 3], ["failed", 2], ["review_r2", 2]].map(([s, r]) => L.isInRenderStage(s, r)),
     [true, true, true, true, true, false, false, false]);
@@ -317,6 +324,8 @@ try {
   check("ข้อความ 'ได้ 720p' มีแค่ใน lib/flow-lifecycle.ts", sources.filter((f) => strip(f).includes("ได้ 720p")), []);
   const detail = strip("components/flow-job-detail.tsx");
   check("หน้า /flow ใช้ isInRenderStage/canTakeOver (ไม่มีรายการสถานะซ้ำ)", detail.includes("isInRenderStage(") && detail.includes("canTakeOver(") && !detail.includes("job.round >= 3"), true);
+  check("หน้า /flow ไม่เช็กสถานะ running_/queued_ ด้วย string prefix เอง", /startsWith("(running_|queued_)")/.test(detail), false);
+  check("ข้อความ 'บอทเพิ่งเริ่มทำงานนี้' มีแค่ใน lib/flow-lifecycle.ts", ["app/actions.ts", "components/flow-job-detail.tsx", "lib/flow-lifecycle-db.ts"].filter((f) => strip(f).includes("บอทเพิ่งเริ่มทำงานนี้")), []);
   const takeOverBody = (strip("app/actions.ts").match(/export async function takeOverFlowJob[^]*?\n}\n/) ?? [""])[0];
   check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", takeOverBody.includes(" takeOver(") && takeOverBody.includes("applyTakeOver("), true);
   check("ไม่มี finishRenderManually/finishManually/canFinishManually เหลือ", ["app/actions.ts", "lib/flow-lifecycle.ts", "components/flow-job-detail.tsx", "components/manual-render-panel.tsx"].filter((f) => /finishRenderManually|finishManually|canFinishManually/.test(strip(f))), []);

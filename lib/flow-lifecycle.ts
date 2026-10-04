@@ -134,26 +134,31 @@ export function canRetryUpscale(
   return status === FLOW_STATUS.DONE && video !== null && !video.chosen && video.filename !== FINAL_VIDEO_FILENAME && flowProjectId !== "";
 }
 
+/** บอทกำลังทำงานนี้อยู่ (running_*) — หน้าจอใช้ตัวนี้แทนเช็ก prefix ของชื่อสถานะเอง */
+export function isBotWorking(status: string): boolean {
+  return ([1, 2, 3, 4] as const).some((round) => runningStatus(round) === status);
+}
+
+/** รอบอทหยิบงาน (queued_*) */
+export function isWaitingForBot(status: string): boolean {
+  return ([1, 2, 3, 4] as const).some((round) => queuedStatus(round) === status);
+}
+
 /**
- * สถานะที่ผู้ใช้ "ทำต่อเอง" ได้ = ทุกสถานะเปิดยกเว้น running_* (บอทกำลังทำ) — adapter ใช้รายการนี้เป็น where ของการเขียน
- * จึงปิดช่องที่บอทหยิบงานระหว่างผู้ใช้กดปุ่ม (lib/flow-lifecycle-db.ts applyTakeOver)
+ * สถานะที่ผู้ใช้ "ทำต่อเอง" ได้ = ทุกสถานะเปิดยกเว้น running_* (บอทกำลังทำ) — รายการเดียว ใช้ร่วมทั้ง gate (canTakeOver/takeOver),
+ * adapter (lib/flow-lifecycle-db.ts applyTakeOver) และหน้าจอ · derive จากรายการสถานะ ไม่เขียนซ้ำ
  */
-export const TAKEOVER_STATUSES: readonly FlowStatus[] = [
-  FLOW_STATUS.QUEUED_R1,
-  FLOW_STATUS.REVIEW_R1,
-  FLOW_STATUS.QUEUED_R2,
-  FLOW_STATUS.REVIEW_R2,
-  FLOW_STATUS.AWAITING_PROMPT,
-  FLOW_STATUS.QUEUED_R3,
-  FLOW_STATUS.REVIEW_R3,
-  FLOW_STATUS.QUEUED_UPSCALE,
-  FLOW_STATUS.FAILED,
-];
+export const TAKEOVER_STATUSES: readonly FlowStatus[] = (Object.values(FLOW_STATUS) as FlowStatus[]).filter(
+  (s) => isOpenStatus(s) && !isBotWorking(s),
+);
 
 /** ปุ่ม "ทำต่อเอง": งานที่บอทไม่ได้กำลังทำอยู่ (และยังไม่จบ) */
 export function canTakeOver(status: string): boolean {
   return (TAKEOVER_STATUSES as readonly string[]).includes(status);
 }
+
+/** ข้อความปฏิเสธเมื่อบอทหยิบงานไปก่อนผู้ใช้กด — ที่เดียว (takeOver, action ที่ได้ 0 แถว, หน้าจอ) */
+export const TAKEOVER_BOT_BUSY_MESSAGE = "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง";
 
 /** อยู่ขั้นทำคลิป (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) — หน้า /flow ใช้ตัดสินว่าจะโชว์แผงทำคลิปเองตอนปิด Render อัตโนมัติ */
 export function isInRenderStage(status: string, round: number): boolean {
@@ -298,7 +303,7 @@ export function skip(job: { status: string }, now: Date): Plan | null {
 export function takeOver(job: { status: string }, now: Date): Plan {
   if (!canTakeOver(job.status)) {
     throw new Error(
-      isOpenStatus(job.status) ? "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง" : "งานนี้จบแล้ว — ทำต่อเองไม่ได้",
+      isOpenStatus(job.status) ? TAKEOVER_BOT_BUSY_MESSAGE : "งานนี้จบแล้ว — ทำต่อเองไม่ได้",
     );
   }
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now }, unpauseWorker: job.status === FLOW_STATUS.FAILED };

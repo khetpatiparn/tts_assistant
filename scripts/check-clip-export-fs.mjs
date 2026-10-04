@@ -217,6 +217,27 @@ try {
   const rC3 = await M.exportClip({ root: root4, now, job: tkCClip, prev: rC2.record, ...T });
   check("คลิปมาทีหลัง → updated โฟลเดอร์เดิม มีคลิป และรูปต้นทางยังอยู่", [rC3.outcome, rC3.path, ls(rC.path).includes("คลิป-720p.mp4"), ls(rC.path).includes("รูปต้นทาง.png")], ["updated", rC.path, true, true]);
 
+  // ---- กดซ้ำโดยคลิปไม่เปลี่ยน: ข้ามแค่การก๊อปคลิป ข้อความเขียนใหม่ในโฟลเดอร์เดิม ไม่ย้ายวัน (review fix) ----
+  writeFileSync(join(tkC2.flowDir, "r3-a1.mp4"), "late-clip-changed-on-disk");
+  const tkD = { ...tkCClip, caption: "แคปชัน D", chatgptOutput: "เสียงพากย์: ข้อความใหม่" };
+  const rD = await M.exportClip({ root: root4, now, job: tkD, prev: rC3.record, ...T });
+  check("คลิปเดิม + มีข้อความใหม่ → outcome already โฟลเดอร์เดิม", [rD.outcome, rD.path], ["already", rC.path]);
+  check("already: โพสต์.txt เขียนใหม่", read(join(rC.path, "โพสต์.txt")), "สินค้า C\n\nแคปชัน D\n\n#c\n");
+  check("already: เสียงพากย์.txt เขียนใหม่", read(join(rC.path, "เสียงพากย์.txt")), "ข้อความใหม่\n");
+  check("already: ไม่ก๊อปคลิปทับ", read(join(rC.path, "คลิป-720p.mp4")), "late-clip");
+  check("already: ไม่ย้ายวัน/ไม่ขอช่องใหม่ + files ตรงของในโฟลเดอร์", [subdirs("October", "3-10-69"), [...rD.files].sort()], [["1_clip", "2_clip", "3_สินค้า C"], ls(rC.path)]);
+
+  // ---- รูปต้นทางอยู่ในทุกโฟลเดอร์ รวมงานของบอท (มีคลิป) ทั้งส่งใหม่และอัปเดต (review fix) ----
+  const botSrc = mkSource(makeJob("บอทมีต้นทาง", { "r1-a1-2.png": "w", "r2-a1-1.jpg": "u", "r3-a1.mp4": "bot-clip" }));
+  const rBot = await M.exportClip({ root: root4, now, job: botSrc, prev: null });
+  check("งานบอท (มีคลิป) ส่งใหม่ → มี รูปต้นทาง.png ด้วย", [rBot.outcome, rBot.files.includes("รูปต้นทาง.png"), rBot.files.includes("คลิป-720p.mp4")], ["new", true, true]);
+  check("งานบอท: เนื้อรูปต้นทางตรงต้นทาง", read(join(rBot.path, "รูปต้นทาง.png")), "src-photo");
+  rmSync(join(rBot.path, "รูปต้นทาง.png"));
+  writeFileSync(join(botSrc.flowDir, "r3-final.mp4"), "bot-1080");
+  const botSrc1080 = { ...botSrc, images: [...botSrc.images.filter((i) => i.kind !== "video"), { kind: "video", round: 3, chosen: true, filename: "r3-final.mp4" }] };
+  const rBot2 = await M.exportClip({ root: root4, now, job: botSrc1080, prev: rBot.record });
+  check("งานบอท อัปเดต 720p→1080p → updated และรูปต้นทางกลับมาอยู่ในโฟลเดอร์", [rBot2.outcome, ls(rBot.path).includes("รูปต้นทาง.png")], ["updated", true]);
+
   // ---- งานปกติ (บอท) ยังต้องมีคลิป ----
   const before4 = JSON.stringify(subdirs("October", "3-10-69"));
   check("ไม่ได้ทำต่อเอง + ไม่มีคลิป → error เดิม ไม่สร้างโฟลเดอร์", await rejects(() => M.exportClip({ root: root4, now, job: tkB, prev: null })), "งานนี้ยังไม่มีไฟล์คลิป");

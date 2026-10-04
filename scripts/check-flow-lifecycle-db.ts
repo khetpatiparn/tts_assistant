@@ -538,8 +538,8 @@ const NEW = {
   /** ทำต่อเอง — action เขียนด้วย applyTakeOver แล้วแปลง 0 แถวเป็นข้อความไทย (ที่นี่แค่ throw ให้ step เทียบได้) */
   async takeOver(jobId: string) {
     const job = await prisma.flowJob.findUniqueOrThrow({ where: { id: jobId } });
-    const n = await db.applyTakeOver(jobId, L.takeOver(job, new Date()));
-    if (n === 0) throw new Error("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
+    const n = await db.applyTakeOver(jobId, L.takeOver(job, new Date()), job.status);
+    if (n === 0) throw new Error(L.TAKEOVER_BOT_BUSY_MESSAGE);
   },
   async previewReady(jobId: string, files: string[], downloadFailed: string | null, mediaId: string | null, projectId: string) {
     const job = await prisma.flowJob.findUniqueOrThrow({ where: { id: jobId } });
@@ -1014,7 +1014,7 @@ async function takeovers() {
     const stalePlan = L.takeOver(stale, new Date());
     await NEW.claim(p.b, 1);
     await pauseForTest();
-    const n = await db.applyTakeOver(p.b, stalePlan);
+    const n = await db.applyTakeOver(p.b, stalePlan, stale.status);
     const j = await snapJob(p.b);
     check("แข่งกับบอท: บอทหยิบก่อน → applyTakeOver คืน 0 · งานยัง running_r1 · ไม่มี finishedAt", n === 0 && j.status === FLOW_STATUS.RUNNING_R1 && j.finishedAt === null, JSON.stringify({ n, j }));
   }
@@ -1026,13 +1026,25 @@ async function takeovers() {
     await NEW.resume(p.b);
     await NEW.claim(p.b, 1);
     await pauseForTest();
-    const n = await db.applyTakeOver(p.b, stalePlan);
+    const n = await db.applyTakeOver(p.b, stalePlan, stale.status);
     check("แข่งกับบอท (งานพังที่ถูกรันต่อ+หยิบไปแล้ว): 0 แถว และไม่ปลดการหยุดของบอท", n === 0 && (await snapWorker())?.pausedReason === "test_pause", JSON.stringify({ n, w: await snapWorker() }));
+  }
+  // สถานะเปลี่ยนเป็นอีกสถานะที่ "ทำต่อเองได้" ระหว่างอ่านกับเขียน (อ่านตอน failed → ผู้ใช้อีกแท็บกด "รันต่อ" = queued_r1):
+  // where ต้องตรงสถานะที่อ่านมา ไม่ใช่แค่อยู่ในรายการ — ไม่งั้นงานถูกปิดด้วยแผนของ failed และปลดการหยุดที่ไม่ใช่ของแผนนี้
+  {
+    const p = await makePair({ status: FLOW_STATUS.FAILED, round: 1, attempt: 1, failedStep: "x", errorKind: "flow_error" });
+    const stale = await prisma.flowJob.findUniqueOrThrow({ where: { id: p.b } });
+    const stalePlan = L.takeOver(stale, new Date());
+    await NEW.resume(p.b);
+    await pauseForTest();
+    const n = await db.applyTakeOver(p.b, stalePlan, stale.status);
+    const j = await snapJob(p.b);
+    check("สถานะเปลี่ยน failed→queued_r1 (ยังอยู่ในรายการทำต่อเอง): 0 แถว · งานยัง queued_r1 · ไม่ปลดการหยุด", n === 0 && j.status === FLOW_STATUS.QUEUED_R1 && (await snapWorker())?.pausedReason === "test_pause", JSON.stringify({ n, j }));
   }
   // สำเร็จ = คืน 1
   {
     const p = await makePair({ status: FLOW_STATUS.REVIEW_R1, round: 1, attempt: 1 });
-    const n = await db.applyTakeOver(p.b, L.takeOver({ status: FLOW_STATUS.REVIEW_R1 }, new Date()));
+    const n = await db.applyTakeOver(p.b, L.takeOver({ status: FLOW_STATUS.REVIEW_R1 }, new Date()), FLOW_STATUS.REVIEW_R1);
     check("applyTakeOver สำเร็จคืน 1", n === 1, String(n));
   }
 }

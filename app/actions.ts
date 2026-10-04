@@ -68,6 +68,7 @@ import {
   retryUpscale,
   skip,
   takeOver,
+  TAKEOVER_BOT_BUSY_MESSAGE,
 } from "@/lib/flow-lifecycle";
 import { addImage, applyBulk, applyPlan, applyTakeOver, createJob } from "@/lib/flow-lifecycle-db";
 
@@ -1577,8 +1578,8 @@ export async function takeOverFlowJob(
   } catch (e) {
     return refused(e instanceof Error ? e.message : "ทำต่อเองไม่ได้");
   }
-  const changed = await applyTakeOver(jobId, plan);
-  if (changed === 0) return refused("บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง");
+  const changed = await applyTakeOver(jobId, plan, job.status);
+  if (changed === 0) return refused(TAKEOVER_BOT_BUSY_MESSAGE);
   await logUserActivity({
     kind: "user_take_over",
     jobId,
