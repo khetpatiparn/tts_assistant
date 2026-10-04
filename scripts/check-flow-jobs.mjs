@@ -108,6 +108,41 @@ try {
   check("summarize failed", s.failed, 1);
   check("queueCategory skipped = null", f.queueCategory("skipped"), null);
   check("queueCategory awaiting_prompt = waitingBot", f.queueCategory("awaiting_prompt"), "waitingBot");
+  // ---------- แท็บหน้าคิว /flow (pure grouping) ----------
+  const tabOf = (st) => f.flowTabOf(st);
+  check("tab review_r1 = choose", tabOf("review_r1"), "choose");
+  check("tab review_r2 = choose", tabOf("review_r2"), "choose");
+  check("tab review_r3 = clip", tabOf("review_r3"), "clip");
+  check("tab failed = failed", tabOf("failed"), "failed");
+  for (const st of ["queued_r1", "running_r1", "queued_r2", "running_r2", "awaiting_prompt", "queued_r3", "running_r3", "queued_upscale", "running_upscale"]) {
+    check(`tab ${st} = bot`, tabOf(st), "bot");
+  }
+  check("tab done = closed", tabOf("done"), "closed");
+  check("tab skipped = closed", tabOf("skipped"), "closed");
+  check("ทุกสถานะอยู่ในแท็บที่รู้จัก", Object.values(f.FLOW_STATUS).every((st) => f.FLOW_TABS.some((t) => t.key === tabOf(st))), true);
+  check("ลำดับแท็บ", f.FLOW_TABS.map((t) => t.key).join(","), "choose,clip,failed,bot,closed");
+  check("ป้ายแท็บเลือกรูป", f.FLOW_TABS[0].label, "เลือกรูป");
+  check("countByTab", JSON.stringify(f.countByTab([{ status: "review_r1" }, { status: "review_r2" }, { status: "skipped" }, { status: "done" }])), JSON.stringify({ choose: 2, clip: 0, failed: 0, bot: 0, closed: 2 }));
+  const cnt = (o) => ({ choose: 0, clip: 0, failed: 0, bot: 0, closed: 0, ...o });
+  check("default tab: มีเลือกรูป", f.defaultFlowTab(cnt({ choose: 1, clip: 2, bot: 5 })), "choose");
+  check("default tab: ข้ามเลือกรูปที่ว่าง -> clip", f.defaultFlowTab(cnt({ clip: 1, failed: 1 })), "clip");
+  check("default tab: เหลือแค่พัง", f.defaultFlowTab(cnt({ failed: 1, bot: 3 })), "failed");
+  check("default tab: ไม่มีงานรอผู้ใช้ -> bot", f.defaultFlowTab(cnt({ bot: 1, closed: 4 })), "bot");
+  check("default tab: ว่างหมด -> bot", f.defaultFlowTab(cnt({})), "bot");
+  check("parseFlowTab ถูก", f.parseFlowTab("clip"), "clip");
+  check("parseFlowTab แปลก = null", f.parseFlowTab("zzz"), null);
+  check("parseFlowTab null = null", f.parseFlowTab(null), null);
+  check("tabBadge review_r1", f.jobKindLabel("review_r1", 1), "รอบ 1");
+  check("tabBadge review_r2", f.jobKindLabel("review_r2", 2), "รอบ 2");
+  check("kind queued_r1", f.jobKindLabel("queued_r1", 1), "วาดรูป รอบ 1");
+  check("kind running_r2", f.jobKindLabel("running_r2", 2), "วาดรูป รอบ 2");
+  check("kind queued_r3", f.jobKindLabel("queued_r3", 3), "เรนเดอร์คลิป");
+  check("kind running_r3", f.jobKindLabel("running_r3", 3), "เรนเดอร์คลิป");
+  check("kind queued_upscale", f.jobKindLabel("queued_upscale", 4), "โหลด 1080p");
+  check("kind running_upscale", f.jobKindLabel("running_upscale", 4), "โหลด 1080p");
+  check("kind awaiting_prompt", f.jobKindLabel("awaiting_prompt", 3), "รอพรอมต์");
+  check("kind done = null", f.jobKindLabel("done", 3), null);
+
   check("STATUS_LABELS ครบทุกสถานะ", Object.values(f.FLOW_STATUS).every((st) => typeof f.STATUS_LABELS[st] === "string"), true);
   check("STEP_LABELS has wait-render", typeof f.STEP_LABELS["wait-render"], "string");
 

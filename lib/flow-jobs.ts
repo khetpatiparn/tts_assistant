@@ -228,6 +228,61 @@ export function summarizeQueue(jobs: { status: string }[]): Record<QueueCategory
   return out;
 }
 
+/**
+ * แท็บของหน้า /flow (spec 2026-10-04) — จัดกลุ่มล้วนๆ ตามสิ่งที่ผู้ใช้ต้องทำ ไม่เปลี่ยนสถานะ/พฤติกรรมของงาน
+ * choose = เลือกรูปรอบ 1+2 · clip = ดูคลิปตัวอย่าง · failed = พัง · bot = บอททำ/รอคิว/รอพรอมต์ · closed = เสร็จ+ข้าม
+ */
+export type FlowTab = "choose" | "clip" | "failed" | "bot" | "closed";
+
+/** ลำดับแท็บ = ลำดับที่แสดง และลำดับที่หาแท็บเริ่มต้น (3 แท็บแรกคือแท็บที่รอผู้ใช้) */
+export const FLOW_TABS: { key: FlowTab; label: string }[] = [
+  { key: "choose", label: "เลือกรูป" },
+  { key: "clip", label: "ดูคลิป" },
+  { key: "failed", label: "พัง" },
+  { key: "bot", label: "บอทกำลังทำ / รอคิว" },
+  { key: "closed", label: "เสร็จ / ข้าม" },
+];
+
+export function flowTabOf(status: string): FlowTab {
+  if (status === FLOW_STATUS.REVIEW_R1 || status === FLOW_STATUS.REVIEW_R2) return "choose";
+  if (status === FLOW_STATUS.REVIEW_R3) return "clip";
+  if (status === FLOW_STATUS.FAILED) return "failed";
+  if (status === FLOW_STATUS.DONE || status === FLOW_STATUS.SKIPPED) return "closed";
+  // queued_* / running_* / awaiting_prompt (และสถานะใหม่ที่ยังไม่รู้จัก — ให้เห็นในแท็บบอทดีกว่าหายไป)
+  return "bot";
+}
+
+export function countByTab(jobs: { status: string }[]): Record<FlowTab, number> {
+  const out: Record<FlowTab, number> = { choose: 0, clip: 0, failed: 0, bot: 0, closed: 0 };
+  for (const j of jobs) out[flowTabOf(j.status)]++;
+  return out;
+}
+
+/** แท็บแรกของ เลือกรูป/ดูคลิป/พัง ที่มีงาน · ไม่มีเลย = แท็บบอท */
+export function defaultFlowTab(counts: Record<FlowTab, number>): FlowTab {
+  for (const key of ["choose", "clip", "failed"] as const) if (counts[key] > 0) return key;
+  return "bot";
+}
+
+export function parseFlowTab(raw: string | null | undefined): FlowTab | null {
+  return FLOW_TABS.find((t) => t.key === raw)?.key ?? null;
+}
+
+/**
+ * ป้ายชนิดงานในแท็บ: เลือกรูป → "รอบ N" · บอท → วาดรูป รอบ N / เรนเดอร์คลิป / โหลด 1080p / รอพรอมต์ · แท็บอื่น null
+ * (round มาจาก FlowJob.round แต่ใช้เฉพาะเมื่อชื่อสถานะบอกรอบไม่ได้ — ตอนนี้ทุกสถานะที่เกี่ยวบอกรอบในชื่อเอง)
+ */
+export function jobKindLabel(status: string, round: number): string | null {
+  const tab = flowTabOf(status);
+  if (tab === "choose") return `รอบ ${roundOf(status) ?? toJobRound(round)}`;
+  if (tab !== "bot") return null;
+  if (status === FLOW_STATUS.AWAITING_PROMPT) return "รอพรอมต์";
+  const r = roundOf(status) ?? toJobRound(round);
+  if (r === 4) return "โหลด 1080p";
+  if (r === 3) return "เรนเดอร์คลิป";
+  return `วาดรูป รอบ ${r}`;
+}
+
 /** heartbeat หายเกิน 3 รอบ = ถือว่าบอทไม่อยู่แล้ว */
 export function isWorkerAlive(lastSeenAt: Date | null, now: Date, heartbeatMs: number): boolean {
   if (lastSeenAt === null) return false;

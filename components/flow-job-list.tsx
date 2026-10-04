@@ -1,63 +1,38 @@
 "use client";
 
-import { ChevronRight, Download, FolderCheck } from "lucide-react";
+import { Download, FolderCheck } from "lucide-react";
 
 import type { FlowJobRow } from "@/lib/flow-queries";
-import { FLOW_STATUS, STATUS_LABELS, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
+import { FLOW_STATUS, STATUS_LABELS, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { FlowStepperCompact } from "@/components/flow-stepper";
 import { JobThumb, badgeVariant, imgUrl } from "@/components/flow-job-parts";
 
-export type FlowListGroup = { key: string; title: string; jobs: FlowJobRow[]; collapsible: boolean; open: boolean };
-
-/** รายการงาน (ฝั่งซ้ายของหน้า /flow) · กดแถว = เลือกงาน · กลุ่มที่พับ (เสร็จแล้ว/ข้ามแล้ว) ไม่ render แถว */
+/** รายการงานของแท็บที่เลือก (ฝั่งซ้ายของหน้า /flow) · กดแถว = เลือกงาน · ป้ายรอบ/ชนิดงานมาจาก jobKindLabel */
 export function FlowJobList({
-  groups,
+  jobs,
   selectedId,
   renderEnabled,
   onSelect,
-  onToggleGroup,
 }: {
-  groups: FlowListGroup[];
+  jobs: FlowJobRow[];
   selectedId: string | null;
   renderEnabled: boolean;
   onSelect: (id: string) => void;
-  onToggleGroup: (key: string) => void;
 }) {
   return (
-    <ul className="flex flex-col">
-      {groups.map((g) => [
-        <li key={`h-${g.key}`} className="border-b border-border pt-3 pb-1">
-          {g.collapsible ? (
-            <button
-              type="button"
-              aria-expanded={g.open}
-              onClick={() => onToggleGroup(g.key)}
-              className="flex min-h-11 w-full items-center gap-2 rounded-md px-1 text-left text-sm font-semibold text-foreground hover:bg-surface-2 lg:min-h-9"
-            >
-              <ChevronRight aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", g.open && "rotate-90")} />
-              {g.title} ({g.jobs.length})
-            </button>
-          ) : (
-            <h2 className="px-1 text-sm font-semibold text-foreground">
-              {g.title} ({g.jobs.length})
-            </h2>
-          )}
-        </li>,
-        ...(g.open
-          ? g.jobs.map((job) => (
-              <FlowJobListItem
-                key={job.id}
-                job={job}
-                selected={job.id === selectedId}
-                renderEnabled={renderEnabled}
-                onSelect={() => onSelect(job.id)}
-              />
-            ))
-          : []),
-      ])}
+    <ul className="flex flex-col border-t border-border">
+      {jobs.map((job) => (
+        <FlowJobListItem
+          key={job.id}
+          job={job}
+          selected={job.id === selectedId}
+          renderEnabled={renderEnabled}
+          onSelect={() => onSelect(job.id)}
+        />
+      ))}
     </ul>
   );
 }
@@ -73,6 +48,7 @@ function FlowJobListItem({
   renderEnabled: boolean;
   onSelect: () => void;
 }) {
+  const kind = jobKindLabel(job.status, job.round);
   const thumb = job.chosenRound2 ?? job.chosenRound1 ?? job.candidates[job.candidates.length - 1] ?? null;
   return (
     <li
@@ -96,6 +72,7 @@ function FlowJobListItem({
               round={job.round}
               imagesOnly={job.status === FLOW_STATUS.DONE && !renderEnabled && job.video === null}
             />
+            {kind !== null && <Badge variant="neutral">{kind}</Badge>}
             <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
             {job.tookOver && <Badge variant="neutral">ทำเอง</Badge>}
             {job.exportedPath !== null && (
