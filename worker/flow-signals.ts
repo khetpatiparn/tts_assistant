@@ -158,3 +158,41 @@ export function fileUrlIsMedia(url: string | null, mediaId: string): boolean {
   if (mediaId === "") return false;
   return videoUuidFromUrl(url) === mediaId;
 }
+
+/**
+ * เครือข่ายสะดุดตอน goto — ยังไม่ได้แตะ Google เลย จึงลองใหม่ได้โดยไม่ขัดกฎ "ไม่ retry กับหน้าที่พัง"
+ * เคสจริง 2026-10-05: net::ERR_NETWORK_CHANGED ตอนเปิดโปรเจกต์ถูกตีเป็น worker_crash แล้วหยุดทั้งคิวเป็นชั่วโมง
+ * รับเฉพาะรหัสที่แปลว่า "เน็ตหาย/เปลี่ยน" — ERR_BLOCKED_*, ERR_CERT_* และ timeout ไม่นับ (ลองซ้ำแล้วไม่หาย)
+ */
+const TRANSIENT_NET_CODES = [
+  "ERR_NETWORK_CHANGED",
+  "ERR_INTERNET_DISCONNECTED",
+  "ERR_NAME_NOT_RESOLVED",
+  "ERR_NETWORK_IO_SUSPENDED",
+  "ERR_CONNECTION_RESET",
+  "ERR_CONNECTION_CLOSED",
+  "ERR_CONNECTION_TIMED_OUT",
+  "ERR_CONNECTION_REFUSED",
+  "ERR_ADDRESS_UNREACHABLE",
+];
+
+export function isTransientNetworkError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return TRANSIENT_NET_CODES.some((code) => msg.includes(`net::${code}`));
+}
+
+/** รันขั้นเปิดหน้า: เน็ตสะดุดชั่วคราว = รอแล้วลองใหม่ (ครบ tries แล้ว throw error ล่าสุด) · error อื่น throw ทันที */
+export async function retryTransientNav<T>(
+  fn: () => Promise<T>,
+  opts: { tries: number; waitMs: number; sleep: (ms: number) => Promise<void>; onRetry?: (attempt: number, e: unknown) => void },
+): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!isTransientNetworkError(e) || attempt >= opts.tries) throw e;
+      opts.onRetry?.(attempt, e);
+      await opts.sleep(opts.waitMs);
+    }
+  }
+}

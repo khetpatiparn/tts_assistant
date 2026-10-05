@@ -18,7 +18,7 @@ import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
-import { postRenderFailReason } from "./flow-signals";
+import { postRenderFailReason, retryTransientNav } from "./flow-signals";
 import { clipCapture, type ClipCapture } from "./clip-capture";
 import type { ObservedResponse } from "./generation-watch";
 
@@ -334,7 +334,13 @@ export async function withFlowSession<T>(
   async function openProject(projectId: string | null, existingOnly: boolean): Promise<string> {
     await step("open-flow", async () => {
       const url = projectId ? sel.projectUrl(projectId) : cfg.flowUrl;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      // เน็ตสะดุด (ERR_NETWORK_CHANGED ฯลฯ) ก่อนแตะ Google — รอแล้วลองใหม่ 5 ครั้ง ครบแล้วค่อยพังเหมือนเดิม
+      await retryTransientNav(() => page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 }), {
+        tries: 5,
+        waitMs: 15_000,
+        sleep: sleepMs,
+        onRetry: (n, e) => log.log("open-flow", `เน็ตสะดุด (${n}/5) — รอ 15 วิแล้วลองใหม่: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`),
+      });
       await sleepMs(randInt([3000, 6000]));
       await dismissOverlays(page, sel, cfg, log);
     });

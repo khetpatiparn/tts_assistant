@@ -125,6 +125,28 @@ try {
   check("HTTP 404 ของ RPC อื่น → ไม่หยุด", fs2.blockKindForStatus(404), null);
   check("HTTP 500 ของ RPC อื่น → ไม่หยุด", fs2.blockKindForStatus(500), null);
   check("HTTP 200 → ไม่หยุด", fs2.blockKindForStatus(200), null);
+
+  // เครือข่ายสะดุดตอน goto (ยังไม่แตะ Google) — เคสจริง 2026-10-05: ERR_NETWORK_CHANGED ถูกตีเป็น worker_crash แล้วหยุดทั้งคิว
+  const netErr = (code) => new Error(`page.goto: net::${code} at https://flow.google.com/project/x?hl=en\nCall log:`);
+  for (const code of ["ERR_NETWORK_CHANGED", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_TIMED_OUT", "ERR_NETWORK_IO_SUSPENDED"]) {
+    check(`${code} → เน็ตสะดุดชั่วคราว`, fs2.isTransientNetworkError(netErr(code)), true);
+  }
+  check("ERR_BLOCKED_BY_CLIENT → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(netErr("ERR_BLOCKED_BY_CLIENT")), false);
+  check("ERR_CERT_AUTHORITY_INVALID → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(netErr("ERR_CERT_AUTHORITY_INVALID")), false);
+  check("timeout ธรรมดา → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(new Error("Timeout 45000ms exceeded")), false);
+  {
+    const waits = [];
+    let calls = 0;
+    const out = await fs2.retryTransientNav(async () => { calls++; if (calls < 3) throw netErr("ERR_NETWORK_CHANGED"); return "ok"; }, { tries: 5, waitMs: 10, sleep: async (ms) => { waits.push(ms); } });
+    check("เน็ตสะดุด 2 ครั้งแล้วกลับมา → สำเร็จ", JSON.stringify([out, calls, waits.length]), JSON.stringify(["ok", 3, 2]));
+    let calls2 = 0;
+    let thrown = "";
+    try { await fs2.retryTransientNav(async () => { calls2++; throw netErr("ERR_INTERNET_DISCONNECTED"); }, { tries: 3, waitMs: 10, sleep: async () => {} }); } catch (e) { thrown = String(e); }
+    check("เน็ตไม่กลับ → ลองครบแล้ว throw error เดิม", JSON.stringify([calls2, thrown.includes("ERR_INTERNET_DISCONNECTED")]), JSON.stringify([3, true]));
+    let calls3 = 0;
+    try { await fs2.retryTransientNav(async () => { calls3++; throw new Error("Timeout 45000ms exceeded"); }, { tries: 5, waitMs: 10, sleep: async () => {} }); } catch { /* expected */ }
+    check("error อื่น → ไม่ลองซ้ำ", calls3, 1);
+  }
   const base = { tilesBefore: 5, tilesNow: 5, pendingNow: 0, freshErrorTiles: 0, goodCount: 0 };
   check("ไม่มีอะไรเปลี่ยน → ยังไม่รับคำสั่ง", fs2.generateAccepted(base), false);
   check("ช่องในกริดเพิ่ม → รับแล้ว", fs2.generateAccepted({ ...base, tilesNow: 9 }), true);
