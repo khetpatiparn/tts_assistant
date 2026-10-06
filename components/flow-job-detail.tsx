@@ -21,7 +21,6 @@ import {
 import { GEMINI_MODELS } from "@/lib/gemini";
 import type { FlowJobRow, FlowImageRow } from "@/lib/flow-queries";
 import {
-  ERROR_KIND_LABELS,
   FLOW_STATUS,
   STATUS_LABELS,
   STEP_LABELS,
@@ -32,7 +31,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canUnpauseQueueOnly, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canUnpauseQueueOnly, pausedReasonLabel, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -497,7 +496,7 @@ export function FlowJobDetail({
         {job.status === FLOW_STATUS.FAILED && (
           <div className="flex max-w-3xl flex-col gap-2 rounded-md border-l-4 border-status-danger bg-surface-2 p-3 leading-relaxed">
             <p className="text-sm font-medium text-foreground">
-              พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {ERROR_KIND_LABELS[job.errorKind] ?? job.errorKind}
+              พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {pausedReasonLabel(job.errorKind, job.errorMessage)}
             </p>
             {botMovedOnNote(job, queuePaused) !== null && (
               <p className="text-sm leading-relaxed text-foreground">{botMovedOnNote(job, queuePaused)}</p>
