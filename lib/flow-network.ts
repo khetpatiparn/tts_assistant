@@ -18,6 +18,13 @@ const TRANSIENT_NET_CODES = [
   "ERR_ADDRESS_UNREACHABLE",
 ];
 
+/**
+ * โหลดหน้าไม่ทัน (page.goto Timeout) — เคสจริง 2026-10-06: Flow ตอบโครงหน้ามาแต่แอปไม่วาดภายใน 45 วิ (จอดำ)
+ * ยังไม่ได้ถึงขั้นหาปุ่ม จึงไม่ใช่ selector_drift · ทำเหมือนเน็ตสะดุด: ลองใหม่ แล้วข้ามงานถ้ายังไม่ผ่าน
+ * เฉพาะ "page.goto" เท่านั้น — timeout ของการรอ/หาปุ่ม (locator, waitFor) ยังเป็นสัญญาณหน้าเปลี่ยนตามเดิม
+ */
+const PAGE_LOAD_TIMEOUT_MARKER = "page.goto: Timeout";
+
 export function isTransientNetworkMessage(message: string): boolean {
-  return TRANSIENT_NET_CODES.some((code) => message.includes(`net::${code}`));
+  return message.includes(PAGE_LOAD_TIMEOUT_MARKER) || TRANSIENT_NET_CODES.some((code) => message.includes(`net::${code}`));
 }

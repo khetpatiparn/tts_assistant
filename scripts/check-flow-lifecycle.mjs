@@ -462,6 +462,12 @@ try {
     check("botMovedOnNote: Flow วาดไม่สำเร็จยังได้ข้อความเดิม",
       L.botMovedOnNote({ status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results", errorMessage: "x" }, false),
       "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง");
+    check("โหลดหน้าไม่ทัน (page.goto Timeout) ที่ open-flow รอบ 3 → ข้ามงานได้เหมือนเน็ตสะดุด",
+      L.isNetworkSkipFailure("worker_crash", "open-flow", 3, "page.goto: Timeout 45000ms exceeded. Call log:"), true);
+    check("ข้อความ timeout เดิมที่เก็บไว้ (timeout: page.goto: …) ก็นับ",
+      L.isNetworkSkipFailure("worker_crash", "open-flow", 3, "timeout: page.goto: Timeout 45000ms exceeded."), true);
+    check("timeout ของการหาปุ่ม (locator) ที่ open-flow → ไม่ข้าม",
+      L.isNetworkSkipFailure("worker_crash", "open-flow", 3, "locator.waitFor: Timeout 8000ms exceeded."), false);
     check("isNetworkSkipFailure ตรงกับนโยบาย",
       [L.isNetworkSkipFailure("worker_crash", "open-flow", 3, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 4, incident),
         L.isNetworkSkipFailure("worker_crash", "ensure-project", 1, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 1, "งานนี้ไม่มีรูปแคปต้นทาง")],

@@ -19,6 +19,7 @@ import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import { isBrowserErrorPage, postRenderFailReason, retryTransientNav } from "./flow-signals";
+import { isTransientNetworkMessage } from "@/lib/flow-network";
 import { clipCapture, type ClipCapture } from "./clip-capture";
 import type { ObservedResponse } from "./generation-watch";
 
@@ -312,7 +313,8 @@ export async function withFlowSession<T>(
       return value;
     } catch (e) {
       if (e instanceof FlowStepError) throw e;
-      if (isTimeout(e)) throw new FlowStepError(name, "selector_drift", `timeout: ${(e as Error).message}`);
+      // โหลดหน้าไม่ทัน/เน็ตสะดุด = worker_crash (นโยบายข้ามงานรู้จัก) — ห้ามตีเป็น selector_drift ที่หยุดทั้งคิว
+      if (isTimeout(e) && !isTransientNetworkMessage((e as Error).message)) throw new FlowStepError(name, "selector_drift", `timeout: ${(e as Error).message}`);
       throw new FlowStepError(name, "worker_crash", e instanceof Error ? e.message : String(e));
     }
   }

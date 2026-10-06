@@ -151,6 +151,9 @@ try {
   check("ERR_BLOCKED_BY_CLIENT → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(netErr("ERR_BLOCKED_BY_CLIENT")), false);
   check("ERR_CERT_AUTHORITY_INVALID → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(netErr("ERR_CERT_AUTHORITY_INVALID")), false);
   check("timeout ธรรมดา → ไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(new Error("Timeout 45000ms exceeded")), false);
+  // เคสจริง 2026-10-06: โหลดหน้า Flow ไม่ทัน 45 วิ (หน้าจอดำ) ถูกตีเป็น selector_drift → หยุดทั้งคิว ทั้งที่ยังไม่ได้ถึงขั้นหาปุ่ม
+  check("page.goto Timeout (โหลดหน้าไม่ทัน) → เน็ตสะดุด/โหลดช้าชั่วคราว", fs2.isTransientNetworkError(new Error("page.goto: Timeout 45000ms exceeded. Call log:")), true);
+  check("timeout ของ waitFor/locator → ยังไม่ใช่เน็ตสะดุด", fs2.isTransientNetworkError(new Error("locator.waitFor: Timeout 8000ms exceeded.")), false);
   {
     const waits = [];
     let calls = 0;
