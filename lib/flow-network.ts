@@ -4,7 +4,10 @@
  * ตัดสินจาก errorMessage ที่เก็บไว้) — รายการรหัสอยู่ที่เดียว ตัวที่ลองซ้ำกับตัวที่ข้ามงานจึงเห็นตรงกันเสมอ
  *
  * เคสจริง 2026-10-05: net::ERR_NETWORK_CHANGED ตอนเปิดโปรเจกต์ถูกตีเป็น worker_crash แล้วหยุดทั้งคิวเป็นชั่วโมง
- * รับเฉพาะรหัสที่แปลว่า "เน็ตหาย/เปลี่ยน" — ERR_BLOCKED_*, ERR_CERT_* และ timeout ไม่นับ (ลองซ้ำแล้วไม่หาย)
+ * รับเฉพาะรหัส net:: ที่แปลว่า "เน็ตหาย/เปลี่ยน/หลุดกลางทาง" (รวม ERR_TIMED_OUT / ERR_CONNECTION_TIMED_OUT) + page.goto โหลด
+ * ไม่ทัน (ด้านล่าง) · **ไม่นับ** (ลองซ้ำแล้วไม่หาย หรือไม่ใช่เน็ต): ERR_BLOCKED_*, ERR_CERT_*, ERR_ABORTED (การนำทางถูกยกเลิก),
+ * ERR_ACCESS_DENIED / ERR_NETWORK_ACCESS_DENIED (ไฟร์วอลล์/แอนติไวรัสบล็อก), ERR_HTTP2_PROTOCOL_ERROR (โปรโตคอลพัง),
+ * ERR_TOO_MANY_REDIRECTS และ timeout ของการรอ/หาปุ่ม (locator, waitFor)
  */
 const TRANSIENT_NET_CODES = [
   "ERR_NETWORK_CHANGED",
@@ -16,6 +19,9 @@ const TRANSIENT_NET_CODES = [
   "ERR_CONNECTION_TIMED_OUT",
   "ERR_CONNECTION_REFUSED",
   "ERR_ADDRESS_UNREACHABLE",
+  "ERR_TIMED_OUT",
+  "ERR_EMPTY_RESPONSE",
+  "ERR_SOCKET_NOT_CONNECTED",
 ];
 
 /**

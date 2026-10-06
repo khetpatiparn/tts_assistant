@@ -437,13 +437,20 @@ try {
     for (const round of [1, 2]) check(`รอบ ${round} เน็ตสะดุด open-flow → continue_network`, N({ round }), "continue_network");
     // ข้อความ: ใช้รายการรหัสเดียวกับตัวลองซ้ำ (lib/flow-network.ts)
     const gotoErr = (code) => `page.goto: net::${code} at https://labs.google/fx/tools/flow\nCall log:`;
-    for (const code of ["ERR_NETWORK_CHANGED", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_NETWORK_IO_SUSPENDED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT", "ERR_CONNECTION_REFUSED", "ERR_ADDRESS_UNREACHABLE"]) {
+    for (const code of ["ERR_NETWORK_CHANGED", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_NETWORK_IO_SUSPENDED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT", "ERR_CONNECTION_REFUSED", "ERR_ADDRESS_UNREACHABLE",
+      "ERR_TIMED_OUT", "ERR_EMPTY_RESPONSE", "ERR_SOCKET_NOT_CONNECTED"]) {
       check(`ข้อความ ${code} → continue_network`, N({ message: gotoErr(code) }), "continue_network");
     }
     for (const [label, message] of [
       ["ERR_BLOCKED_BY_CLIENT", gotoErr("ERR_BLOCKED_BY_CLIENT")],
+      ["ERR_BLOCKED_BY_RESPONSE", gotoErr("ERR_BLOCKED_BY_RESPONSE")],
       ["ERR_CERT_AUTHORITY_INVALID", gotoErr("ERR_CERT_AUTHORITY_INVALID")],
+      ["ERR_CERT_DATE_INVALID", gotoErr("ERR_CERT_DATE_INVALID")],
       ["ERR_TOO_MANY_REDIRECTS", gotoErr("ERR_TOO_MANY_REDIRECTS")],
+      ["ERR_ABORTED (การนำทางถูกยกเลิก ไม่ใช่เน็ต)", gotoErr("ERR_ABORTED")],
+      ["ERR_ACCESS_DENIED", gotoErr("ERR_ACCESS_DENIED")],
+      ["ERR_NETWORK_ACCESS_DENIED (ไฟร์วอลล์/แอนติไวรัสบล็อก Chrome — ลองซ้ำไม่หาย)", gotoErr("ERR_NETWORK_ACCESS_DENIED")],
+      ["ERR_HTTP2_PROTOCOL_ERROR (โปรโตคอลพัง ไม่ใช่เน็ตหาย)", gotoErr("ERR_HTTP2_PROTOCOL_ERROR")],
       ["ไม่มี net:: นำหน้า", "ERR_NETWORK_CHANGED"],
       ["งานยังไม่ได้เลือกรูป (worker_crash ที่ open-flow ของจริง)", "งานนี้ยังไม่ได้เลือกรูปรอบ 1"],
       ["ไม่มีรูปแคปต้นทาง", "งานนี้ไม่มีรูปแคปต้นทาง"],
