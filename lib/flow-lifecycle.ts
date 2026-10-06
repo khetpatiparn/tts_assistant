@@ -379,12 +379,50 @@ export function canUnpauseQueueOnly(pausedReason: string): boolean {
 export const UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE =
   "เหตุที่บอทหยุดครั้งนี้ปล่อยงานพังไว้แล้วทำงานอื่นต่อไม่ได้ — รอให้พักครบ/ซ่อมแล้วกด รันต่อ ที่งานที่พัง";
 
-/** ข้อความเหตุที่บอทหยุด (แถบ /flow) — worker_crash ที่ข้อความงานพังคือเน็ตสะดุด บอกตรงๆ แทน "ไม่ทราบสาเหตุ" · failedMessage = errorMessage ของงานที่พัง */
-export function pausedReasonLabel(pausedReason: string, failedMessage: string | null): string {
-  if (pausedReason === "worker_crash" && failedMessage !== null && isTransientNetworkMessage(failedMessage)) {
+/**
+ * ข้อความเหตุที่บอทหยุด (แถบ /flow) และเหตุพังของการ์ดงาน — worker_crash ที่งานต้นเหตุพังที่ขั้น open-flow ด้วยข้อความเน็ตสะดุด
+ * บอกตรงๆ ว่า "เน็ตสะดุด" แทน "ไม่ทราบสาเหตุ" · cause = งานที่ทำให้หยุดจริง (แถบ: pauseCauseJob · การ์ด: งานนั้นเอง) · null = ไม่รู้
+ */
+export function pausedReasonLabel(pausedReason: string, cause: { failedStep: string; errorMessage: string } | null): string {
+  if (pausedReason === "worker_crash" && cause !== null && cause.failedStep === "open-flow" && isTransientNetworkMessage(cause.errorMessage)) {
     return "เน็ตสะดุดตอนเปิด Flow";
   }
   return ERROR_KIND_LABELS[pausedReason] ?? pausedReason;
+}
+
+/** งานพังที่เขียนก่อน pausedAt ไม่เกินเท่านี้นับเป็นต้นเหตุของการหยุด — บอท applyPlan(failed) แล้ว pauseWorker ทันที (ห่างกันไม่กี่ ms) */
+export const PAUSE_CAUSE_WINDOW_MS = 60_000;
+
+/**
+ * งานที่ทำให้คิวหยุดครั้งนี้ — งาน failed ที่ errorKind ตรงเหตุหยุด และ updatedAt อยู่ในช่วง PAUSE_CAUSE_WINDOW_MS ก่อน pausedAt
+ * (เลือกตัวที่ใกล้ pausedAt ที่สุด) · ไม่ใช่ "งานพังล่าสุด": งานที่บอทข้ามไปเพราะเน็ตก่อนหน้า (failed แต่คิวไม่หยุด) หรือการหยุดที่ไม่มี
+ * งานพัง (บอทล้ม/login ตอนเปิด) ต้องไม่ถูกเอามาเป็นเหตุ · null = ไม่รู้ต้นเหตุ (ใช้ป้ายตามเหตุหยุดเฉยๆ)
+ */
+export function pauseCauseJob<T extends { status: string; errorKind: string; updatedAt: Date }>(
+  worker: { pausedReason: string; pausedAt: Date | null },
+  jobs: T[],
+): T | null {
+  const { pausedReason, pausedAt } = worker;
+  if (pausedReason === "" || pausedAt === null) return null;
+  let best: T | null = null;
+  for (const j of jobs) {
+    if (j.status !== FLOW_STATUS.FAILED || j.errorKind !== pausedReason) continue;
+    const before = pausedAt.getTime() - j.updatedAt.getTime();
+    if (before < 0 || before > PAUSE_CAUSE_WINDOW_MS) continue;
+    if (best === null || j.updatedAt.getTime() > best.updatedAt.getTime()) best = j;
+  }
+  return best;
+}
+
+/**
+ * ข้อความปุ่ม "ปลดการหยุดอย่างเดียว" (unpauseQueueOnly — action เดียวกันทั้งสองข้อความ) · null = ไม่มีปุ่ม (เหตุที่ห้ามปลดเอง)
+ * มีงานพัง → บอกว่างานพังยังค้างอยู่ · ไม่มีงานพัง (หยุดโดยไม่มีงานพัง เช่น บอทล้มระหว่างพัก) → ปุ่มธรรมดา ไม่พูดถึงงานพังที่ไม่มี
+ */
+export const UNPAUSE_QUEUE_LEAVE_FAILED_LABEL = "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)";
+export const UNPAUSE_QUEUE_PLAIN_LABEL = "ให้บอททำงานต่อ";
+export function unpauseQueueButtonLabel(pausedReason: string, failedJobs: number): string | null {
+  if (!canUnpauseQueueOnly(pausedReason)) return null;
+  return failedJobs > 0 ? UNPAUSE_QUEUE_LEAVE_FAILED_LABEL : UNPAUSE_QUEUE_PLAIN_LABEL;
 }
 
 /** ประโยคบอกทางออกใต้แถบ "บอทหยุดแล้ว" · null = ไม่มีทางลัด (เหตุต้องรอ/ซ่อม หรือไม่มีงานพังให้เลือก) */

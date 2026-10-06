@@ -492,14 +492,51 @@ try {
     L.UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE.includes("รันต่อ"), true);
   {
     const netMsg = "page.goto: net::ERR_NETWORK_CHANGED at https://labs.google/fx/tools/flow Call log:";
-    check("pausedReasonLabel: worker_crash + ข้อความเน็ตสะดุด → เน็ตสะดุดตอนเปิด Flow",
-      L.pausedReasonLabel("worker_crash", netMsg), "เน็ตสะดุดตอนเปิด Flow");
-    check("pausedReasonLabel: worker_crash ข้อความอื่น → ข้อความเดิม",
-      L.pausedReasonLabel("worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง"), "บอทล้มโดยไม่ทราบสาเหตุ");
-    check("pausedReasonLabel: ไม่มีงานพัง (null) → ข้อความเดิม", L.pausedReasonLabel("worker_crash", null), "บอทล้มโดยไม่ทราบสาเหตุ");
+    // ป้ายเหตุหยุด/ป้ายของการ์ดงานพัง ตัดสินจากงานที่ทำให้หยุดจริง: "เน็ตสะดุด" เฉพาะขั้น open-flow + ข้อความเน็ตสะดุด
+    const cause = (failedStep, errorMessage) => ({ failedStep, errorMessage });
+    check("pausedReasonLabel: worker_crash + งานพังที่ open-flow ข้อความเน็ตสะดุด → เน็ตสะดุดตอนเปิด Flow",
+      L.pausedReasonLabel("worker_crash", cause("open-flow", netMsg)), "เน็ตสะดุดตอนเปิด Flow");
+    check("pausedReasonLabel: worker_crash + โหลดหน้าไม่ทัน (page.goto Timeout) ที่ open-flow → เน็ตสะดุดตอนเปิด Flow",
+      L.pausedReasonLabel("worker_crash", cause("open-flow", "page.goto: Timeout 45000ms exceeded.")), "เน็ตสะดุดตอนเปิด Flow");
+    check("pausedReasonLabel: ข้อความเน็ตสะดุดแต่ขั้นอื่น (ensure-project) → ข้อความเดิม (ไม่ใช่ตอนเปิด Flow)",
+      L.pausedReasonLabel("worker_crash", cause("ensure-project", netMsg)), "บอทล้มโดยไม่ทราบสาเหตุ");
+    check("pausedReasonLabel: worker_crash ข้อความอื่นที่ open-flow → ข้อความเดิม",
+      L.pausedReasonLabel("worker_crash", cause("open-flow", "งานนี้ไม่มีรูปแคปต้นทาง")), "บอทล้มโดยไม่ทราบสาเหตุ");
+    check("pausedReasonLabel: ไม่รู้งานที่ทำให้หยุด (null) → ข้อความเดิม", L.pausedReasonLabel("worker_crash", null), "บอทล้มโดยไม่ทราบสาเหตุ");
     check("pausedReasonLabel: captcha ไม่ถูกแทนแม้ข้อความเป็นเน็ต",
-      L.pausedReasonLabel("captcha", netMsg), "โดน captcha / ถูกปฏิเสธ (403) — พักอย่างน้อย 1 ชั่วโมงก่อนรันต่อ");
+      L.pausedReasonLabel("captcha", cause("open-flow", netMsg)), "โดน captcha / ถูกปฏิเสธ (403) — พักอย่างน้อย 1 ชั่วโมงก่อนรันต่อ");
     check("pausedReasonLabel: เหตุที่ไม่รู้จัก → แสดงรหัสดิบ", L.pausedReasonLabel("zzz", null), "zzz");
+
+    // งานที่ทำให้คิวหยุด = งาน failed ที่ errorKind ตรงเหตุหยุด และเขียนสถานะ failed ก่อน pausedAt ไม่เกิน PAUSE_CAUSE_WINDOW_MS
+    // (บอท: applyPlan(failed) แล้ว pauseWorker ทันที) — ไม่ใช่แค่งานพังล่าสุด (งานที่ข้ามไปเพราะเน็ตก่อนหน้า / บอทหยุดโดยไม่มีงานพัง)
+    const pausedAt = new Date("2026-10-06T08:00:00Z");
+    const ago = (s) => new Date(pausedAt.getTime() - s * 1000);
+    const fj = (id, updatedAt, o = {}) => ({ id, status: "failed", errorKind: "worker_crash", failedStep: "open-flow", errorMessage: netMsg, updatedAt, ...o });
+    const C = (reason, at, jobs) => L.pauseCauseJob({ pausedReason: reason, pausedAt: at }, jobs)?.id ?? null;
+    check("pauseCauseJob: งานพังที่เขียนก่อน pausedAt 1 วิ → งานนั้น", C("worker_crash", pausedAt, [fj("a", ago(1))]), "a");
+    check("pauseCauseJob: งานที่ข้ามไปเพราะเน็ตเมื่อชั่วโมงก่อน (คิวไม่หยุดตอนนั้น) ไม่ใช่ต้นเหตุ → null",
+      C("worker_crash", pausedAt, [fj("old", ago(3600))]), null);
+    check("pauseCauseJob: งานพังล่าสุด (เปิดดู/แตะทีหลัง updatedAt ใหม่กว่า pausedAt) ไม่ใช่ต้นเหตุ · เลือกงานที่ตรงเวลาหยุด",
+      C("worker_crash", pausedAt, [fj("later", new Date(pausedAt.getTime() + 600_000)), fj("cause", ago(2), { failedStep: "wait-results", errorMessage: "x" })]), "cause");
+    check("pauseCauseJob: errorKind ไม่ตรงเหตุหยุด → ไม่ใช่ต้นเหตุ",
+      C("worker_crash", pausedAt, [fj("g", ago(1), { errorKind: "generation_timeout" })]), null);
+    check("pauseCauseJob: งานไม่ได้ failed แล้ว → ไม่นับ", C("worker_crash", pausedAt, [fj("q", ago(1), { status: "queued_r1" })]), null);
+    check("pauseCauseJob: หลายงานในหน้าต่างเวลา (กวาดงานค้างตอนเปิดบอท) → งานที่ใกล้ pausedAt ที่สุด",
+      C("worker_crash", pausedAt, [fj("x", ago(5)), fj("y", ago(1)), fj("z", ago(30))]), "y");
+    check("pauseCauseJob: ไม่มี pausedAt / ไม่ได้หยุด → null",
+      `${C("worker_crash", null, [fj("a", ago(1))])}|${C("", pausedAt, [fj("a", ago(1))])}`, "null|null");
+    check("pauseCauseJob: ขอบหน้าต่างเวลา — PAUSE_CAUSE_WINDOW_MS พอดีนับ · เกินไม่นับ",
+      `${C("worker_crash", pausedAt, [fj("in", ago(L.PAUSE_CAUSE_WINDOW_MS / 1000))])}|${C("worker_crash", pausedAt, [fj("out", ago(L.PAUSE_CAUSE_WINDOW_MS / 1000 + 1))])}`, "in|null");
+
+    // ปุ่มบนแถบหยุด: ข้อความ "ปล่อยงานพังไว้" ต้องมีงานพังจริง · ไม่มีงานพัง = ปุ่มธรรมดา (action เดียวกัน) · เหตุที่ห้ามปลด = ไม่มีปุ่ม
+    check("unpauseQueueButtonLabel: ปลดได้ + มีงานพัง → ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)",
+      L.unpauseQueueButtonLabel("worker_crash", 2), "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)");
+    check("unpauseQueueButtonLabel: ปลดได้ แต่ไม่มีงานพัง → ให้บอททำงานต่อ",
+      L.unpauseQueueButtonLabel("generation_timeout", 0), "ให้บอททำงานต่อ");
+    for (const reason of ["captcha", "login_required", "selector_drift", ""]) {
+      check(`unpauseQueueButtonLabel: ${reason || "(ไม่ได้หยุด)"} → ไม่มีปุ่ม (มี/ไม่มีงานพัง)`,
+        `${L.unpauseQueueButtonLabel(reason, 1)}|${L.unpauseQueueButtonLabel(reason, 0)}`, "null|null");
+    }
     check("pausedAdvice: ปลดได้ + มีงานพัง → บอกทางเลือก",
       L.pausedAdvice("worker_crash", 1), "กด ให้บอททำงานอื่นต่อ หรือไปแท็บ พัง แล้วกด รันต่อ");
     check("pausedAdvice: ปลดได้ แต่ไม่มีงานพัง → null", L.pausedAdvice("worker_crash", 0), null);

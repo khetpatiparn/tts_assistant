@@ -14,7 +14,6 @@ import {
   logFlowPromptNow,
   redoFlowRound,
   resumeFlowWorker,
-  unpauseQueueOnly,
   skipFlowJob,
   takeOverFlowJob,
 } from "@/app/actions";
@@ -31,13 +30,14 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canUnpauseQueueOnly, pausedReasonLabel, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, pausedReasonLabel, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FlowLightbox } from "@/components/flow-lightbox";
 import { FlowStepperCompact } from "@/components/flow-stepper";
 import { ManualRenderPanel } from "@/components/manual-render-panel";
+import { UnpauseQueueButton } from "@/components/flow-unpause-queue-button";
 import { BotSteps, ClipLayout, ExportToFolder, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
 import { ProductIdCopy } from "@/components/product-id-copy";
 import { ShowcasePhotoPicker, shopPhotoSrc } from "@/components/showcase-photo-picker";
@@ -496,7 +496,7 @@ export function FlowJobDetail({
         {job.status === FLOW_STATUS.FAILED && (
           <div className="flex max-w-3xl flex-col gap-2 rounded-md border-l-4 border-status-danger bg-surface-2 p-3 leading-relaxed">
             <p className="text-sm font-medium text-foreground">
-              พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {pausedReasonLabel(job.errorKind, job.errorMessage)}
+              พังที่ขั้น &quot;{STEP_LABELS[job.failedStep] ?? job.failedStep}&quot; — {pausedReasonLabel(job.errorKind, job)}
             </p>
             {botMovedOnNote(job, queuePaused) !== null && (
               <p className="text-sm leading-relaxed text-foreground">{botMovedOnNote(job, queuePaused)}</p>
@@ -520,21 +520,8 @@ export function FlowJobDetail({
               <Button type="button" disabled={isPending} onClick={() => run(() => resumeFlowWorker(job.id))}>
                 <Play data-icon="inline-start" /> รันต่อ (หลังซ่อม)
               </Button>
-              {queuePaused && canUnpauseQueueOnly(pausedReason) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isPending}
-                  onClick={() =>
-                    run(async () => {
-                      const r = await unpauseQueueOnly();
-                      if (!r.ok) throw new Error(r.message ?? "ปลดการหยุดไม่สำเร็จ");
-                    })
-                  }
-                >
-                  <Play data-icon="inline-start" /> ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)
-                </Button>
-              )}
+              {/* การ์ดนี้คืองานพัง จึงมีงานพังอย่างน้อย 1 งานเสมอ (ข้อความ "ปล่อยงานพังไว้") */}
+              {queuePaused && <UnpauseQueueButton pausedReason={pausedReason} failedJobs={1} disabled={isPending} />}
               <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => skipFlowJob(job.id))}>
                 <SkipForward data-icon="inline-start" /> ข้ามงานนี้
               </Button>

@@ -12,6 +12,7 @@
 import path from "node:path";
 import assert from "node:assert/strict";
 import {
+  ERROR_KIND_LABELS,
   FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
   WORKER_STATE_ID,
@@ -1041,6 +1042,29 @@ async function queueOnlyUnpauses() {
     const failedClaim = await NEW.claim(failed.b, 3);
     check(`${reason}: claim ไม่หยิบงาน failed`, failedClaim === 0, JSON.stringify(failedClaim));
   }
+  // ต้นเหตุของการหยุด (แถบ /flow) — เวลาจริงจาก DB: บอท applyPlan(roundFailed) แล้ว pauseWorker (pausedAt = now) · งานพังเก่าที่บอท
+  // ข้ามไปก่อนหน้า (failed แต่คิวไม่หยุด) ต้องไม่ถูกเลือก แม้ข้อความเป็นเน็ตสะดุด
+  {
+    const netMsg = "page.goto: net::ERR_NETWORK_CHANGED at https://flow.google.com/project/x";
+    const earlier = await makePair({ status: FLOW_STATUS.FAILED, round: 1, attempt: 1, failedStep: "open-flow", errorKind: "worker_crash", errorMessage: netMsg, failureDir: "x" });
+    await prisma.flowJob.update({ where: { id: earlier.b }, data: { updatedAt: new Date(Date.now() - 3_600_000) } });
+    const cause = await makePair({ status: FLOW_STATUS.RUNNING_R2, round: 2, attempt: 1 });
+    const failure = L.roundFailed({ round: 2, hasVideoRow: false, step: "attach-reference", kind: "worker_crash", message: "boom", failureDir: "y", now: new Date() });
+    await db.applyPlan(cause.b, failure.plan);
+    await prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason: failure.pause ?? "", pausedAt: new Date() },
+      update: { pausedReason: failure.pause ?? "", pausedAt: new Date() },
+    });
+    const w = await prisma.flowWorkerState.findUniqueOrThrow({ where: { id: WORKER_STATE_ID } });
+    const failedRows = await prisma.flowJob.findMany({ where: { status: FLOW_STATUS.FAILED }, select: { id: true, status: true, errorKind: true, failedStep: true, errorMessage: true, updatedAt: true } });
+    const picked = L.pauseCauseJob(w, failedRows);
+    check("ต้นเหตุของการหยุด = งานที่เพิ่งพังตอนหยุด ไม่ใช่งานเน็ตสะดุดที่บอทข้ามไปก่อนหน้า · ป้ายไม่ขึ้นเน็ตสะดุด",
+      picked?.id === cause.b && L.pausedReasonLabel(w.pausedReason, picked) === ERROR_KIND_LABELS.worker_crash,
+      JSON.stringify({ picked: picked?.id, cause: cause.b, earlier: earlier.b }));
+    const r = await capture(() => db.unpauseQueueOnly(prisma));
+    check("unpauseQueueOnly(db) รับ client ที่ส่งเข้ามา · ปลดได้", r.ok && (r.value as { unpaused: boolean }).unpaused === true, JSON.stringify(r));
+  }
   for (const reason of ["captcha", "login_required", "host_unsupported", "selector_drift", "flow_error", "download_failed", ""]) {
     await setPause(reason);
     const r = await capture(() => db.unpauseQueueOnly());
@@ -1547,7 +1571,7 @@ async function photoLibrary() {
     const drawn = (await jobWithImages(job.id)).images.filter((i) => i.kind === "candidate");
     for (const d of drawn) fs.writeFileSync(path.join(root, entryId, "flow", d.filename), `drawn:${d.filename}`);
 
-    let L1 = await lib.getPhotoLibrary(entryId, root);
+    const L1 = await lib.getPhotoLibrary(entryId, root);
     check("คลังรูป: รูปจากร้านยุบซ้ำข้ามแถว Showcase (sourceProductId เดียวกัน) = 2 รูป · รูปที่ Flow วาด 4 รูป · src ผ่าน /api/uploads",
       L1.shopPhotos.length === 2 && L1.flowImages.length === 4 && L1.shopPhotos[0].src === `/api/uploads/_candidates/${dupRow.id}/p1.jpg` &&
         L1.flowImages.every((f) => f.src.startsWith(`/api/uploads/${entryId}/flow/r1-a1-`)),

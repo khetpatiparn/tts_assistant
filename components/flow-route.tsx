@@ -1,20 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { Play } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
 import { FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, orderJobsForTab, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
 import { GEMINI_MODELS } from "@/lib/gemini";
-import { generateWithAI, unpauseQueueOnly } from "@/app/actions";
-import { canUnpauseQueueOnly, pausedAdvice, pausedReasonLabel } from "@/lib/flow-lifecycle";
-import { Button } from "@/components/ui/button";
+import { generateWithAI } from "@/app/actions";
+import { pauseCauseJob, pausedAdvice, pausedReasonLabel } from "@/lib/flow-lifecycle";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { FlowJobList } from "@/components/flow-job-list";
 import { FlowJobDetail } from "@/components/flow-job-detail";
 import { PostsPerDayControl } from "@/components/posts-per-day-control";
+import { UnpauseQueueButton } from "@/components/flow-unpause-queue-button";
 
 const REFRESH_MS = 30_000;
 
@@ -106,25 +105,9 @@ export function FlowRoute({
   }, [router]);
 
   const paused = worker.pausedReason !== "";
-  // เหตุที่หยุดมาจากงานพังล่าสุด — ใช้บอกว่า "เน็ตสะดุด" แทน "ไม่ทราบสาเหตุ" · ปุ่มปลดเฉพาะเหตุที่ไม่ใช่สัญญาณบอท (canUnpauseQueueOnly)
-  const latestFailed = jobs.filter((j) => j.status === "failed").sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
-  const pausedLabel = pausedReasonLabel(worker.pausedReason, latestFailed?.errorMessage ?? null);
+  // เหตุที่หยุดมาจากงานที่ทำให้หยุดจริง (pauseCauseJob: งานพังที่ตรงเวลา pausedAt ไม่ใช่งานพังล่าสุด) — "เน็ตสะดุด" เฉพาะเมื่องานนั้นพังที่ open-flow
+  const pausedLabel = pausedReasonLabel(worker.pausedReason, pauseCauseJob(worker, jobs));
   const advice = pausedAdvice(worker.pausedReason, summary.failed);
-  const canLetBotContinue = paused && canUnpauseQueueOnly(worker.pausedReason);
-  const [unpausing, startUnpause] = useTransition();
-  const [unpauseMessage, setUnpauseMessage] = useState<string | null>(null);
-  function letBotContinue() {
-    setUnpauseMessage(null);
-    startUnpause(async () => {
-      try {
-        const r = await unpauseQueueOnly();
-        if (!r.ok) setUnpauseMessage(r.message);
-        else router.refresh();
-      } catch {
-        setUnpauseMessage("ปลดการหยุดไม่สำเร็จ — ลองกดอีกครั้ง");
-      }
-    });
-  }
   const wake = minutesUntil(worker.nextWakeAt, now);
   // ลำดับต่อแท็บ: เสร็จ/ข้าม = เวลาปิดใหม่→เก่า · เลือกรูป/ดูคลิป/พัง = รอนานสุดก่อน · บอท = ตามเดิม (orderJobsForTab)
   const tabJobs = orderJobsForTab(tab, jobs.filter((j) => flowTabOf(j.status) === tab));
@@ -171,9 +154,6 @@ export function FlowRoute({
                 ? " — เปิด start.bat ใหม่แล้วบอทจะทำงานต่อเอง"
                 : ""}
               {advice !== null && <span className="block font-normal text-muted-foreground">{advice}</span>}
-              {unpauseMessage !== null && (
-                <span className="block font-normal text-destructive" role="alert">{unpauseMessage}</span>
-              )}
             </span>
           ) : worker.alive ? (
             <span className="text-foreground">
@@ -191,11 +171,7 @@ export function FlowRoute({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {canLetBotContinue && (
-            <Button type="button" variant="outline" disabled={unpausing} onClick={letBotContinue}>
-              <Play data-icon="inline-start" /> ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)
-            </Button>
-          )}
+          {paused && <UnpauseQueueButton pausedReason={worker.pausedReason} failedJobs={summary.failed} />}
           <PostsPerDayControl initial={postsPerDay} />
         </div>
       </div>
