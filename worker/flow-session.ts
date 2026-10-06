@@ -18,7 +18,7 @@ import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
-import { postRenderFailReason, retryTransientNav } from "./flow-signals";
+import { isBrowserErrorPage, postRenderFailReason, retryTransientNav } from "./flow-signals";
 import { clipCapture, type ClipCapture } from "./clip-capture";
 import type { ObservedResponse } from "./generation-watch";
 
@@ -165,6 +165,9 @@ export async function assertSelected(loc: Locator, step: FlowStep, what: string)
 
 /** สัญญาณอันตรายที่ต้องเช็กก่อนทุกขั้น — login หลุด / captcha / modal ที่กิน pointer events */
 async function assertPageUsable(page: Page, step: FlowStep, sel: SelectorSet, cfg: WorkerConfig, log: StepLog, jobId: string, round: number): Promise<void> {
+  // งานก่อนหน้าข้ามไปเพราะเน็ตสะดุด → แท็บค้างที่หน้า error ของ Chrome · open-flow จะ goto ทับอยู่แล้ว ไม่มีอะไรของ Google ให้ตรวจ
+  // (ensure-project ถัดไปตรวจหน้าจริงตามปกติ)
+  if (step === "open-flow" && isBrowserErrorPage(page.url())) return;
   const host = new URL(page.url()).host;
   if (host.includes("accounts.google.com") || (await hasSignInButton(page))) {
     logActivity({ kind: "bot_signal", jobId, round, detail: { signal: "login_required" } });

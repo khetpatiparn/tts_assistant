@@ -164,6 +164,19 @@ try {
     try { await fs2.retryTransientNav(async () => { calls3++; throw new Error("Timeout 45000ms exceeded"); }, { tries: 5, waitMs: 10, sleep: async () => {} }); } catch { /* expected */ }
     check("error อื่น → ไม่ลองซ้ำ", calls3, 1);
   }
+  // หลัง goto พังเพราะเน็ต Chrome ค้างอยู่หน้า error ของตัวเอง (วัดจริงด้วย Playwright: ERR_CONNECTION_REFUSED → chrome-error://chromewebdata/)
+  // งานถัดไปที่บอทข้ามไปเริ่มที่ open-flow — ถ้าตรวจหน้าแบบปกติจะเจอโฮสต์ "chromewebdata" → host_unsupported หยุดคิว ทั้งที่ goto ข้างในจะทับหน้านี้
+  check("chrome-error://chromewebdata/ → หน้า error ของเบราว์เซอร์", fs2.isBrowserErrorPage("chrome-error://chromewebdata/"), true);
+  for (const url of ["https://labs.google/fx/tools/flow", "https://accounts.google.com/signin", "about:blank", "data:text/html,x", ""]) {
+    check(`${url || "(ว่าง)"} → ไม่ใช่หน้า error ของเบราว์เซอร์`, fs2.isBrowserErrorPage(url), false);
+  }
+  {
+    const session = readFileSync("worker/flow-session.ts", "utf8").replace(/\r\n/g, "\n");
+    const at = session.indexOf("async function assertPageUsable(");
+    const body = at < 0 ? "" : session.slice(at, session.indexOf("\n}\n", at));
+    const skipAt = body.search(/if \(step === "open-flow" && isBrowserErrorPage\(page\.url\(\)\)\) return;/);
+    check("assertPageUsable: ข้ามการตรวจเฉพาะ open-flow บนหน้า error ของเบราว์เซอร์ และก่อนเช็กโฮสต์/login", skipAt >= 0 && skipAt < body.indexOf("new URL(page.url())"), true);
+  }
   const base = { tilesBefore: 5, tilesNow: 5, pendingNow: 0, freshErrorTiles: 0, goodCount: 0 };
   check("ไม่มีอะไรเปลี่ยน → ยังไม่รับคำสั่ง", fs2.generateAccepted(base), false);
   check("ช่องในกริดเพิ่ม → รับแล้ว", fs2.generateAccepted({ ...base, tilesNow: 9 }), true);

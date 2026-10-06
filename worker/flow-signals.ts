@@ -168,6 +168,15 @@ export function isTransientNetworkError(e: unknown): boolean {
   return isTransientNetworkMessage(e instanceof Error ? e.message : String(e));
 }
 
+/**
+ * หน้า error ของ Chrome เอง (goto พังเพราะเน็ต → แท็บค้างที่ chrome-error://chromewebdata/) — ไม่ใช่หน้าของ Google
+ * ขั้น open-flow ข้ามการตรวจหน้า (โฮสต์/login/captcha) บนหน้านี้ เพราะ goto ข้างในจะทับมันอยู่แล้ว (ไม่งั้นงานถัดไปหลังข้ามเพราะเน็ต
+ * จะพังเป็น host_unsupported แล้วหยุดคิว)
+ */
+export function isBrowserErrorPage(url: string): boolean {
+  return url.startsWith("chrome-error://");
+}
+
 /** รันขั้นเปิดหน้า: เน็ตสะดุดชั่วคราว = รอแล้วลองใหม่ (ครบ tries แล้ว throw error ล่าสุด) · error อื่น throw ทันที */
 export async function retryTransientNav<T>(
   fn: () => Promise<T>,
