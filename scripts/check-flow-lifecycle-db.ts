@@ -805,6 +805,45 @@ async function branches() {
     check("skipPause: applyPlan ไม่แตะสถานะหยุดของบอท", JSON.stringify(await snapWorker()) === JSON.stringify(before));
   }
 
+  // NEW-only: เน็ตสะดุดตอนเปิด Flow (เหตุการณ์ 2026-10-05, รอบ 3) — failurePolicy "continue_network" → งาน failed เหมือนทางหยุดคิวทุกช่อง
+  // (หลักฐานครบ) ไม่ pause · งานพังที่ค้างอยู่ไม่บล็อก claim ของงานอื่น (บล็อกได้แค่ pausedReason) · "รันต่อ" ใช้ได้เหมือนเดิม
+  {
+    const incident = "page.goto: net::ERR_NETWORK_CHANGED at https://labs.google/fx/tools/flow/project/abc\nCall log:";
+    const dir = "uploads/_flow-failures/net";
+    const q = await makePair({ status: FLOW_STATUS.RUNNING_R3, round: 3, attempt: 1 });
+    const policy = L.failurePolicy({
+      kind: "worker_crash", step: "open-flow", round: 3, message: incident,
+      autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: null, cap: 2, recentNetworkSkipsAt: [],
+    });
+    check("network: failurePolicy → continue_network", policy === "continue_network", policy);
+    await pauseForTest();
+    await OLD.roundFailed(q.a, "open-flow", "worker_crash", incident, dir);
+    await db.unpauseWorker();
+    const before = await snapWorker();
+    const jb = await jobWithImages(q.b);
+    const failure = L.roundFailed({
+      round: jb.round as JobRound, hasVideoRow: false, step: "open-flow", kind: "worker_crash",
+      message: incident, failureDir: dir, now: new Date(), skipPause: policy === "continue_network",
+    });
+    await db.applyPlan(q.b, failure.plan);
+    check("network: pause = null", failure.pause === null);
+    check(
+      "network: งาน failed เหมือนทางหยุดคิวทุกช่อง (failedStep open-flow / worker_crash / ข้อความ net:: / failureDir)",
+      JSON.stringify(await snapJob(q.a)) === JSON.stringify(await snapJob(q.b)),
+      JSON.stringify([await snapJob(q.a), await snapJob(q.b)]),
+    );
+    const after = await snapWorker();
+    check("network: บอทไม่ถูกหยุด", JSON.stringify(after) === JSON.stringify(before) && after?.pausedReason === "", JSON.stringify([before, after]));
+    const failedB = await prisma.flowJob.findUniqueOrThrow({ where: { id: q.b } });
+    check("network: หน้า /flow โชว์หมายเหตุเน็ตสะดุดจากแถวที่เก็บไว้", L.botMovedOnNote(failedB, false) === "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่");
+    // งานถัดไปในคิว — มีงาน failed ค้างอยู่ 2 งาน (a, b) แต่บอทไม่ได้หยุด → หยิบได้
+    const nextEntry = await newEntry();
+    const next = await prisma.flowJob.create({ data: { entryId: nextEntry, status: FLOW_STATUS.QUEUED_R1, round: 1, attempt: 1 } });
+    const claimed = await NEW.claim(next.id, 1);
+    check("network: มีงาน failed ค้างอยู่ ไม่บล็อก claim งานถัดไป", claimed === 1 && (await prisma.flowJob.findUniqueOrThrow({ where: { id: next.id } })).status === FLOW_STATUS.RUNNING_R1, String(claimed));
+    await step("network: resume (รันต่อ) failed r3 open-flow → queued_r3", q, (id) => OLD.resume(id), (id) => NEW.resume(id));
+  }
+
   p = await makePair({ status: FLOW_STATUS.RUNNING_R3, round: 3, attempt: 1 });
   await step(
     "roundFailed r3 login_required",

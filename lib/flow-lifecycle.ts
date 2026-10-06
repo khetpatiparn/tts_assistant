@@ -598,8 +598,14 @@ export function failurePolicy(input: {
 }
 
 /** ข้อความสั้นใต้งานที่พัง เมื่อบอทข้ามไปทำงานอื่นแล้ว (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
-export function botMovedOnNote(job: { status: string; round: number; errorKind: string; failedStep: string }, queuePaused: boolean): string | null {
+export function botMovedOnNote(
+  job: { status: string; round: number; errorKind: string; failedStep: string; errorMessage: string },
+  queuePaused: boolean,
+): string | null {
   if (queuePaused || job.status !== FLOW_STATUS.FAILED) return null;
+  if (isNetworkSkipFailure(job.errorKind, job.failedStep, job.round, job.errorMessage)) {
+    return "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่";
+  }
   if (!isAutoContinueFailure(job.errorKind, job.failedStep, job.round)) return null;
   return "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง";
 }

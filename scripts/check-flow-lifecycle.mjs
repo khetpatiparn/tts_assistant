@@ -398,7 +398,7 @@ try {
     check("ไม่เคยข้าม + ยังไม่เคยมีงานสำเร็จ → continue", P({ lastSuccessAt: null }), "continue");
     check("ข้ามเมื่อวาน (autoContinuesToday 0) แต่มีงานสำเร็จหลังจากนั้น → continue", P({ lastAutoContinueAt: new Date(2026, 9, 2, 20, 0), lastSuccessAt: t(9) }), "continue");
     check("isAutoContinueFailure ตรงกับนโยบาย", [L.isAutoContinueFailure("flow_error", "wait-render", 3), L.isAutoContinueFailure("flow_error", "wait-render", 4), L.isAutoContinueFailure("captcha", "wait-results", 1)], [true, false, false]);
-    const failedJob = { status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results" };
+    const failedJob = { status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results", errorMessage: "Flow: failed to generate" };
     check("botMovedOnNote: failed + คิวไม่หยุด → มีหมายเหตุ", typeof L.botMovedOnNote(failedJob, false), "string");
     check("botMovedOnNote: คิวหยุดอยู่ → ไม่มี", L.botMovedOnNote(failedJob, true), null);
     check("botMovedOnNote: kind อื่น → ไม่มี", L.botMovedOnNote({ ...failedJob, errorKind: "selector_drift" }, false), null);
@@ -452,6 +452,16 @@ try {
     ]) {
       check(`worker_crash open-flow ข้อความ ${label} → pause`, N({ message }), "pause");
     }
+    // หมายเหตุใต้งานที่พังในหน้า /flow — ตัดสินจากช่องที่เก็บไว้ (errorKind/failedStep/round/errorMessage) ด้วยกฎเดียวกับบอท
+    const netJob = { status: "failed", round: 3, errorKind: "worker_crash", failedStep: "open-flow", errorMessage: incident };
+    check("botMovedOnNote: เน็ตสะดุดตอนเปิด Flow + คิวไม่หยุด → หมายเหตุเน็ตสะดุด",
+      L.botMovedOnNote(netJob, false), "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่");
+    check("botMovedOnNote: เน็ตสะดุด แต่คิวหยุดอยู่ (ครั้งที่ 3 ติดกัน) → ไม่มี", L.botMovedOnNote(netJob, true), null);
+    check("botMovedOnNote: worker_crash open-flow ที่ไม่ใช่เน็ต → ไม่มี", L.botMovedOnNote({ ...netJob, errorMessage: "งานนี้ไม่มีรูปแคปต้นทาง" }, false), null);
+    check("botMovedOnNote: เน็ตสะดุดรอบ 4 → ไม่มี", L.botMovedOnNote({ ...netJob, round: 4 }, false), null);
+    check("botMovedOnNote: Flow วาดไม่สำเร็จยังได้ข้อความเดิม",
+      L.botMovedOnNote({ status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results", errorMessage: "x" }, false),
+      "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง");
     check("isNetworkSkipFailure ตรงกับนโยบาย",
       [L.isNetworkSkipFailure("worker_crash", "open-flow", 3, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 4, incident),
         L.isNetworkSkipFailure("worker_crash", "ensure-project", 1, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 1, "งานนี้ไม่มีรูปแคปต้นทาง")],
