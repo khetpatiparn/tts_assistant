@@ -45,6 +45,8 @@ export const ACTIVITY_KINDS = [
   "user_edit_prompt",
   /** เปลี่ยนรูปต้นทาง (หน้า /flow หรือ Showcase "เลือกรูปใหม่") — งานกลับไปวาดรอบ 1 (detail: { fromStatus, round, attempt, nextAttempt, … }) */
   "user_change_source",
+  /** "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)": ปลดการหยุดโดยงานพังยัง failed (detail: { pausedReason, failedJobs }) — ไม่ใช่คำขอถึง Flow ไม่นับใน "ยิง Flow วันนี้" */
+  "user_unpause_queue",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 

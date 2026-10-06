@@ -70,8 +70,9 @@ import {
   skip,
   takeOver,
   TAKEOVER_BOT_BUSY_MESSAGE,
+  UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE,
 } from "@/lib/flow-lifecycle";
-import { applyBulk, applyPlan, applyPromptSave, applyTakeOver, loadEntryFlowImages } from "@/lib/flow-lifecycle-db";
+import { applyBulk, applyPlan, applyPromptSave, applyTakeOver, loadEntryFlowImages, unpauseQueueOnly as unpauseQueueOnlyDb } from "@/lib/flow-lifecycle-db";
 
 export async function createPrompt(formData: FormData) {
   const productName = String(formData.get("productName") ?? "").trim();
@@ -1842,6 +1843,24 @@ export async function skipFlowJob(jobId: string): Promise<void> {
   });
   revalidatePath("/flow");
   revalidatePath(`/entry/${job.entryId}`);
+}
+
+/**
+ * "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" — ปลดการหยุดของบอทอย่างเดียว งานที่พังยัง failed (อยู่แท็บ พัง กด รันต่อ/ข้ามทีหลังได้)
+ * เฉพาะเหตุ worker_crash / generation_timeout (canUnpauseQueueOnly) — captcha/login_required ต้องรอ/รันต่อตามเดิม · gate เช็กที่ DB อีกชั้น
+ * คืนข้อความแทน throw (ข้อความ throw ของ server action ถูกซ่อนใน production build)
+ */
+export async function unpauseQueueOnly(): Promise<{ ok: boolean; message: string | null }> {
+  const r = await unpauseQueueOnlyDb();
+  if (!r.unpaused) return { ok: false, message: UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE };
+  await logUserActivity({
+    kind: "user_unpause_queue",
+    jobId: "",
+    round: 0,
+    detail: { pausedReason: r.pausedReason, failedJobs: r.failedJobs },
+  });
+  revalidatePath("/flow");
+  return { ok: true, message: null };
 }
 
 /**

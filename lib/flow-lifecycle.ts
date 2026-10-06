@@ -9,6 +9,7 @@
  * ตรวจด้วย scripts/check-flow-lifecycle.mjs · ไฟล์บนดิสก์ / revalidatePath / FlowActivity / แจ้งเตือน ยังเป็นงานของผู้เรียก
  */
 import {
+  ERROR_KIND_LABELS,
   FINAL_VIDEO_FILENAME,
   FLOW_STATUS,
   candidateFilename,
@@ -361,6 +362,35 @@ export function takeOver(job: { status: string }, now: Date): Plan {
     );
   }
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now }, unpauseWorker: job.status === FLOW_STATUS.FAILED };
+}
+
+/**
+ * เหตุที่หยุดคิวแล้วผู้ใช้ "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" ได้ = ปลดการหยุดอย่างเดียว งานที่พังยัง failed (รันต่อทีหลังได้)
+ * ตั้งใจแคบ: เฉพาะเหตุที่ไม่ใช่สัญญาณบอท/session — worker_crash (รวมเน็ตสะดุด) กับ generation_timeout
+ * ห้าม: captcha (กฎพัก 1 ชั่วโมงของ ADR 0002 — ปลดเองเท่ากับยิงซ้ำใส่หน้าที่เพิ่งโดน) · login_required (ไม่มี session ให้ทำต่อ)
+ * · host_unsupported / selector_drift / flow_error / download_failed (พังแบบเดิมจะวนซ้ำกับงานถัดไป ควรซ่อมก่อน)
+ */
+export const UNPAUSE_QUEUE_ONLY_REASONS: readonly string[] = ["worker_crash", "generation_timeout"];
+
+export function canUnpauseQueueOnly(pausedReason: string): boolean {
+  return UNPAUSE_QUEUE_ONLY_REASONS.includes(pausedReason);
+}
+
+export const UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE =
+  "เหตุที่บอทหยุดครั้งนี้ปล่อยงานพังไว้แล้วทำงานอื่นต่อไม่ได้ — รอให้พักครบ/ซ่อมแล้วกด รันต่อ ที่งานที่พัง";
+
+/** ข้อความเหตุที่บอทหยุด (แถบ /flow) — worker_crash ที่ข้อความงานพังคือเน็ตสะดุด บอกตรงๆ แทน "ไม่ทราบสาเหตุ" · failedMessage = errorMessage ของงานที่พัง */
+export function pausedReasonLabel(pausedReason: string, failedMessage: string | null): string {
+  if (pausedReason === "worker_crash" && failedMessage !== null && isTransientNetworkMessage(failedMessage)) {
+    return "เน็ตสะดุดตอนเปิด Flow";
+  }
+  return ERROR_KIND_LABELS[pausedReason] ?? pausedReason;
+}
+
+/** ประโยคบอกทางออกใต้แถบ "บอทหยุดแล้ว" · null = ไม่มีทางลัด (เหตุต้องรอ/ซ่อม หรือไม่มีงานพังให้เลือก) */
+export function pausedAdvice(pausedReason: string, failedJobs: number): string | null {
+  if (!canUnpauseQueueOnly(pausedReason) || failedJobs <= 0) return null;
+  return "กด ให้บอททำงานอื่นต่อ หรือไปแท็บ พัง แล้วกด รันต่อ";
 }
 
 /** attempt สูงสุดของแถว candidate รอบ round (0 = ยังไม่มี) */

@@ -14,6 +14,7 @@ import {
   logFlowPromptNow,
   redoFlowRound,
   resumeFlowWorker,
+  unpauseQueueOnly,
   skipFlowJob,
   takeOverFlowJob,
 } from "@/app/actions";
@@ -31,7 +32,7 @@ import {
   normalizeExtraPrompt,
   type FlowStatus,
 } from "@/lib/flow-jobs";
-import { botMovedOnNote, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
+import { botMovedOnNote, canUnpauseQueueOnly, canApproveRender, canChangeSource, canRerenderWithPrompt, canRetryUpscale, canTakeOver, isBotWorking, isInRenderStage, isWaitingForBot, promptSaveGate } from "@/lib/flow-lifecycle";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export function FlowJobDetail({
   renderEnabled,
   workerAlive,
   queuePaused,
+  pausedReason,
   onRound2Chosen,
   onBack,
   onNext,
@@ -63,6 +65,8 @@ export function FlowJobDetail({
   workerAlive: boolean;
   /** คิวหยุดอยู่ไหม — งานที่พังตอนคิวไม่หยุด (บอทข้ามไปงานอื่น) ขึ้นหมายเหตุสั้นๆ แทนคำเตือนหยุดคิว */
   queuePaused: boolean;
+  /** เหตุที่คิวหยุด ("" = ไม่หยุด) — ตัดสินว่าโชว์ปุ่ม ให้บอททำงานอื่นต่อ ไหม */
+  pausedReason: string;
   onRound2Chosen: (entryId: string) => void;
   onBack: () => void;
   /** null = ไม่มีงานอื่นที่รอคุณ */
@@ -517,6 +521,21 @@ export function FlowJobDetail({
               <Button type="button" disabled={isPending} onClick={() => run(() => resumeFlowWorker(job.id))}>
                 <Play data-icon="inline-start" /> รันต่อ (หลังซ่อม)
               </Button>
+              {queuePaused && canUnpauseQueueOnly(pausedReason) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() =>
+                    run(async () => {
+                      const r = await unpauseQueueOnly();
+                      if (!r.ok) throw new Error(r.message ?? "ปลดการหยุดไม่สำเร็จ");
+                    })
+                  }
+                >
+                  <Play data-icon="inline-start" /> ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)
+                </Button>
+              )}
               <Button type="button" variant="outline" disabled={isPending} onClick={() => run(() => skipFlowJob(job.id))}>
                 <SkipForward data-icon="inline-start" /> ข้ามงานนี้
               </Button>

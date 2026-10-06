@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { Play } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
-import { ERROR_KIND_LABELS, FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
+import { FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
 import { GEMINI_MODELS } from "@/lib/gemini";
-import { generateWithAI } from "@/app/actions";
+import { generateWithAI, unpauseQueueOnly } from "@/app/actions";
+import { canUnpauseQueueOnly, pausedAdvice, pausedReasonLabel } from "@/lib/flow-lifecycle";
+import { Button } from "@/components/ui/button";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { FlowJobList } from "@/components/flow-job-list";
@@ -103,6 +106,25 @@ export function FlowRoute({
   }, [router]);
 
   const paused = worker.pausedReason !== "";
+  // เหตุที่หยุดมาจากงานพังล่าสุด — ใช้บอกว่า "เน็ตสะดุด" แทน "ไม่ทราบสาเหตุ" · ปุ่มปลดเฉพาะเหตุที่ไม่ใช่สัญญาณบอท (canUnpauseQueueOnly)
+  const latestFailed = jobs.filter((j) => j.status === "failed").sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0] ?? null;
+  const pausedLabel = pausedReasonLabel(worker.pausedReason, latestFailed?.errorMessage ?? null);
+  const advice = pausedAdvice(worker.pausedReason, summary.failed);
+  const canLetBotContinue = paused && canUnpauseQueueOnly(worker.pausedReason);
+  const [unpausing, startUnpause] = useTransition();
+  const [unpauseMessage, setUnpauseMessage] = useState<string | null>(null);
+  function letBotContinue() {
+    setUnpauseMessage(null);
+    startUnpause(async () => {
+      try {
+        const r = await unpauseQueueOnly();
+        if (!r.ok) setUnpauseMessage(r.message);
+        else router.refresh();
+      } catch {
+        setUnpauseMessage("ปลดการหยุดไม่สำเร็จ — ลองกดอีกครั้ง");
+      }
+    });
+  }
   const wake = minutesUntil(worker.nextWakeAt, now);
   const tabJobs = jobs.filter((j) => flowTabOf(j.status) === tab);
   // ไม่มี ?job (หรือ id ใช้ไม่ได้แล้ว) → เดสก์ท็อปเลือกงานแรกของแท็บให้เอง · มือถือยังเปิดที่รายการ (ดู className ด้านล่าง)
@@ -142,12 +164,16 @@ export function FlowRoute({
           />
           {paused ? (
             <span className="font-medium text-foreground">
-              บอทหยุดแล้ว — {ERROR_KIND_LABELS[worker.pausedReason] ?? worker.pausedReason}
+              บอทหยุดแล้ว — {pausedLabel}
               {worker.pausedAt ? ` (หยุดเมื่อ ${minutesAgo(worker.pausedAt, now)})` : ""}
               {/* ไม่มีงานพัง = ไม่มีปุ่ม "รันต่อ" ให้กด บอกทางออกตรงๆ (บอทปลดการหยุดนี้เองตอนเปิดใหม่) */}
               {summary.failed === 0 && worker.pausedReason !== "login_required"
                 ? " — เปิด start.bat ใหม่แล้วบอทจะทำงานต่อเอง"
                 : ""}
+              {advice !== null && <span className="block font-normal text-muted-foreground">{advice}</span>}
+              {unpauseMessage !== null && (
+                <span className="block font-normal text-destructive" role="alert">{unpauseMessage}</span>
+              )}
             </span>
           ) : worker.alive ? (
             <span className="text-foreground">
@@ -164,7 +190,14 @@ export function FlowRoute({
             </span>
           )}
         </div>
-        <PostsPerDayControl initial={postsPerDay} />
+        <div className="flex flex-wrap items-center gap-3">
+          {canLetBotContinue && (
+            <Button type="button" variant="outline" disabled={unpausing} onClick={letBotContinue}>
+              <Play data-icon="inline-start" /> ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)
+            </Button>
+          )}
+          <PostsPerDayControl initial={postsPerDay} />
+        </div>
       </div>
 
       {jobs.length === 0 ? (
@@ -231,6 +264,7 @@ export function FlowRoute({
                   renderEnabled={worker.renderEnabled}
                   workerAlive={worker.alive}
                   queuePaused={paused}
+                  pausedReason={worker.pausedReason}
                   onRound2Chosen={requestAutoGenerate}
                   onBack={() => setJobParam(null)}
                   onNext={nextWaiting ? () => selectJob(nextWaiting.id) : null}

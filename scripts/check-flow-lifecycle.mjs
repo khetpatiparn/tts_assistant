@@ -468,6 +468,31 @@ try {
       [true, false, false, false]);
   }
 
+  // ---------- "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" — ปลดการหยุดโดยไม่แตะงานที่พัง ----------
+  // ปลดได้เฉพาะเหตุที่ไม่ใช่สัญญาณบอท/session: worker_crash + generation_timeout · อย่างอื่นต้องรอ/รันต่อตามเดิม
+  check("canUnpauseQueueOnly: worker_crash / generation_timeout ได้",
+    [L.canUnpauseQueueOnly("worker_crash"), L.canUnpauseQueueOnly("generation_timeout")], [true, true]);
+  for (const reason of ["captcha", "login_required", "host_unsupported", "selector_drift", "flow_error", "download_failed", "", "อะไรก็ไม่รู้"]) {
+    check(`canUnpauseQueueOnly: ${reason || "(ไม่ได้หยุด)"} → ไม่ได้`, L.canUnpauseQueueOnly(reason), false);
+  }
+  check("UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE เป็นข้อความไทยบอกให้รอ/รันต่อ",
+    L.UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE.includes("รันต่อ"), true);
+  {
+    const netMsg = "page.goto: net::ERR_NETWORK_CHANGED at https://labs.google/fx/tools/flow Call log:";
+    check("pausedReasonLabel: worker_crash + ข้อความเน็ตสะดุด → เน็ตสะดุดตอนเปิด Flow",
+      L.pausedReasonLabel("worker_crash", netMsg), "เน็ตสะดุดตอนเปิด Flow");
+    check("pausedReasonLabel: worker_crash ข้อความอื่น → ข้อความเดิม",
+      L.pausedReasonLabel("worker_crash", "งานนี้ไม่มีรูปแคปต้นทาง"), "บอทล้มโดยไม่ทราบสาเหตุ");
+    check("pausedReasonLabel: ไม่มีงานพัง (null) → ข้อความเดิม", L.pausedReasonLabel("worker_crash", null), "บอทล้มโดยไม่ทราบสาเหตุ");
+    check("pausedReasonLabel: captcha ไม่ถูกแทนแม้ข้อความเป็นเน็ต",
+      L.pausedReasonLabel("captcha", netMsg), "โดน captcha / ถูกปฏิเสธ (403) — พักอย่างน้อย 1 ชั่วโมงก่อนรันต่อ");
+    check("pausedReasonLabel: เหตุที่ไม่รู้จัก → แสดงรหัสดิบ", L.pausedReasonLabel("zzz", null), "zzz");
+    check("pausedAdvice: ปลดได้ + มีงานพัง → บอกทางเลือก",
+      L.pausedAdvice("worker_crash", 1), "กด ให้บอททำงานอื่นต่อ หรือไปแท็บ พัง แล้วกด รันต่อ");
+    check("pausedAdvice: ปลดได้ แต่ไม่มีงานพัง → null", L.pausedAdvice("worker_crash", 0), null);
+    check("pausedAdvice: captcha → null (ไม่ชวนข้ามกฎพัก 1 ชม.)", L.pausedAdvice("captcha", 2), null);
+  }
+
   // ---------- เปิดบอท: กวาดงานค้าง ----------
   check("staleUpscale มีคลิป → done ด้วย 720p ข้อความเดิม", L.staleUpscale(true, now),
     { job: { status: "done", finishedAt: now, errorMessage: "ได้ 720p (บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้)" } });

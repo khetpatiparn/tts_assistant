@@ -6,7 +6,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
-import { canRerenderWithPrompt, promptSaveGate, redo, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
+import { UNPAUSE_QUEUE_ONLY_REASONS, canRerenderWithPrompt, promptSaveGate, redo, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -173,4 +173,20 @@ export async function unpauseWorker(db: Db = prisma): Promise<void> {
     create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
     update: { pausedReason: "", pausedAt: null },
   });
+}
+
+/**
+ * "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" — ปลดการหยุดอย่างเดียว ไม่แตะ FlowJob ใดเลย (งานพังยัง failed รันต่อ/ข้ามทีหลังได้ ·
+ * บอทหยิบเฉพาะ queued_*) · ปลดเฉพาะเมื่อเหตุที่หยุดอยู่ใน UNPAUSE_QUEUE_ONLY_REASONS — เช็กใน where ของ updateMany ที่เดียว
+ * กันแข่งกับบอทที่เพิ่งหยุดด้วยเหตุอื่น (เช่น captcha) ระหว่างที่ผู้ใช้เปิดหน้าค้าง · unpaused=false = ไม่ได้ปลด (pausedReason = เหตุที่เห็นตอนนั้น)
+ */
+export async function unpauseQueueOnly(): Promise<{ unpaused: boolean; pausedReason: string; failedJobs: number }> {
+  const state = await prisma.flowWorkerState.findUnique({ where: { id: WORKER_STATE_ID }, select: { pausedReason: true } });
+  const pausedReason = state?.pausedReason ?? "";
+  const failedJobs = await prisma.flowJob.count({ where: { status: "failed" } });
+  const r = await prisma.flowWorkerState.updateMany({
+    where: { id: WORKER_STATE_ID, pausedReason: { in: [...UNPAUSE_QUEUE_ONLY_REASONS] } },
+    data: { pausedReason: "", pausedAt: null },
+  });
+  return { unpaused: r.count === 1, pausedReason, failedJobs };
 }

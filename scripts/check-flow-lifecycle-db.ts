@@ -1012,6 +1012,47 @@ async function sweeps() {
   }
 }
 
+async function queueOnlyUnpauses() {
+  console.log("\n== ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้) ==");
+  const setPause = (reason: string) =>
+    prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason: reason, pausedAt: SENTINEL },
+      update: { pausedReason: reason, pausedAt: SENTINEL },
+    });
+  for (const reason of ["worker_crash", "generation_timeout"]) {
+    const failed = await makePair({ status: FLOW_STATUS.FAILED, round: 3, attempt: 1, failedStep: "open-flow", errorKind: reason, errorMessage: "net::ERR_NETWORK_CHANGED", failureDir: "x" });
+    const queued = await makePair({ status: FLOW_STATUS.QUEUED_R3, round: 3, attempt: 1 });
+    await setPause(reason);
+    const before = JSON.stringify(await snapJob(failed.b));
+    const r = await capture(() => db.unpauseQueueOnly());
+    const w = await snapWorker();
+    check(
+      `${reason}: ปลดการหยุด · งานพังไม่ถูกแตะ (ยัง failed + ร่องรอยครบ) · คืน reason + จำนวนงานพัง`,
+      r.ok && (r.value as { unpaused: boolean; pausedReason: string }).unpaused === true &&
+        (r.value as { pausedReason: string }).pausedReason === reason &&
+        (r.value as { failedJobs: number }).failedJobs >= 1 &&
+        w?.pausedReason === "" && before === JSON.stringify(await snapJob(failed.b)) &&
+        (await snapJob(failed.b)).status === FLOW_STATUS.FAILED,
+      JSON.stringify({ r, w }),
+    );
+    const n = await NEW.claim(queued.b, 3);
+    check(`${reason}: หลังปลด บอทหยิบงาน queued_r3 ได้ · งานพังยัง failed`, n === 1 && (await snapJob(failed.b)).status === FLOW_STATUS.FAILED, JSON.stringify(n));
+    const failedClaim = await NEW.claim(failed.b, 3);
+    check(`${reason}: claim ไม่หยิบงาน failed`, failedClaim === 0, JSON.stringify(failedClaim));
+  }
+  for (const reason of ["captcha", "login_required", "host_unsupported", "selector_drift", "flow_error", "download_failed", ""]) {
+    await setPause(reason);
+    const r = await capture(() => db.unpauseQueueOnly());
+    const w = await snapWorker();
+    check(
+      `${reason || "(ไม่ได้หยุด)"}: ปฏิเสธ · การหยุดคงเดิม`,
+      r.ok && (r.value as { unpaused: boolean }).unpaused === false && w?.pausedReason === reason,
+      JSON.stringify({ r, w }),
+    );
+  }
+}
+
 /**
  * ทำต่อเอง (takeOver) — สถานะที่เกินขั้นทำคลิปไม่มีของเดิมให้เทียบ จึงเช็กผลที่แถวงาน/FlowWorkerState ตรงๆ
  * (สถานะขั้นทำคลิปเทียบกับ OLD.finishManually แล้วใน branches)
@@ -1594,6 +1635,7 @@ async function main() {
     await branches();
     await sweeps();
     await takeovers();
+    await queueOnlyUnpauses();
     await shortNameReleases();
     await promptSaves();
     await changeSources();
