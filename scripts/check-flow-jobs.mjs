@@ -84,7 +84,17 @@ try {
     check("ชื่อ = ชื่อร้านที่ผูกอยู่ + ไม่มีชื่อเต็มใน productInfo → ยังไม่ย่อ", un(shop, "", [shop]), true);
     check("ช่องว่างต่างกันนิดหน่อยก็ยังนับเป็นชื่อร้าน", un(`  ${shop.replace(" ", "  ")} `, "", [shop]), true);
     check("ย่อแล้ว (ชื่อไม่ตรงชื่อร้าน) → ไม่ต้องย่อ", un("ผ้าเช็ดตัวสัตว์เลี้ยง", `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), false);
-    check("ชื่อตรงชื่อร้าน แต่ productInfo มีชื่อเต็มแล้ว (ตัดสินแล้วว่าชื่อร้านสั้นพอ / ผู้ใช้ตั้งเอง) → ไม่ต้องย่อ", un(shop, `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), false);
+    // ชื่อร้านใช้เป็นชื่อได้เฉพาะเมื่อสั้น (≤ 30 ตัว บรรทัดเดียว — กติกาเดียวกับ shortNameOutcome) — งานเก่าที่ถูกบันทึก kept_full
+    // ด้วยกติกาเดิม (ชื่อร้านยาว + prefix ใน productInfo แล้ว) ต้องกลับมานับว่ายังไม่ย่อ ไม่งั้นบอทวาดด้วยชื่อร้านยาว
+    check("ชื่อ = ชื่อร้านยาว แม้ productInfo มีชื่อเต็มแล้ว (kept_full ของกติกาเดิม) → ยังไม่ย่อ", un(shop, `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), true);
+    check("ชื่อร้านยาว ช่องว่างต่างกัน + prefix → ยังไม่ย่อ", un(` ${shop.replace(" ", "  ")}`, `${f.FULL_TITLE_PREFIX}${shop}`, [shop]), true);
+    check("ชื่อร้านหลายบรรทัด (ไม่ใช่ชื่อสั้น) + prefix → ยังไม่ย่อ", un("ตะขอ แขวน", `${f.FULL_TITLE_PREFIX}ตะขอ\nแขวน`, ["ตะขอ\nแขวน"]), true);
+    const shortShop = "ตะขอแขวนผ้า";
+    check("ชื่อตรงชื่อร้านที่สั้นพอ + productInfo มีชื่อเต็มแล้ว (kept_full ที่ถูกต้อง) → ไม่ต้องย่อ", un(shortShop, `${f.FULL_TITLE_PREFIX}${shortShop}`, [shortShop]), false);
+    check("ชื่อตรงชื่อร้านที่สั้นพอ ยังไม่มี prefix → ยังไม่ตัดสิน (ให้ตัวย่อลองก่อน)", un(shortShop, "", [shortShop]), true);
+    check("ชื่อร้าน 30 ตัวพอดี + prefix → ไม่ต้องย่อ · 31 ตัว → ยังไม่ย่อ",
+      `${un("ก".repeat(30), `${f.FULL_TITLE_PREFIX}x`, ["ก".repeat(30)])},${un("ก".repeat(31), `${f.FULL_TITLE_PREFIX}x`, ["ก".repeat(31)])}`, "false,true");
+    check("productInfo ของงานเก่า (prefix + ชื่อร้านยาว) → ย่อแล้วไม่ใส่ prefix ซ้ำ", f.productInfoWithFullTitle(`ผ้าฝ้าย\n${f.FULL_TITLE_PREFIX}${shop}`, shop), `ผ้าฝ้าย\n${f.FULL_TITLE_PREFIX}${shop}`);
     check("ไม่ได้มาจาก Showcase/หาสินค้า (ไม่มีชื่อร้านผูก) → ไม่ต้องย่อ", un(shop, "", []), false);
     check("productInfo ที่ผู้ใช้เขียนเอง (ไม่มีชื่อเต็ม) ไม่ทำให้พ้น", un(shop, "ผ้าฝ้าย 100%", [shop]), true);
     check("ผูกหลายแถว ตรงแถวใดแถวหนึ่งก็นับ", un(shop, "", ["อย่างอื่น", shop]), true);
@@ -102,12 +112,21 @@ try {
     check("outcome: ชื่อร้าน 30 ตัวพอดี ตอบไม่สั้นลง → ใช้ชื่อร้าน", o("ก".repeat(30), "ก".repeat(30)), JSON.stringify({ name: "ก".repeat(30) }));
     check("outcome: ชื่อร้าน 31 ตัว ตอบไม่สั้นลง → ไม่สำเร็จ", o("ก".repeat(31), "ก".repeat(31)), "null");
     check("outcome: ชื่อร้านสั้นแต่หลายบรรทัด ตอบไม่สั้นลง → ไม่สำเร็จ", o("ตะขอ แขวน", "ตะขอ\nแขวน"), "null");
+    // นับสองฝั่งแบบเดียวกัน (ยุบช่องว่าง + นับ code point) — ชื่อร้านที่มีช่องว่างซ้อน ตอบกลับมาแบบช่องว่างเดียว ≠ "สั้นลง"
+    const spaced = "ผ้าเช็ดตัวสัตว์เลี้ยง  สำหรับสุนัขและแมว  หนานุ่ม"; // ชื่อร้านยาว มีช่องว่างคู่
+    check("outcome: ตอบชื่อร้านยาวเดิมแต่ยุบช่องว่างคู่ → ไม่สำเร็จ (ไม่ใช่ชื่อสั้น)", o(spaced.replace(/\s+/g, " "), spaced), "null");
+    check("outcome: ชื่อร้านสั้นมีช่องว่างคู่ ตอบแบบยุบช่องว่าง → ใช้ชื่อร้าน", o("ตะขอ แขวน", "ตะขอ  แขวน"), JSON.stringify({ name: "ตะขอ  แขวน" }));
+    check("outcome: นับ code point — อีโมจิ 31 ตัว (62 หน่วย UTF-16) ตอบเท่าเดิม → ไม่สำเร็จ · 30 ตัว → ใช้ชื่อร้าน",
+      `${o("🐱".repeat(31), "🐱".repeat(31))}|${o("🐱".repeat(30), "🐱".repeat(30))}`, `null|${JSON.stringify({ name: "🐱".repeat(30) })}`);
+    check("outcome: นับ code point — ชื่อสั้นอีโมจิ 40 ตัว (80 หน่วย) ไม่เกิน 60 · สั้นกว่าชื่อร้าน 50 ตัว → ย่อได้", o("🐱".repeat(40), "ก".repeat(50)), JSON.stringify({ name: "🐱".repeat(40) }));
+    check("outcome: นับ code point — อีโมจิ 18 ตัว (36 หน่วย) สั้นกว่าชื่อร้าน 35 ตัว → ย่อได้", o("🐱".repeat(18), "ก".repeat(35)), JSON.stringify({ name: "🐱".repeat(18) }));
 
     const p = (info) => f.productInfoWithFullTitle(info, shop);
     check("productInfo ว่าง → ชื่อเต็มของร้าน", p(""), `${f.FULL_TITLE_PREFIX}${shop}`);
     check("productInfo มีชื่อเต็มแล้ว → ไม่แตะ", p(`${f.FULL_TITLE_PREFIX}เดิม`), `${f.FULL_TITLE_PREFIX}เดิม`);
     check("productInfo ที่ผู้ใช้เขียนเอง → คงไว้ ต่อชื่อเต็มบรรทัดใหม่", p("ผ้าฝ้าย 100%"), `ผ้าฝ้าย 100%\n${f.FULL_TITLE_PREFIX}${shop}`);
-    check("หลังย่อ/ตัดสินแล้ว isUnshortenedName = false เสมอ", un(shop, p(""), [shop]), false);
+    check("หลังย่อแล้ว isUnshortenedName = false", un("ผ้าเช็ดตัวสัตว์เลี้ยง", p(""), [shop]), false);
+    check("หลังตัดสิน kept_full (ชื่อร้านสั้น) isUnshortenedName = false", un(shortShop, f.productInfoWithFullTitle("", shortShop), [shortShop]), false);
   }
   check("flowProjectUrl ปกติ", f.flowProjectUrl("367b48db-a868-48ba-bfa5-0933d33728e5"), "https://flow.google.com/project/367b48db-a868-48ba-bfa5-0933d33728e5?hl=en");
   check("flowProjectUrl ว่าง = ''", f.flowProjectUrl(""), "");

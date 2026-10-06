@@ -236,35 +236,44 @@ export function acceptShortName(candidate: string, fullTitle: string): string {
   return shortNameOutcome(candidate, fullTitle)?.name ?? fullTitle;
 }
 
+/** ชื่อในรูปที่ใช้เทียบ/นับ — ยุบช่องว่างทุกชนิด (รวมขึ้นบรรทัด) เป็นช่องเดียว แล้ว trim */
+const titleKey = (s: string) => s.replace(/\s+/g, " ").trim();
+/** ความยาวชื่อ = จำนวน code point ของ titleKey — นับแบบเดียวกันทุกที่ (ชื่อสั้น/ชื่อร้าน/เพดาน 30/60) */
+const titleLength = (s: string) => Array.from(titleKey(s)).length;
+
 /** ชื่อร้านที่สั้นอยู่แล้ว (≤ 30 ตัว บรรทัดเดียว) — ใช้เป็นชื่อในพรอมต์ Flow ได้เลยโดยไม่ต้องย่อ */
 const SHOP_TITLE_SHORT_MAX = 30;
 function isShortShopTitle(fullTitle: string): boolean {
-  const t = fullTitle.trim();
-  return !/[\r\n]/.test(t) && Array.from(t.replace(/\s+/g, " ")).length <= SHOP_TITLE_SHORT_MAX;
+  return !/[\r\n]/.test(fullTitle.trim()) && titleLength(fullTitle) <= SHOP_TITLE_SHORT_MAX;
 }
 
 /**
  * ผลของคำตอบจากตัวย่อชื่อ — `null` = ไม่สำเร็จ ต้องลองใหม่ (ว่าง / เกิน 60 / หลายบรรทัด) · ไม่สั้นกว่าชื่อร้าน = ใช้ชื่อร้าน
  * ได้**เฉพาะเมื่อชื่อร้านสั้นอยู่แล้ว** (≤ 30 ตัว บรรทัดเดียว — ไม่งั้นงานของสินค้าที่ชื่อร้านสั้นจะรอชื่อสั้นตลอดไป) · ชื่อร้าน
  * ยาวที่ได้คืนมาเท่าเดิม = ไม่สำเร็จ (ลองใหม่ งานรอ) — พรอมต์ Flow ไม่เคยใช้ชื่อเต็มของร้าน (Short name ใน CONTEXT.md)
+ * · "สั้นกว่า" เทียบสองฝั่งด้วย titleLength (ยุบช่องว่าง + code point) — ชื่อร้านที่ตอบกลับมาแค่ยุบช่องว่างคู่ไม่นับว่าย่อ
  */
 export function shortNameOutcome(answer: string, fullTitle: string): { name: string } | null {
-  const t = answer.replace(/\s+/g, " ").trim();
-  if (t === "" || t.length > 60 || /[\r\n]/.test(answer.trim())) return null;
-  if (t.length < fullTitle.trim().length) return { name: t };
+  const t = titleKey(answer);
+  if (t === "" || titleLength(answer) > 60 || /[\r\n]/.test(answer.trim())) return null;
+  if (titleLength(answer) < titleLength(fullTitle)) return { name: t };
   return isShortShopTitle(fullTitle) ? { name: fullTitle } : null;
 }
 
-const sameTitle = (a: string, b: string) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+const sameTitle = (a: string, b: string) => titleKey(a) === titleKey(b);
 
 /**
  * **ที่เดียวที่ตัดสินว่า "ชื่อยังเป็นชื่อเต็มของร้าน"** (ticket 07) — บอทไม่วาดรอบ 1–2 ของ entry ที่ยังเป็นแบบนี้ (พิมพ์ลงพรอมต์
- * Flow แล้ว Flow ใส่ตัวหนังสือในรูป) · `shopTitles` = ชื่อของ ProductCandidate ที่ผูก entry นี้ (linkedEntryId) · productInfo มี
- * FULL_TITLE_PREFIX = ตัดสินไปแล้ว (ย่อแล้ว / ชื่อร้านสั้นพอ) ไม่ย่อซ้ำ · entry ที่ไม่ได้มาจากร้าน (ไม่มีชื่อผูก) ไม่เข้าข่าย
+ * Flow แล้ว Flow ใส่ตัวหนังสือในรูป) · `shopTitles` = ชื่อของ ProductCandidate ที่ผูก entry นี้ (linkedEntryId) · entry ที่ไม่ได้
+ * มาจากร้าน (ไม่มีชื่อผูก) ไม่เข้าข่าย · ชื่อตรงชื่อร้านที่**ไม่สั้น** (> 30 ตัว / หลายบรรทัด) = ยังไม่ย่อเสมอ แม้ productInfo มี
+ * FULL_TITLE_PREFIX แล้ว (งานเก่าที่บันทึก kept_full ด้วยกติกาเดิม — ชื่อร้านยาวห้ามเข้าพรอมต์ Flow) · ชื่อตรงชื่อร้านที่สั้นพอ
+ * + มี FULL_TITLE_PREFIX = ตัดสินแล้ว (kept_full) ไม่ย่อซ้ำ
  */
 export function isUnshortenedName(entry: { productName: string; productInfo: string }, shopTitles: string[]): boolean {
-  if (entry.productInfo.includes(FULL_TITLE_PREFIX)) return false;
-  return shopTitles.some((t) => sameTitle(t, entry.productName));
+  const matched = shopTitles.filter((t) => sameTitle(t, entry.productName));
+  if (matched.length === 0) return false;
+  if (matched.some((t) => !isShortShopTitle(t))) return true;
+  return !entry.productInfo.includes(FULL_TITLE_PREFIX);
 }
 
 /** productInfo หลังย่อชื่อสำเร็จ — เก็บชื่อเต็มของร้านไว้ให้ 10-part prompt · ไม่ทับสิ่งที่ผู้ใช้เขียนไว้ (ต่อบรรทัดใหม่) */

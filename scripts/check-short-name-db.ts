@@ -95,6 +95,15 @@ async function ensure() {
   e = await entry(midId);
   check("ชื่อร้านยาว ตัวย่อตอบชื่อเดิม → failed · entry ไม่ถูกแตะ (ยังรอชื่อสั้น)", r11.outcome === "failed" && e.productName === midTitle && e.productInfo === "", JSON.stringify({ r11, e }));
 
+  // งานเก่าที่กติกาเดิมบันทึก kept_full ให้ชื่อร้านยาว (prefix อยู่ใน productInfo แล้ว) → ยังนับว่าไม่ย่อ · ย่อแล้วไม่ใส่ prefix ซ้ำ
+  const legacyInfo = `ผ้าฝ้าย 100%\n${FULL_TITLE_PREFIX}${SHOP}`;
+  const legacyId = await shopEntry(SHOP, true, legacyInfo);
+  check("kept_full เดิมของชื่อร้านยาว → hasUnshortenedName = true (บอทไม่วาดด้วยชื่อนี้)", await mod.hasUnshortenedName(legacyId));
+  const r12 = await mod.ensureShortName(legacyId, { shorten: counting(async () => "ผ้าเช็ดตัวสัตว์เลี้ยง") });
+  e = await entry(legacyId);
+  check("kept_full เดิมของชื่อร้านยาว → ย่อได้ · productInfo มีชื่อเต็มครั้งเดียว (ไม่ซ้ำ prefix)", r12.outcome === "shortened" && e.productName === "ผ้าเช็ดตัวสัตว์เลี้ยง" && e.productInfo === legacyInfo, JSON.stringify({ r12, e }));
+  check("ย่อแล้ว → hasUnshortenedName = false", !(await mod.hasUnshortenedName(legacyId)));
+
   const manualId = await shopEntry(SHOP, false);
   const never = counting(async () => "x");
   const r8 = await mod.ensureShortName(manualId, { shorten: never });
