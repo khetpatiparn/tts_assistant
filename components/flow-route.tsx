@@ -5,7 +5,7 @@ import { Play } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
-import { FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
+import { FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, orderJobsForTab, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import { generateWithAI, unpauseQueueOnly } from "@/app/actions";
 import { canUnpauseQueueOnly, pausedAdvice, pausedReasonLabel } from "@/lib/flow-lifecycle";
@@ -126,16 +126,16 @@ export function FlowRoute({
     });
   }
   const wake = minutesUntil(worker.nextWakeAt, now);
-  const tabJobs = jobs.filter((j) => flowTabOf(j.status) === tab);
+  // ลำดับต่อแท็บ: เสร็จ/ข้าม = เวลาปิดใหม่→เก่า · เลือกรูป/ดูคลิป/พัง = รอนานสุดก่อน · บอท = ตามเดิม (orderJobsForTab)
+  const tabJobs = orderJobsForTab(tab, jobs.filter((j) => flowTabOf(j.status) === tab));
   // ไม่มี ?job (หรือ id ใช้ไม่ได้แล้ว) → เดสก์ท็อปเลือกงานแรกของแท็บให้เอง · มือถือยังเปิดที่รายการ (ดู className ด้านล่าง)
   // งานที่ ?job ชี้ยังอยู่ในแผงรายละเอียดแม้ย้ายแท็บไปแล้ว (เช่นกดผ่านแล้วงานเปลี่ยนสถานะ) — ไม่ทำให้ผู้ใช้เสียที่
   const detailJob = explicitJob ?? tabJobs[0] ?? null;
 
   // "งานถัดไปที่รอคุณ" = งานถัดไปในแท็บเลือกรูป/ดูคลิป/พัง ตามลำดับรายการ วนกลับต้น
-  const needsYou = jobs.filter((j) => {
-    const t = flowTabOf(j.status);
-    return t === "choose" || t === "clip" || t === "failed";
-  });
+  const needsYou = (["choose", "clip", "failed"] as const).flatMap((t) =>
+    orderJobsForTab(t, jobs.filter((j) => flowTabOf(j.status) === t))
+  );
   const nextWaiting = (() => {
     if (!detailJob || !needsYou.some((j) => j.id !== detailJob.id)) return null;
     const at = needsYou.findIndex((j) => j.id === detailJob.id);
@@ -247,7 +247,13 @@ export function FlowRoute({
               {tabJobs.length === 0 ? (
                 <p className="text-sm leading-relaxed text-muted-foreground">ไม่มีงานในแท็บนี้</p>
               ) : (
-                <FlowJobList jobs={tabJobs} selectedId={detailJob?.id ?? null} renderEnabled={worker.renderEnabled} onSelect={selectJob} />
+                <FlowJobList
+                  jobs={tabJobs}
+                  selectedId={detailJob?.id ?? null}
+                  renderEnabled={worker.renderEnabled}
+                  onSelect={selectJob}
+                  groupByDayFrom={tab === "closed" ? now : null}
+                />
               )}
             </div>
             <div

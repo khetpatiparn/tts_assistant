@@ -206,6 +206,54 @@ try {
   check("kind awaiting_prompt", f.jobKindLabel("awaiting_prompt", 3), "รอพรอมต์");
   check("kind done = null", f.jobKindLabel("done", 3), null);
 
+  // ---------- ลำดับ/จัดกลุ่มงานในแต่ละแท็บ (วันตามเวลาท้องถิ่นของเครื่อง — รันเช็กนี้ทั้ง TZ=Asia/Bangkok และ TZ=UTC) ----------
+  {
+    // เวลาท้องถิ่น (ไม่ใช่ UTC) — ถ้าโค้ดใช้ getter แบบ UTC ผลจะต่างกันระหว่าง TZ
+    const L = (y, mo, d, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi);
+    const now = L(2026, 10, 6, 15, 0);
+    check("dayKey ใช้วันท้องถิ่น 23:59", f.dayKey(L(2026, 10, 5, 23, 59)), "2026-10-05");
+    check("dayKey ใช้วันท้องถิ่น 00:01", f.dayKey(L(2026, 10, 6, 0, 1)), "2026-10-06");
+    check("dayKey เติมศูนย์", f.dayKey(L(2026, 1, 9, 12)), "2026-01-09");
+    check("หัววันนี้", f.dayHeadingLabel("2026-10-06", 3, now), "วันนี้ · 3 งาน");
+    check("หัวเมื่อวาน", f.dayHeadingLabel("2026-10-05", 1, now), "เมื่อวาน · 1 งาน");
+    check("หัววันเก่า ปีเดียวกัน ไม่มีปี", f.dayHeadingLabel("2026-10-04", 2, now), "4 ต.ค. · 2 งาน");
+    check("หัวข้ามเดือน (เมื่อวานของวันที่ 1)", f.dayHeadingLabel("2026-09-30", 1, L(2026, 10, 1, 9)), "เมื่อวาน · 1 งาน");
+    check("หัวคนละปี มีปี พ.ศ.", f.dayHeadingLabel("2025-12-31", 4, now), "31 ธ.ค. 2568 · 4 งาน");
+    check("หัวเมื่อวานข้ามปี", f.dayHeadingLabel("2025-12-31", 1, L(2026, 1, 1, 8)), "เมื่อวาน · 1 งาน");
+
+    const fin = L(2026, 10, 6, 14, 32);
+    check("closeTime ใช้ finishedAt", f.closeTime({ finishedAt: fin, updatedAt: L(2026, 10, 7) }).getTime(), fin.getTime());
+    check("closeTime ไม่มี finishedAt → updatedAt", f.closeTime({ finishedAt: null, updatedAt: L(2026, 10, 3, 8) }).getTime(), L(2026, 10, 3, 8).getTime());
+    check("ป้ายเวลาเสร็จ", f.closeTimeLabel({ status: "done", finishedAt: fin, updatedAt: fin }), "เสร็จ 14:32");
+    check("ป้ายเวลาข้าม", f.closeTimeLabel({ status: "skipped", finishedAt: fin, updatedAt: fin }), "ข้าม 14:32");
+    check("ป้ายเวลาเติมศูนย์", f.closeTimeLabel({ status: "done", finishedAt: null, updatedAt: L(2026, 10, 6, 7, 5) }), "เสร็จ 07:05");
+
+    const mk = (id, status, o = {}) => ({ id, status, createdAt: L(2026, 10, 1), updatedAt: L(2026, 10, 1), finishedAt: null, ...o });
+    const ids = (arr) => arr.map((j) => j.id).join(",");
+    const closed = [
+      mk("old", "done", { finishedAt: L(2026, 10, 4, 10), createdAt: L(2026, 10, 6) }),
+      mk("late", "done", { finishedAt: L(2026, 10, 5, 23, 59) }),
+      mk("early", "skipped", { finishedAt: L(2026, 10, 6, 0, 1) }),
+      mk("noFin", "done", { updatedAt: L(2026, 10, 6, 12) }),
+      mk("mid", "done", { finishedAt: L(2026, 10, 5, 9) }),
+    ];
+    check("แท็บปิด: เรียงตามเวลาปิด ใหม่→เก่า (ไม่ใช่ createdAt)", ids(f.orderJobsForTab("closed", closed)), "noFin,early,late,mid,old");
+    check("orderJobsForTab ไม่แก้ array เดิม", ids(closed), "old,late,early,noFin,mid");
+    const groups = f.groupClosedByDay(f.orderJobsForTab("closed", closed), now);
+    check("จัดกลุ่มตามวัน: หัว", groups.map((g) => g.label).join("|"), "วันนี้ · 2 งาน|เมื่อวาน · 2 งาน|4 ต.ค. · 1 งาน");
+    check("จัดกลุ่มตามวัน: สมาชิก", groups.map((g) => ids(g.jobs)).join("|"), "noFin,early|late,mid|old");
+    check("จัดกลุ่มว่าง = ว่าง", f.groupClosedByDay([], now).length, 0);
+
+    const wait = [
+      mk("new", "review_r1", { updatedAt: L(2026, 10, 6, 10) }),
+      mk("oldest", "review_r2", { updatedAt: L(2026, 10, 5, 10) }),
+      mk("mid", "review_r1", { updatedAt: L(2026, 10, 6, 1) }),
+    ];
+    for (const t of ["choose", "clip", "failed"]) check(`แท็บ ${t}: updatedAt เก่าสุดก่อน`, ids(f.orderJobsForTab(t, wait)), "oldest,mid,new");
+    const bot = [mk("b2", "queued_r1", { createdAt: L(2026, 10, 2) }), mk("b1", "queued_r1", { createdAt: L(2026, 10, 3) })];
+    check("แท็บบอท: คงลำดับเดิม", ids(f.orderJobsForTab("bot", bot)), "b2,b1");
+  }
+
   check("STATUS_LABELS ครบทุกสถานะ", Object.values(f.FLOW_STATUS).every((st) => typeof f.STATUS_LABELS[st] === "string"), true);
   check("STEP_LABELS has wait-render", typeof f.STEP_LABELS["wait-render"], "string");
 

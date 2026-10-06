@@ -3,7 +3,7 @@
 import { Download, FolderCheck } from "lucide-react";
 
 import type { FlowJobRow } from "@/lib/flow-queries";
-import { FLOW_STATUS, STATUS_LABELS, currentSourceImage, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
+import { FLOW_STATUS, STATUS_LABELS, closeTimeLabel, currentSourceImage, groupClosedByDay, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -16,24 +16,35 @@ export function FlowJobList({
   selectedId,
   renderEnabled,
   onSelect,
+  groupByDayFrom,
 }: {
   jobs: FlowJobRow[];
   selectedId: string | null;
   renderEnabled: boolean;
   onSelect: (id: string) => void;
+  /** แท็บ เสร็จ / ข้าม: ส่ง "ตอนนี้" มา = แบ่งกลุ่มตามวันปิด (jobs ต้องเรียงตามเวลาปิดแล้ว) + โชว์เวลาปิดในแถว */
+  groupByDayFrom?: Date | null;
 }) {
+  const item = (job: FlowJobRow) => (
+    <FlowJobListItem
+      key={job.id}
+      job={job}
+      selected={job.id === selectedId}
+      renderEnabled={renderEnabled}
+      showCloseTime={groupByDayFrom != null}
+      onSelect={() => onSelect(job.id)}
+    />
+  );
+  if (groupByDayFrom == null) return <ul className="flex flex-col border-t border-border">{jobs.map(item)}</ul>;
   return (
-    <ul className="flex flex-col border-t border-border">
-      {jobs.map((job) => (
-        <FlowJobListItem
-          key={job.id}
-          job={job}
-          selected={job.id === selectedId}
-          renderEnabled={renderEnabled}
-          onSelect={() => onSelect(job.id)}
-        />
+    <div className="flex flex-col gap-4">
+      {groupClosedByDay(jobs, groupByDayFrom).map((g) => (
+        <section key={g.key} aria-label={g.label}>
+          <h2 className="pb-1 text-sm leading-relaxed font-semibold text-foreground">{g.label}</h2>
+          <ul className="flex flex-col border-t border-border">{g.jobs.map(item)}</ul>
+        </section>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -41,11 +52,13 @@ function FlowJobListItem({
   job,
   selected,
   renderEnabled,
+  showCloseTime,
   onSelect,
 }: {
   job: FlowJobRow;
   selected: boolean;
   renderEnabled: boolean;
+  showCloseTime: boolean;
   onSelect: () => void;
 }) {
   const kind = jobKindLabel(job.status, job.round);
@@ -76,6 +89,7 @@ function FlowJobListItem({
             {kind !== null && <Badge variant="neutral">{kind}</Badge>}
             <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
             {job.tookOver && <Badge variant="neutral">ทำเอง</Badge>}
+            {showCloseTime && <span className="text-xs leading-relaxed text-muted-foreground">{closeTimeLabel(job)}</span>}
             {job.exportedPath !== null && (
               <span className="flex items-center gap-1 text-xs leading-relaxed text-muted-foreground">
                 <FolderCheck aria-hidden="true" className="size-4" /> ส่ง TTS แล้ว

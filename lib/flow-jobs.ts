@@ -368,6 +368,67 @@ export function parseFlowTab(raw: string | null | undefined): FlowTab | null {
   return FLOW_TABS.find((t) => t.key === raw)?.key ?? null;
 }
 
+// ---------- ลำดับ/จัดกลุ่มงานในแต่ละแท็บ ----------
+// "วัน" = วันตามเวลาท้องถิ่นของเครื่อง (ขอบวัน = เที่ยงคืนท้องถิ่น) จึงใช้ getter แบบ local ทั้งหมด — ต่างจาก postedAt
+// ที่เก็บเป็น UTC midnight (ดู CLAUDE.md หัวข้อวันที่ 2 คลาส)
+
+type TimedJob = { finishedAt: Date | null; updatedAt: Date };
+
+/** เวลาที่งานปิด (เสร็จ/ทำต่อเอง/ข้าม เก็บในช่อง finishedAt ช่องเดียว) · งานเก่าไม่มี finishedAt → updatedAt */
+export function closeTime(job: TimedJob): Date {
+  return job.finishedAt ?? job.updatedAt;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** กุญแจวัน YYYY-MM-DD ตามเวลาท้องถิ่น */
+export function dayKey(d: Date): string {
+  return `${String(d.getFullYear())}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+const THAI_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+/** หัวกลุ่มวัน: "วันนี้ · N งาน" · "เมื่อวาน · N งาน" · "4 ต.ค. · N งาน" (คนละปีกับ now ต่อ พ.ศ.) — `now` ฉีดเข้ามาได้ */
+export function dayHeadingLabel(key: string, count: number, now: Date): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  let day: string;
+  if (key === dayKey(now)) day = "วันนี้";
+  else if (key === dayKey(yesterday)) day = "เมื่อวาน";
+  else day = `${String(d)} ${THAI_MONTHS_SHORT[m - 1]}${y === now.getFullYear() ? "" : ` ${String(y + 543)}`}`;
+  return `${day} · ${String(count)} งาน`;
+}
+
+/** "เสร็จ 14:32" / "ข้าม 14:32" (เวลาท้องถิ่น) — ใช้กับแถวในแท็บ เสร็จ / ข้าม */
+export function closeTimeLabel(job: TimedJob & { status: string }): string {
+  const t = closeTime(job);
+  return `${job.status === FLOW_STATUS.SKIPPED ? "ข้าม" : "เสร็จ"} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`;
+}
+
+/**
+ * ลำดับงานในแท็บ (คืน array ใหม่): เสร็จ/ข้าม = เวลาปิดใหม่→เก่า · เลือกรูป/ดูคลิป/พัง = เริ่มรอผู้ใช้ (updatedAt) เก่าสุดก่อน
+ * (เคลียร์ที่รอนานสุดก่อน) · บอท = คงลำดับที่ได้มา
+ */
+export function orderJobsForTab<J extends TimedJob>(tab: FlowTab, jobs: J[]): J[] {
+  const out = [...jobs];
+  if (tab === "closed") out.sort((a, b) => closeTime(b).getTime() - closeTime(a).getTime());
+  else if (tab !== "bot") out.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
+  return out;
+}
+
+/** จัดงาน (เรียงแล้ว) เป็นกลุ่มตามวันปิด คงลำดับเดิม · วันที่ว่างไม่มี */
+export function groupClosedByDay<J extends TimedJob>(jobs: J[], now: Date): { key: string; label: string; jobs: J[] }[] {
+  const groups: { key: string; label: string; jobs: J[] }[] = [];
+  for (const j of jobs) {
+    const key = dayKey(closeTime(j));
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.jobs.push(j);
+    else groups.push({ key, label: "", jobs: [j] });
+  }
+  for (const g of groups) g.label = dayHeadingLabel(g.key, g.jobs.length, now);
+  return groups;
+}
+
 /**
  * ป้ายชนิดงานในแท็บ: เลือกรูป → "รอบ N" · บอท → วาดรูป รอบ N / เรนเดอร์คลิป / โหลด 1080p / รอพรอมต์ · แท็บอื่น null
  * (round มาจาก FlowJob.round แต่ใช้เฉพาะเมื่อชื่อสถานะบอกรอบไม่ได้ — ตอนนี้ทุกสถานะที่เกี่ยวบอกรอบในชื่อเอง)
