@@ -6,6 +6,7 @@
  * "กดรันต่อ 1 ครั้ง" ซึ่งเท่ากับยิงซ้ำใส่หน้าที่บล็อกเราอยู่ (สัญญาณบอทที่ชัดที่สุด) ส่วน captcha = พักอย่างน้อย
  * 1 ชั่วโมง ดังนั้นเมื่อไม่แน่ใจให้เอียงไปทาง captcha
  */
+import { isTransientNetworkMessage } from "@/lib/flow-network";
 import type { ErrorKind } from "./errors";
 
 /**
@@ -161,24 +162,10 @@ export function fileUrlIsMedia(url: string | null, mediaId: string): boolean {
 
 /**
  * เครือข่ายสะดุดตอน goto — ยังไม่ได้แตะ Google เลย จึงลองใหม่ได้โดยไม่ขัดกฎ "ไม่ retry กับหน้าที่พัง"
- * เคสจริง 2026-10-05: net::ERR_NETWORK_CHANGED ตอนเปิดโปรเจกต์ถูกตีเป็น worker_crash แล้วหยุดทั้งคิวเป็นชั่วโมง
- * รับเฉพาะรหัสที่แปลว่า "เน็ตหาย/เปลี่ยน" — ERR_BLOCKED_*, ERR_CERT_* และ timeout ไม่นับ (ลองซ้ำแล้วไม่หาย)
+ * รายการรหัสอยู่ lib/flow-network.ts (ใช้ร่วมกับนโยบายข้ามงานใน lib/flow-lifecycle.ts — ลองครบแล้วยังพัง = ข้ามงานนั้นไปก่อน)
  */
-const TRANSIENT_NET_CODES = [
-  "ERR_NETWORK_CHANGED",
-  "ERR_INTERNET_DISCONNECTED",
-  "ERR_NAME_NOT_RESOLVED",
-  "ERR_NETWORK_IO_SUSPENDED",
-  "ERR_CONNECTION_RESET",
-  "ERR_CONNECTION_CLOSED",
-  "ERR_CONNECTION_TIMED_OUT",
-  "ERR_CONNECTION_REFUSED",
-  "ERR_ADDRESS_UNREACHABLE",
-];
-
 export function isTransientNetworkError(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e);
-  return TRANSIENT_NET_CODES.some((code) => msg.includes(`net::${code}`));
+  return isTransientNetworkMessage(e instanceof Error ? e.message : String(e));
 }
 
 /** รันขั้นเปิดหน้า: เน็ตสะดุดชั่วคราว = รอแล้วลองใหม่ (ครบ tries แล้ว throw error ล่าสุด) · error อื่น throw ทันที */

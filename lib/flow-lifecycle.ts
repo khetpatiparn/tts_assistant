@@ -25,6 +25,7 @@ import {
   type FlowStatus,
   type JobRound,
 } from "@/lib/flow-jobs";
+import { isTransientNetworkMessage } from "@/lib/flow-network";
 
 /** ช่องของ FlowJob ที่วงจรชีวิตเปลี่ยนได้ (ไม่ระบุ = ไม่แตะ) */
 export type JobPatch = {
@@ -547,20 +548,47 @@ export function isAutoContinueFailure(kind: string, step: string, round: number)
 }
 
 /**
+ * ขั้นก่อนกด Generate ที่เปิดหน้าเว็บ (page.goto) — เน็ตสะดุดตรงนี้ยังไม่ได้ขออะไรจาก Google เลย · ขั้นอื่นหลังเปิดหน้าแล้ว
+ * (ensure-project, แนบรูป, …) ไม่ได้ goto จึงไม่มี net::ERR_* ของการเปิดหน้า — ไม่รวม
+ */
+const NETWORK_SKIP_STEPS: ReadonlySet<string> = new Set(["open-flow"]);
+/** ข้ามเพราะเน็ตติดกันได้กี่ครั้งโดยไม่มีรอบสำเร็จคั่น — เกินนี้ = เน็ตล่มทั้งระบบ ข้ามต่อก็พังทุกงาน → หยุดคิว */
+export const NETWORK_SKIP_MAX_CONSECUTIVE = 2;
+
+/**
+ * เน็ตสะดุดตอนเปิด Flow จนลองซ้ำครบแล้ว (retryTransientNav) — step() ห่อเป็น worker_crash ที่ open-flow · ตัดสินจากข้อความ error
+ * (เก็บไว้ที่ errorMessage ของงาน หน้า /flow จึงตัดสินซ้ำได้) · รอบ 4 ไม่รวม (มีทางจบด้วย 720p ของตัวเองใน roundFailed)
+ */
+export function isNetworkSkipFailure(kind: string, step: string, round: number, message: string): boolean {
+  return kind === "worker_crash" && NETWORK_SKIP_STEPS.has(step) && round !== 4 && isTransientNetworkMessage(message);
+}
+
+/**
  * นโยบายตอนงานพัง: "continue" = งานเป็น failed แต่บอทไม่หยุดคิว ไปงานถัดไปหลังพักปกติ · "pause" = หยุดทั้งคิว (ของเดิม)
  * ข้ามได้เฉพาะ flow_error ที่ wait-results/wait-render (Flow วาดไม่สำเร็จเอง) ทุกอย่างอื่นหยุดเหมือนเดิม ·
  * เพดาน cap ครั้ง/วัน (0 = ปิดฟีเจอร์) · ห้ามข้ามติดกัน: ถ้าการข้ามล่าสุดใหม่กว่างานที่บอททำสำเร็จล่าสุด (หรือยังไม่เคยสำเร็จเลย)
  * แปลว่าสองสินค้าพังติดกัน = น่าจะเป็นที่ระบบ → หยุดคิว
+ *
+ * "continue_network" = เน็ตสะดุดตอนเปิด Flow (isNetworkSkipFailure) — กฎแยกของตัวเอง: ไม่นับเพดาน cap ไม่ดูการข้ามแบบ flow_error
+ * ข้ามได้ไม่เกิน 2 ครั้งติดกันโดยไม่มีรอบสำเร็จคั่น (ครั้งที่ 3 = เน็ตล่มจริง → หยุดคิว) · recentNetworkSkipsAt = เวลาของการข้าม
+ * เพราะเน็ตล่าสุด (อย่างน้อย 2 แถวล่าสุด)
  */
 export function failurePolicy(input: {
   kind: string;
   step: string;
   round: number;
+  message: string;
   autoContinuesToday: number;
   lastAutoContinueAt: Date | null;
   lastSuccessAt: Date | null;
   cap: number;
-}): "continue" | "pause" {
+  recentNetworkSkipsAt: Date[];
+}): "continue" | "continue_network" | "pause" {
+  if (isNetworkSkipFailure(input.kind, input.step, input.round, input.message)) {
+    const success = input.lastSuccessAt;
+    const sinceSuccess = input.recentNetworkSkipsAt.filter((at) => success === null || at.getTime() > success.getTime()).length;
+    return sinceSuccess >= NETWORK_SKIP_MAX_CONSECUTIVE ? "pause" : "continue_network";
+  }
   if (!isAutoContinueFailure(input.kind, input.step, input.round)) return "pause";
   if (input.cap <= 0 || input.autoContinuesToday >= input.cap) return "pause";
   if (input.lastAutoContinueAt !== null) {

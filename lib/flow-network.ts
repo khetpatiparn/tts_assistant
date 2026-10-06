@@ -1,0 +1,23 @@
+/**
+ * เน็ตสะดุดชั่วคราว (เครื่องเราเอง ไม่ใช่ Google) จากข้อความ error ของ Chrome — pure ไม่มี import เลย เพราะใช้ทั้ง
+ * worker/flow-signals.ts (ลองเปิดหน้าใหม่ตอน goto) · lib/flow-lifecycle.ts (นโยบายข้ามงาน) · หน้า /flow (หมายเหตุใต้งานที่พัง
+ * ตัดสินจาก errorMessage ที่เก็บไว้) — รายการรหัสอยู่ที่เดียว ตัวที่ลองซ้ำกับตัวที่ข้ามงานจึงเห็นตรงกันเสมอ
+ *
+ * เคสจริง 2026-10-05: net::ERR_NETWORK_CHANGED ตอนเปิดโปรเจกต์ถูกตีเป็น worker_crash แล้วหยุดทั้งคิวเป็นชั่วโมง
+ * รับเฉพาะรหัสที่แปลว่า "เน็ตหาย/เปลี่ยน" — ERR_BLOCKED_*, ERR_CERT_* และ timeout ไม่นับ (ลองซ้ำแล้วไม่หาย)
+ */
+const TRANSIENT_NET_CODES = [
+  "ERR_NETWORK_CHANGED",
+  "ERR_INTERNET_DISCONNECTED",
+  "ERR_NAME_NOT_RESOLVED",
+  "ERR_NETWORK_IO_SUSPENDED",
+  "ERR_CONNECTION_RESET",
+  "ERR_CONNECTION_CLOSED",
+  "ERR_CONNECTION_TIMED_OUT",
+  "ERR_CONNECTION_REFUSED",
+  "ERR_ADDRESS_UNREACHABLE",
+];
+
+export function isTransientNetworkMessage(message: string): boolean {
+  return TRANSIENT_NET_CODES.some((code) => message.includes(`net::${code}`));
+}

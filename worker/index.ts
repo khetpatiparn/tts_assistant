@@ -14,7 +14,7 @@ import {
 import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
-  failurePolicy, previewUnsaved, releaseForShortName, roundFailed, isAutoContinueFailure, staleRender, staleRunning, staleUpscale,
+  failurePolicy, previewUnsaved, releaseForShortName, roundFailed, isAutoContinueFailure, isNetworkSkipFailure, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
 import { applyBulk, applyPlan, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -223,23 +223,29 @@ async function persistAfterRender(
 
 /**
  * พังแล้วข้ามไปงานถัดไปได้ไหม (failurePolicy ใน lib/flow-lifecycle.ts) — ดึงตัวเลขจาก FlowActivity: การข้ามวันนี้ (ตั้งแต่เที่ยงคืนท้องถิ่น),
- * การข้ามล่าสุด, และรอบที่บอททำสำเร็จล่าสุด (kind round_ok) · อ่านไม่ได้ = หยุดคิวเหมือนเดิม (ปลอดภัยไว้ก่อน)
+ * การข้ามล่าสุด, และรอบที่บอททำสำเร็จล่าสุด (kind round_ok) · เน็ตสะดุดตอนเปิด Flow ใช้แถว network_skip 2 แถวล่าสุดแทน (ไม่ขึ้นกับ
+ * autoContinueDailyCap) · อ่านไม่ได้ = หยุดคิวเหมือนเดิม (ปลอดภัยไว้ก่อน)
  */
-async function decideFailurePolicy(cfg: WorkerConfig, round: JobRound, step: string, kind: string): Promise<"continue" | "pause"> {
-  if (!isAutoContinueFailure(kind, step, round) || cfg.autoContinueDailyCap <= 0) return "pause";
+async function decideFailurePolicy(
+  cfg: WorkerConfig, round: JobRound, step: string, kind: string, message: string,
+): Promise<"continue" | "continue_network" | "pause"> {
+  const network = isNetworkSkipFailure(kind, step, round, message);
+  if (!network && (!isAutoContinueFailure(kind, step, round) || cfg.autoContinueDailyCap <= 0)) return "pause";
   try {
     const now = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const [autoContinuesToday, lastAuto, lastOk] = await Promise.all([
+    const [autoContinuesToday, lastAuto, lastOk, netSkips] = await Promise.all([
       prisma.flowActivity.count({ where: { kind: "auto_continue", at: { gte: midnight } } }),
       prisma.flowActivity.findFirst({ where: { kind: "auto_continue" }, orderBy: { at: "desc" }, select: { at: true } }),
       prisma.flowActivity.findFirst({ where: { kind: "round_ok" }, orderBy: { at: "desc" }, select: { at: true } }),
+      prisma.flowActivity.findMany({ where: { kind: "network_skip" }, orderBy: { at: "desc" }, take: 2, select: { at: true } }),
     ]);
     return failurePolicy({
-      kind, step, round, autoContinuesToday,
+      kind, step, round, message, autoContinuesToday,
       lastAutoContinueAt: lastAuto?.at ?? null,
       lastSuccessAt: lastOk?.at ?? null,
       cap: cfg.autoContinueDailyCap,
+      recentNetworkSkipsAt: netSkips.map((r) => r.at),
     });
   } catch (e) {
     log(`อ่านสถิติข้ามงานไม่ได้ — หยุดคิวตามเดิม: ${String(e)}`);
@@ -248,10 +254,11 @@ async function decideFailurePolicy(cfg: WorkerConfig, round: JobRound, step: str
 }
 
 /**
- * true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · "released" = คืนงานเข้าคิวโดยไม่ได้แตะ Flow (ชื่อยังเป็น
+ * true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · "skipped_network" = เหมือน skipped แต่พังเพราะเน็ตสะดุดตอน
+ * เปิด Flow (ยังไม่ได้ขออะไรจาก Google — ไม่นับเพดานรูป/คลิป) · "released" = คืนงานเข้าคิวโดยไม่ได้แตะ Flow (ชื่อยังเป็น
  * ชื่อเต็มของร้าน — ไม่นับเพดาน/round_ok) · false = หยุดคิวแล้ว
  */
-async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped" | "released"> {
+async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped" | "skipped_network" | "released"> {
   const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
   const stepLog = new StepLog(true);
@@ -369,12 +376,20 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
     });
     const failureDir = path.relative(process.cwd(), failureDirAbs).split(path.sep).join("/");
     // รอบ 4 (โหลด 1080p) ที่มี 720p แล้ว พังที่ขั้นไหนก็จบงานด้วย 720p ไม่หยุดคิว ยกเว้นสัญญาณบอท/หลุด login (roundFailed)
-    const policy = await decideFailurePolicy(cfg, round, step, kind);
+    const policy = await decideFailurePolicy(cfg, round, step, kind, message);
     const failure = roundFailed({
       round, hasVideoRow: videoRowOf(job) !== null, step, kind, message, failureDir, now: new Date(),
-      skipPause: policy === "continue",
+      skipPause: policy === "continue" || policy === "continue_network",
     });
     await applyPlan(job.id, failure.plan);
+    if (policy === "continue_network") {
+      // เน็ตสะดุดตอนเปิด Flow จนลองซ้ำครบ (retryTransientNav) — งาน failed เหมือนเดิม (หลักฐาน + "รันต่อ") แต่ไม่หยุดคิว · ต้องลงแถว
+      // network_skip ก่อนงานถัดไปจะพัง เพื่อให้กฎ "ไม่เกิน 2 ครั้งติดกัน" เห็น (ไม่ใช่ auto_continue — ไม่กินเพดานของ Flow วาดไม่สำเร็จ)
+      logActivity({ kind: "network_skip", jobId: job.id, round, detail: { jobId: job.id, round, step, message: message.slice(0, 300) } });
+      log(`งาน ${job.id} เน็ตสะดุดที่ ${step} — ข้ามไปงานถัดไป ไม่หยุดคิว หลักฐาน: ${failureDirAbs}`);
+      notify(`ข้าม ${job.entry.productName} ไปก่อน — เน็ตสะดุด`, "กด 'รันต่อ' ที่งานนั้นได้");
+      return "skipped_network";
+    }
     if (policy === "continue") {
       // งานเป็น failed เหมือนเดิม (หลักฐาน + "รันต่อ" ใช้ได้) แต่ไม่หยุดคิว · ต้องเขียนแถว auto_continue ก่อนงานถัดไปจะพัง
       // เพื่อให้เพดาน/กฎ "ห้ามติดกัน" เห็น (logActivity ไม่ await แต่ใช้เวลาไม่กี่ ms เทียบกับพักระหว่างสินค้า 30+ วิ)
@@ -615,8 +630,9 @@ async function main() {
       data: {
         currentJobId: null,
         // รูปนับ todayBatches · Render นับ todayRenders (videoDailyCap) · โหลด 1080p ไม่นับ (ไม่เสียเครดิต)
-        ...(doneRound === 1 || doneRound === 2 ? { todayBatches: { increment: 1 } } : {}),
-        ...(doneRound === 3 ? { todayRenders: { increment: 1 } } : {}),
+        // ยกเว้นงานที่ข้ามเพราะเน็ตสะดุดตอนเปิด Flow (skipped_network) — ยังไม่ได้ขออะไรจาก Google ไม่เสียเครดิต
+        ...(ok !== "skipped_network" && (doneRound === 1 || doneRound === 2) ? { todayBatches: { increment: 1 } } : {}),
+        ...(ok !== "skipped_network" && doneRound === 3 ? { todayRenders: { increment: 1 } } : {}),
         // sessionStreak นับ "สินค้า" ไม่ใช่ "รอบ" (1 สินค้า = รอบ 1 + รอบ 2) จึงบวกเฉพาะตอน
         // รอบ 2 จบ = สินค้านั้นเสร็จจริง — ถ้าบวกทุกรอบ longBreakEvery [4,6] จะกลายเป็น
         // พักยาวทุก 2-3 สินค้า ผิดจากที่สเปกกับ CLAUDE.md เขียนไว้

@@ -26,17 +26,34 @@ function checkThrows(name, fn, includes) {
 }
 
 try {
-  execFileSync(
-    "npx",
-    ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts", "worker/jev.ts", "worker/generation-watch.ts",
-     "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler",
-     "--esModuleInterop", "--skipLibCheck"],
-    { stdio: "inherit", shell: true }
-  );
-  // tsc คง import แบบไม่มีนามสกุล ("./errors") ซึ่ง Node ESM หาไม่เจอ — เติม .js ให้ไฟล์ที่คอมไพล์แล้ว
+  // lib/flow-network.ts (pure ไม่มี import) คอมไพล์แยกลงโฟลเดอร์เดียวกัน — ถ้าใส่รวมกับไฟล์ worker/ tsc จะซ้อนโฟลเดอร์ out/lib, out/worker
+  execFileSync("npx", ["tsc", "lib/flow-network.ts", "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler", "--skipLibCheck"], { stdio: "inherit", shell: true });
+  try {
+    execFileSync(
+      "npx",
+      ["tsc", "worker/config.ts", "worker/humanize.ts", "worker/schedule.ts", "worker/flow-signals.ts", "worker/jev.ts", "worker/generation-watch.ts",
+       "--outDir", out, "--module", "es2022", "--target", "ES2020", "--moduleResolution", "bundler",
+       "--esModuleInterop", "--skipLibCheck"],
+      { stdio: "pipe", shell: true }
+    );
+  } catch (e) {
+    // ไม่ได้ส่ง paths mapping ให้ tsc — "@/lib/flow-network" หาไม่เจอ (TS2307) โดยตั้งใจ แต่ยัง emit .js ให้ (exit 2)
+    // แบบเดียวกับ check-flow-lifecycle.mjs · type error จริงจับด้วย npx tsc --noEmit ของทั้งโปรเจกต์
+    const diag = String(e.stdout ?? "");
+    if (e.status !== 2 || diag.split("\n").some((l) => l.includes("error TS") && !l.includes("TS2307"))) {
+      console.log(diag);
+      throw e;
+    }
+  }
+  // tsc คง import แบบไม่มีนามสกุล ("./errors") ซึ่ง Node ESM หาไม่เจอ — เติม .js ให้ไฟล์ที่คอมไพล์แล้ว · "@/lib/x" → "./x.js"
   for (const f of readdirSync(out).filter((n) => n.endsWith(".js"))) {
     const file = join(out, f);
-    writeFileSync(file, readFileSync(file, "utf8").replace(/(from\s+["'])(\.\/[^"']+?)(["'])/g, (m, a, spec, b) => (spec.endsWith(".js") ? m : `${a}${spec}.js${b}`)));
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8")
+        .replace(/(from\s+["'])@\/lib\/([\w-]+)(["'])/g, "$1./$2.js$3")
+        .replace(/(from\s+["'])(\.\/[^"']+?)(["'])/g, (m, a, spec, b) => (spec.endsWith(".js") ? m : `${a}${spec}.js${b}`)),
+    );
   }
 
   // ---------- config ----------
@@ -532,6 +549,25 @@ try {
   const releasedAt = loop.indexOf('ok === "released"');
   check("main: งานที่คืนเข้าคิวข้ามไปก่อนนับ round_ok / เพดาน / พักระหว่างสินค้า",
     releasedAt >= 0 && releasedAt < loop.indexOf('kind: "round_ok"') && releasedAt < loop.indexOf("todayBatches: { increment") && releasedAt < loop.indexOf('why: "between"'), true);
+
+  // เน็ตสะดุดตอนเปิด Flow (2026-10-05) — นโยบายเป็น pure (failurePolicy/isNetworkSkipFailure ตรวจใน check-flow-lifecycle.mjs)
+  // ตรงนี้ตรวจแค่การต่อสาย: อ่านแถว network_skip + round_ok ส่งเข้า failurePolicy · ทาง "continue_network" ไม่หยุดคิว ลงแถว network_skip
+  // · main ยังพักระหว่างสินค้าตามปกติ แต่ไม่นับเพดานรูป/คลิป (ไม่ได้ขออะไรจาก Google)
+  const decideFn = fnBody("async function decideFailurePolicy(");
+  check("decideFailurePolicy อ่าน network_skip ล่าสุด 2 แถว + round_ok ล่าสุด แล้วส่ง message/recentNetworkSkipsAt ให้ failurePolicy",
+    /kind: "network_skip"[^\n]*take: 2/.test(decideFn) && decideFn.includes('kind: "round_ok"') && /failurePolicy\(\{[^]*message[^]*recentNetworkSkipsAt/.test(decideFn), true);
+  check("decideFailurePolicy: เช็ก isNetworkSkipFailure ก่อนทางลัด pause ของ flow_error (cap 0 ไม่ปิดการข้ามเพราะเน็ต)",
+    decideFn.indexOf("isNetworkSkipFailure(") >= 0 && decideFn.indexOf("isNetworkSkipFailure(") < decideFn.indexOf("autoContinueDailyCap <= 0"), true);
+  const processFn = fnBody("async function processJob(");
+  const netAt = processFn.indexOf('policy === "continue_network"');
+  const netBranch = netAt < 0 ? "" : processFn.slice(netAt, processFn.indexOf("return", netAt) + 40);
+  check("processJob: continue_network → roundFailed ด้วย skipPause (งาน failed ไม่หยุดคิว)",
+    /skipPause: policy === "continue" \|\| policy === "continue_network"/.test(processFn), true);
+  check("processJob: continue_network ลงแถว network_skip + แจ้งเตือน 'เน็ตสะดุด' แล้ว return \"skipped_network\" (ไม่ pause)",
+    netBranch.includes('kind: "network_skip"') && netBranch.includes("เน็ตสะดุด") && netBranch.includes('return "skipped_network"') && !netBranch.includes("pauseWorker("), true);
+  check("processJob: continue_network ไม่ลงแถว auto_continue (ไม่กินเพดาน/กฎห้ามข้ามติดกันของ Flow วาดไม่สำเร็จ)", netBranch.includes('kind: "auto_continue"'), false);
+  check("main: skipped_network ไม่นับเพดานรูป/คลิป แต่ยังพักระหว่างสินค้า (why: between)",
+    /ok !== "skipped_network"/.test(loop) && loop.indexOf('ok !== "skipped_network"') < loop.indexOf("todayBatches: { increment") && loop.includes('why: "between"'), true);
 }
 
 // ticket 05 (เปลี่ยนรูปต้นทาง): งานมีแถว source ได้หลายแถว — รอบ 1 ต้องแนบรูปต้นทางล่าสุด (attempt สูงสุด, index ต่ำสุดใน attempt นั้น)

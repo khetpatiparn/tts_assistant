@@ -16,6 +16,11 @@ export const ACTIVITY_KINDS = [
   "break",
   /** บอทข้ามงานที่ Flow วาดไม่สำเร็จไปทำงานถัดไปโดยไม่หยุดคิว (detail: jobId/round/step/message) — ไม่ใช่คำขอถึง Flow */
   "auto_continue",
+  /**
+   * บอทข้ามงานที่เน็ตสะดุดตอนเปิด Flow (ลองซ้ำครบแล้ว) ไปทำงานถัดไปโดยไม่หยุดคิว (detail: jobId/round/step/message) — ยังไม่ได้ขออะไร
+   * จาก Google · แยกจาก auto_continue: ไม่นับเพดาน autoContinueDailyCap · กฎของมันเอง = ไม่เกิน 2 แถวติดกันหลัง round_ok ล่าสุด
+   */
+  "network_skip",
   /** บอททำรอบสำเร็จ (รูปพร้อม/คลิปพร้อม/โหลด 1080p) — จุดอ้างอิงของกฎ "ห้ามข้ามติดกัน" ไม่ใช่คำขอถึง Flow */
   "round_ok",
   /** เปิดบอท — detail เก็บค่าจังหวะที่ใช้ตอนนั้น */

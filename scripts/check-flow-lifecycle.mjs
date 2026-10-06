@@ -31,7 +31,7 @@ try {
   try {
     execFileSync(
       "npx",
-      ["tsc", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "lib/photo-library.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+      ["tsc", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "lib/flow-network.ts", "lib/photo-library.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
       { stdio: "pipe", shell: true },
     );
   } catch (e) {
@@ -375,7 +375,7 @@ try {
   // ---------- failurePolicy: ข้ามงานที่ Flow วาดไม่สำเร็จ ----------
   {
     const t = (h) => new Date(2026, 9, 3, h, 0);
-    const ok = { kind: "flow_error", step: "wait-results", round: 1, autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(9), cap: 2 };
+    const ok = { kind: "flow_error", step: "wait-results", round: 1, message: "Flow: failed to generate", autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(9), cap: 2, recentNetworkSkipsAt: [] };
     const P = (o) => L.failurePolicy({ ...ok, ...o });
     check("flow_error wait-results รอบ 1 → continue", P({}), "continue");
     check("flow_error wait-render รอบ 3 → continue", P({ step: "wait-render", round: 3 }), "continue");
@@ -403,6 +403,59 @@ try {
     check("botMovedOnNote: คิวหยุดอยู่ → ไม่มี", L.botMovedOnNote(failedJob, true), null);
     check("botMovedOnNote: kind อื่น → ไม่มี", L.botMovedOnNote({ ...failedJob, errorKind: "selector_drift" }, false), null);
     check("botMovedOnNote: งานไม่ failed → ไม่มี", L.botMovedOnNote({ ...failedJob, status: "queued_r1" }, false), null);
+  }
+
+  // ---------- failurePolicy: เน็ตสะดุดตอนเปิด Flow (2026-10-05) — ข้ามได้ ไม่เกิน 2 ครั้งติดกันโดยไม่มีรอบสำเร็จคั่น ----------
+  {
+    const t = (h) => new Date(2026, 9, 5, h, 0);
+    // ข้อความจริงของเหตุการณ์ 2026-10-05 07:02Z (step() ห่อ error ของ page.goto เป็น worker_crash ที่ open-flow)
+    const incident = "page.goto: net::ERR_NETWORK_CHANGED at https://labs.google/fx/tools/flow/project/abc\nCall log:\n  - navigating to \"https://labs.google/fx/tools/flow/project/abc\", waiting until \"domcontentloaded\"";
+    const net = { kind: "worker_crash", step: "open-flow", round: 3, message: incident, autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(6), cap: 2, recentNetworkSkipsAt: [] };
+    const N = (o) => L.failurePolicy({ ...net, ...o });
+    check("เน็ตสะดุด open-flow รอบ 3 (เคสจริง) → continue_network", N({}), "continue_network");
+    check("ครั้งที่ 2 ติดกัน (ข้ามเพราะเน็ตแล้ว 1 ครั้งหลังรอบสำเร็จ) → continue_network", N({ recentNetworkSkipsAt: [t(7)] }), "continue_network");
+    check("ครั้งที่ 3 ติดกัน (ข้ามเพราะเน็ตแล้ว 2 ครั้งหลังรอบสำเร็จ) → pause", N({ recentNetworkSkipsAt: [t(8), t(7)] }), "pause");
+    check("มีรอบสำเร็จคั่น: ข้าม 2 ครั้งก่อนรอบสำเร็จ → นับใหม่ → continue_network", N({ recentNetworkSkipsAt: [t(5), t(4)], lastSuccessAt: t(6) }), "continue_network");
+    check("รอบสำเร็จคั่นกลาง: ข้าม 1 ครั้งหลัง + 1 ครั้งก่อนรอบสำเร็จ → continue_network", N({ recentNetworkSkipsAt: [t(7), t(5)], lastSuccessAt: t(6) }), "continue_network");
+    check("เวลาเท่ากับรอบสำเร็จเป๊ะ ไม่นับเป็นข้ามหลังสำเร็จ → continue_network", N({ recentNetworkSkipsAt: [t(6), t(6)], lastSuccessAt: t(6) }), "continue_network");
+    check("ยังไม่เคยมีรอบสำเร็จ + ไม่เคยข้าม → continue_network", N({ lastSuccessAt: null }), "continue_network");
+    check("ยังไม่เคยมีรอบสำเร็จ + ข้ามเพราะเน็ตแล้ว 2 ครั้ง → pause", N({ lastSuccessAt: null, recentNetworkSkipsAt: [t(2), t(1)] }), "pause");
+    // กฎแยกจากการข้ามแบบ Flow วาดไม่สำเร็จ: ไม่ดูเพดาน cap และไม่ดูการข้าม flow_error ล่าสุด
+    check("ไม่นับเพดาน: cap 0 → ยัง continue_network", N({ cap: 0 }), "continue_network");
+    check("ไม่นับเพดาน: ข้าม flow_error ครบ cap วันนี้แล้ว → ยัง continue_network", N({ autoContinuesToday: 2 }), "continue_network");
+    check("ไม่ดูการข้าม flow_error ที่ใหม่กว่ารอบสำเร็จ → ยัง continue_network", N({ autoContinuesToday: 1, lastAutoContinueAt: t(7) }), "continue_network");
+    check("การข้ามเพราะเน็ตไม่กระทบกฎ flow_error: Flow วาดไม่สำเร็จหลังข้ามเพราะเน็ต 2 ครั้ง → continue",
+      N({ kind: "flow_error", step: "wait-results", message: "Flow: failed to generate", recentNetworkSkipsAt: [t(8), t(7)] }), "continue");
+    // ทุกอย่างอื่นหยุดเหมือนเดิม
+    for (const kind of ["captcha", "login_required", "selector_drift", "generation_timeout", "flow_error", "download_failed", "host_unsupported", ""]) {
+      check(`kind ${kind || "(ว่าง)"} ที่ open-flow (ข้อความมี net::) → pause`, N({ kind }), "pause");
+    }
+    for (const step of ["ensure-project", "attach-reference", "click-generate", "wait-results", "wait-render", "find-video", "download-final", "unknown", "open-flow ", ""]) {
+      check(`worker_crash เน็ตสะดุดที่ขั้น ${step || "(ว่าง)"} → pause`, N({ step }), "pause");
+    }
+    check("รอบ 4 เน็ตสะดุด open-flow → pause (ของเดิม — roundFailed จบด้วย 720p เองถ้ามีคลิป)", N({ round: 4 }), "pause");
+    for (const round of [1, 2]) check(`รอบ ${round} เน็ตสะดุด open-flow → continue_network`, N({ round }), "continue_network");
+    // ข้อความ: ใช้รายการรหัสเดียวกับตัวลองซ้ำ (lib/flow-network.ts)
+    const gotoErr = (code) => `page.goto: net::${code} at https://labs.google/fx/tools/flow\nCall log:`;
+    for (const code of ["ERR_NETWORK_CHANGED", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_NETWORK_IO_SUSPENDED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT", "ERR_CONNECTION_REFUSED", "ERR_ADDRESS_UNREACHABLE"]) {
+      check(`ข้อความ ${code} → continue_network`, N({ message: gotoErr(code) }), "continue_network");
+    }
+    for (const [label, message] of [
+      ["ERR_BLOCKED_BY_CLIENT", gotoErr("ERR_BLOCKED_BY_CLIENT")],
+      ["ERR_CERT_AUTHORITY_INVALID", gotoErr("ERR_CERT_AUTHORITY_INVALID")],
+      ["ERR_TOO_MANY_REDIRECTS", gotoErr("ERR_TOO_MANY_REDIRECTS")],
+      ["ไม่มี net:: นำหน้า", "ERR_NETWORK_CHANGED"],
+      ["งานยังไม่ได้เลือกรูป (worker_crash ที่ open-flow ของจริง)", "งานนี้ยังไม่ได้เลือกรูปรอบ 1"],
+      ["ไม่มีรูปแคปต้นทาง", "งานนี้ไม่มีรูปแคปต้นทาง"],
+      ["Target page closed", "page.goto: Target page, context or browser has been closed"],
+      ["ว่าง", ""],
+    ]) {
+      check(`worker_crash open-flow ข้อความ ${label} → pause`, N({ message }), "pause");
+    }
+    check("isNetworkSkipFailure ตรงกับนโยบาย",
+      [L.isNetworkSkipFailure("worker_crash", "open-flow", 3, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 4, incident),
+        L.isNetworkSkipFailure("worker_crash", "ensure-project", 1, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 1, "งานนี้ไม่มีรูปแคปต้นทาง")],
+      [true, false, false, false]);
   }
 
   // ---------- เปิดบอท: กวาดงานค้าง ----------
