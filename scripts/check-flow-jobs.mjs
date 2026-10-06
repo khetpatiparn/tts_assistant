@@ -228,6 +228,15 @@ try {
     check("ป้ายเวลาข้าม", f.closeTimeLabel({ status: "skipped", finishedAt: fin, updatedAt: fin }), "ข้าม 14:32");
     check("ป้ายเวลาเติมศูนย์", f.closeTimeLabel({ status: "done", finishedAt: null, updatedAt: L(2026, 10, 6, 7, 5) }), "เสร็จ 07:05");
 
+    // ป้ายโพสต์: postedAt เก็บเป็น UTC midnight → ใช้วันแบบ UTC (ไม่ใช่ local) · ปีต่างจาก now ต่อ พ.ศ.
+    const utc = (y, mo, d) => new Date(Date.UTC(y, mo - 1, d));
+    check("ป้ายโพสต์: ยังไม่โพสต์", f.postedBadgeLabel({ posted: false, postedAt: null }, now), "ยังไม่โพสต์");
+    check("ป้ายโพสต์: ไม่โพสต์แม้มี postedAt (ตามกติกา videoUrl)", f.postedBadgeLabel({ posted: false, postedAt: utc(2026, 10, 4) }, now), "ยังไม่โพสต์");
+    check("ป้ายโพสต์: โพสต์แล้ว 4 ต.ค. (UTC midnight)", f.postedBadgeLabel({ posted: true, postedAt: utc(2026, 10, 4) }, now), "โพสต์แล้ว 4 ต.ค.");
+    check("ป้ายโพสต์: UTC midnight วันที่ 1 ไม่เลื่อนวันใน TZ ใดๆ", f.postedBadgeLabel({ posted: true, postedAt: utc(2026, 9, 1) }, now), "โพสต์แล้ว 1 ก.ย.");
+    check("ป้ายโพสต์: คนละปี", f.postedBadgeLabel({ posted: true, postedAt: utc(2025, 12, 31) }, now), "โพสต์แล้ว 31 ธ.ค. 2568");
+    check("ป้ายโพสต์: มี videoUrl แต่ไม่มี postedAt", f.postedBadgeLabel({ posted: true, postedAt: null }, now), "โพสต์แล้ว");
+
     const mk = (id, status, o = {}) => ({ id, status, createdAt: L(2026, 10, 1), updatedAt: L(2026, 10, 1), finishedAt: null, ...o });
     const ids = (arr) => arr.map((j) => j.id).join(",");
     const closed = [

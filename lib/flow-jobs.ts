@@ -406,6 +406,18 @@ export function closeTimeLabel(job: TimedJob & { status: string }): string {
 }
 
 /**
+ * ป้ายสถานะโพสต์ของแถวในแท็บ เสร็จ / ข้าม — `posted` ตัดสินที่เดียวด้วย entryStatus (lib/entry-rows.ts: videoUrl ไม่ว่าง)
+ * วันที่มาจาก postedAt ซึ่งเก็บเป็น UTC midnight → ใช้ getter แบบ UTC (ต่างจากเวลาปิดงานที่ใช้ local)
+ */
+export function postedBadgeLabel(job: { posted: boolean; postedAt: Date | null }, now: Date): string {
+  if (!job.posted) return "ยังไม่โพสต์";
+  if (job.postedAt === null) return "โพสต์แล้ว";
+  const y = job.postedAt.getUTCFullYear();
+  const year = y === now.getFullYear() ? "" : ` ${String(y + 543)}`;
+  return `โพสต์แล้ว ${String(job.postedAt.getUTCDate())} ${THAI_MONTHS_SHORT[job.postedAt.getUTCMonth()]}${year}`;
+}
+
+/**
  * ลำดับงานในแท็บ (คืน array ใหม่): เสร็จ/ข้าม = เวลาปิดใหม่→เก่า · เลือกรูป/ดูคลิป/พัง = เริ่มรอผู้ใช้ (updatedAt) เก่าสุดก่อน
  * (เคลียร์ที่รอนานสุดก่อน) · บอท = คงลำดับที่ได้มา
  */

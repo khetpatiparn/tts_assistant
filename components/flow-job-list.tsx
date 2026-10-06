@@ -3,7 +3,7 @@
 import { Download, FolderCheck } from "lucide-react";
 
 import type { FlowJobRow } from "@/lib/flow-queries";
-import { FLOW_STATUS, STATUS_LABELS, closeTimeLabel, currentSourceImage, groupClosedByDay, jobKindLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
+import { FLOW_STATUS, STATUS_LABELS, closeTimeLabel, currentSourceImage, groupClosedByDay, jobKindLabel, postedBadgeLabel, videoDownloadName, type FlowStatus } from "@/lib/flow-jobs";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -31,7 +31,7 @@ export function FlowJobList({
       job={job}
       selected={job.id === selectedId}
       renderEnabled={renderEnabled}
-      showCloseTime={groupByDayFrom != null}
+      closeNow={groupByDayFrom ?? null}
       onSelect={() => onSelect(job.id)}
     />
   );
@@ -52,13 +52,14 @@ function FlowJobListItem({
   job,
   selected,
   renderEnabled,
-  showCloseTime,
+  closeNow,
   onSelect,
 }: {
   job: FlowJobRow;
   selected: boolean;
   renderEnabled: boolean;
-  showCloseTime: boolean;
+  /** ไม่ null = แถวของแท็บ เสร็จ / ข้าม: โชว์เวลาปิด + ป้ายโพสต์ */
+  closeNow: Date | null;
   onSelect: () => void;
 }) {
   const kind = jobKindLabel(job.status, job.round);
@@ -89,7 +90,10 @@ function FlowJobListItem({
             {kind !== null && <Badge variant="neutral">{kind}</Badge>}
             <Badge variant={badgeVariant(job.status)}>{STATUS_LABELS[job.status as FlowStatus] ?? job.status}</Badge>
             {job.tookOver && <Badge variant="neutral">ทำเอง</Badge>}
-            {showCloseTime && <span className="text-xs leading-relaxed text-muted-foreground">{closeTimeLabel(job)}</span>}
+            {closeNow !== null && <span className="text-xs leading-relaxed text-muted-foreground">{closeTimeLabel(job)}</span>}
+            {closeNow !== null && (
+              <Badge variant={job.posted ? "success" : "neutral"}>{postedBadgeLabel(job, closeNow)}</Badge>
+            )}
             {job.exportedPath !== null && (
               <span className="flex items-center gap-1 text-xs leading-relaxed text-muted-foreground">
                 <FolderCheck aria-hidden="true" className="size-4" /> ส่ง TTS แล้ว

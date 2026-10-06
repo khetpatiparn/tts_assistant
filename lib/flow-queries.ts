@@ -5,6 +5,7 @@ import { loadWorkerConfig } from "@/worker/config";
 import { isTakeoverKind, summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
+import { entryStatus } from "@/lib/entry-rows";
 import { shopPhotosForEntry, type ShopPhoto } from "@/lib/showcase";
 
 export type FlowImageRow = {
@@ -125,6 +126,9 @@ export type FlowJobRow = {
    * null = ยังไม่ได้ Render / เพิ่งกดเรนเดอร์ใหม่ (ตัวอย่างเก่าถูกลบ)
    */
   video: FlowImageRow | null;
+  /** โพสต์แล้วไหม — กติกาเดียวกับหน้ารายการ (entryStatus: videoUrl ไม่ว่าง) · postedAt = UTC midnight ของวันโพสต์ */
+  posted: boolean;
+  postedAt: Date | null;
 };
 
 export type FlowWorkerView = {
@@ -201,7 +205,7 @@ export async function getFlowQueueData(): Promise<{
         ],
       },
       include: {
-        entry: { select: { productName: true, chatgptOutput: true, caption: true, hashtags: true, angle: true } },
+        entry: { select: { productName: true, chatgptOutput: true, caption: true, hashtags: true, angle: true, videoUrl: true, postedAt: true } },
         images: { orderBy: [{ round: "asc" }, { attempt: "asc" }, { index: "asc" }] },
       },
     }),
@@ -261,6 +265,8 @@ export async function getFlowQueueData(): Promise<{
         chosenRound1: imgs.find((i) => i.kind === "candidate" && i.round === 1 && i.chosen) ?? null,
         chosenRound2: imgs.find((i) => i.kind === "candidate" && i.round === 2 && i.chosen) ?? null,
         video: imgs.find((i) => i.kind === "video") ?? null,
+        posted: entryStatus({ hasOutput: j.entry.chatgptOutput !== "", videoUrl: j.entry.videoUrl }) === "posted",
+        postedAt: j.entry.postedAt,
       };
     })
     .sort((a, b) => rank(a.status) - rank(b.status) || a.createdAt.getTime() - b.createdAt.getTime());
