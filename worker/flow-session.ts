@@ -18,8 +18,8 @@ import type { SelectorSet } from "./flow-selectors";
 import type { StepLog } from "./failure";
 import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
-import { isBrowserErrorPage, postRenderFailReason, retryTransientNav } from "./flow-signals";
-import { isTransientNetworkMessage } from "@/lib/flow-network";
+import { isBrowserErrorPage, postRenderFailReason, retryTransientNav, stepErrorKind } from "./flow-signals";
+import { isNetworkRetryStep } from "@/lib/flow-network";
 import { clipCapture, type ClipCapture } from "./clip-capture";
 import type { ObservedResponse } from "./generation-watch";
 
@@ -85,10 +85,6 @@ const JEV_INTENT = {
   upload: "The button inside the media picker dialog that uploads a new image file from the computer.",
   confirmMedia: "The button inside the media picker dialog that adds the selected media to the prompt.",
 } as const;
-
-function isTimeout(e: unknown): boolean {
-  return e instanceof Error && (e.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(e.message));
-}
 
 /**
  * ลอง selector ตามลำดับ คืนตัวแรกที่ visible · ไม่เจอเลย = selector_drift
@@ -313,9 +309,10 @@ export async function withFlowSession<T>(
       return value;
     } catch (e) {
       if (e instanceof FlowStepError) throw e;
-      // โหลดหน้าไม่ทัน/เน็ตสะดุด = worker_crash (นโยบายข้ามงานรู้จัก) — ห้ามตีเป็น selector_drift ที่หยุดทั้งคิว
-      if (isTimeout(e) && !isTransientNetworkMessage((e as Error).message)) throw new FlowStepError(name, "selector_drift", `timeout: ${(e as Error).message}`);
-      throw new FlowStepError(name, "worker_crash", e instanceof Error ? e.message : String(e));
+      // timeout = selector_drift ยกเว้นโหลดหน้าไม่ทันที่ open-flow รอบ 1–3 = worker_crash (นโยบายข้ามงานรู้จัก) — กติกาอยู่ stepErrorKind
+      const message = e instanceof Error ? e.message : String(e);
+      const kind = stepErrorKind(name, round, e);
+      throw new FlowStepError(name, kind, kind === "selector_drift" ? `timeout: ${message}` : message);
     }
   }
 
@@ -339,13 +336,19 @@ export async function withFlowSession<T>(
   async function openProject(projectId: string | null, existingOnly: boolean): Promise<string> {
     await step("open-flow", async () => {
       const url = projectId ? sel.projectUrl(projectId) : cfg.flowUrl;
-      // เน็ตสะดุด (ERR_NETWORK_CHANGED ฯลฯ) ก่อนแตะ Google — รอแล้วลองใหม่ 5 ครั้ง ครบแล้วค่อยพังเหมือนเดิม
-      await retryTransientNav(() => page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 }), {
-        tries: 5,
-        waitMs: 15_000,
-        sleep: sleepMs,
-        onRetry: (n, e) => log.log("open-flow", `เน็ตสะดุด (${n}/5) — รอ 15 วิแล้วลองใหม่: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`),
-      });
+      const navigate = () => page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      if (isNetworkRetryStep("open-flow", round)) {
+        // เน็ตสะดุด (ERR_NETWORK_CHANGED ฯลฯ) ก่อนแตะ Google — รอแล้วลองใหม่ 5 ครั้ง ครบแล้วค่อยพังเหมือนเดิม
+        await retryTransientNav(navigate, {
+          tries: 5,
+          waitMs: 15_000,
+          sleep: sleepMs,
+          onRetry: (n, e) => log.log("open-flow", `เน็ตสะดุด (${n}/5) — รอ 15 วิแล้วลองใหม่: ${(e instanceof Error ? e.message : String(e)).slice(0, 80)}`),
+        });
+      } else {
+        // รอบ 4 (โหลด 1080p): พฤติกรรมเดิม — goto ครั้งเดียว ไม่ลองซ้ำ
+        await navigate();
+      }
       await sleepMs(randInt([3000, 6000]));
       await dismissOverlays(page, sel, cfg, log);
     });

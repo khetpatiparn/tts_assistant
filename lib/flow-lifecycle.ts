@@ -26,7 +26,7 @@ import {
   type FlowStatus,
   type JobRound,
 } from "@/lib/flow-jobs";
-import { isTransientNetworkMessage } from "@/lib/flow-network";
+import { isNetworkRetryStep, isTransientNetworkMessage } from "@/lib/flow-network";
 
 /** ช่องของ FlowJob ที่วงจรชีวิตเปลี่ยนได้ (ไม่ระบุ = ไม่แตะ) */
 export type JobPatch = {
@@ -577,20 +577,16 @@ export function isAutoContinueFailure(kind: string, step: string, round: number)
   return kind === "flow_error" && AUTO_CONTINUE_STEPS.has(step) && round !== 4;
 }
 
-/**
- * ขั้นก่อนกด Generate ที่เปิดหน้าเว็บ (page.goto) — เน็ตสะดุดตรงนี้ยังไม่ได้ขออะไรจาก Google เลย · ขั้นอื่นหลังเปิดหน้าแล้ว
- * (ensure-project, แนบรูป, …) ไม่ได้ goto จึงไม่มี net::ERR_* ของการเปิดหน้า — ไม่รวม
- */
-const NETWORK_SKIP_STEPS: ReadonlySet<string> = new Set(["open-flow"]);
 /** ข้ามเพราะเน็ตติดกันได้กี่ครั้งโดยไม่มีรอบสำเร็จคั่น — เกินนี้ = เน็ตล่มทั้งระบบ ข้ามต่อก็พังทุกงาน → หยุดคิว */
 export const NETWORK_SKIP_MAX_CONSECUTIVE = 2;
 
 /**
  * เน็ตสะดุดตอนเปิด Flow จนลองซ้ำครบแล้ว (retryTransientNav) — step() ห่อเป็น worker_crash ที่ open-flow · ตัดสินจากข้อความ error
- * (เก็บไว้ที่ errorMessage ของงาน หน้า /flow จึงตัดสินซ้ำได้) · รอบ 4 ไม่รวม (มีทางจบด้วย 720p ของตัวเองใน roundFailed)
+ * (เก็บไว้ที่ errorMessage ของงาน หน้า /flow จึงตัดสินซ้ำได้) · ขั้น/รอบ = isNetworkRetryStep (open-flow รอบ 1–3 — ตัวเดียวกับที่
+ * บอทใช้ตัดสินว่าลองซ้ำไหม) · รอบ 4 ไม่รวม (มีทางจบด้วย 720p ของตัวเองใน roundFailed)
  */
 export function isNetworkSkipFailure(kind: string, step: string, round: number, message: string): boolean {
-  return kind === "worker_crash" && NETWORK_SKIP_STEPS.has(step) && round !== 4 && isTransientNetworkMessage(message);
+  return kind === "worker_crash" && isNetworkRetryStep(step, round) && isTransientNetworkMessage(message);
 }
 
 /**

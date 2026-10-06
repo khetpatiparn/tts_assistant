@@ -6,7 +6,7 @@
  * "กดรันต่อ 1 ครั้ง" ซึ่งเท่ากับยิงซ้ำใส่หน้าที่บล็อกเราอยู่ (สัญญาณบอทที่ชัดที่สุด) ส่วน captcha = พักอย่างน้อย
  * 1 ชั่วโมง ดังนั้นเมื่อไม่แน่ใจให้เอียงไปทาง captcha
  */
-import { isTransientNetworkMessage } from "@/lib/flow-network";
+import { isNetworkRetryStep, isTransientNetworkMessage } from "@/lib/flow-network";
 import type { ErrorKind } from "./errors";
 
 /**
@@ -166,6 +166,21 @@ export function fileUrlIsMedia(url: string | null, mediaId: string): boolean {
  */
 export function isTransientNetworkError(e: unknown): boolean {
   return isTransientNetworkMessage(e instanceof Error ? e.message : String(e));
+}
+
+/** timeout ของ Playwright (TimeoutError หรือข้อความ "Timeout Nms exceeded") */
+export function isTimeoutError(e: unknown): boolean {
+  return e instanceof Error && (e.name === "TimeoutError" || /Timeout \d+ms exceeded/.test(e.message));
+}
+
+/**
+ * ชนิดความผิดพลาดของขั้น (step() ใน flow-session.ts) จาก error ที่ไม่ใช่ FlowStepError — timeout = selector_drift (หาปุ่ม/หน้าไม่เจอ
+ * = หน้าเปลี่ยน) · อย่างอื่น = worker_crash · ยกเว้น: โหลดหน้าไม่ทัน (page.goto Timeout) ที่ขั้นที่กฎเน็ตสะดุดใช้ได้
+ * (isNetworkRetryStep: open-flow รอบ 1–3) = worker_crash ให้นโยบายข้ามงานรู้จัก · รอบ 4/ขั้นอื่น = กติกาเดิมทุกตัวอักษร
+ */
+export function stepErrorKind(step: string, round: number, e: unknown): "selector_drift" | "worker_crash" {
+  if (!isTimeoutError(e)) return "worker_crash";
+  return isNetworkRetryStep(step, round) && isTransientNetworkError(e) ? "worker_crash" : "selector_drift";
 }
 
 /**

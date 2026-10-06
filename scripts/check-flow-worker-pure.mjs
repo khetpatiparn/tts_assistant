@@ -167,6 +167,41 @@ try {
     try { await fs2.retryTransientNav(async () => { calls3++; throw new Error("Timeout 45000ms exceeded"); }, { tries: 5, waitMs: 10, sleep: async () => {} }); } catch { /* expected */ }
     check("error อื่น → ไม่ลองซ้ำ", calls3, 1);
   }
+  // ขอบเขตของกฎเน็ตสะดุด (ลองเปิดซ้ำ + ตีเป็น worker_crash + ข้ามงาน) = open-flow ของรอบ 1–3 เท่านั้น
+  // รอบ 4 (fetchFinalClip) คงพฤติกรรมเดิมทุกอย่าง: ไม่ลองซ้ำ · goto timeout = selector_drift · ขั้นอื่นก็กติกาเดิม
+  {
+    const net = await import(pathToFileURL(join(out, "flow-network.js")).href);
+    check("isNetworkRetryStep: open-flow รอบ 1/2/3 → ใช่ · รอบ 4 → ไม่",
+      JSON.stringify([1, 2, 3, 4].map((r) => net.isNetworkRetryStep("open-flow", r))), JSON.stringify([true, true, true, false]));
+    for (const step of ["ensure-project", "attach-reference", "wait-results", "wait-render", "find-video", "download-final", "open-flow ", ""]) {
+      check(`isNetworkRetryStep: ขั้น ${step || "(ว่าง)"} รอบ 1 → ไม่`, net.isNetworkRetryStep(step, 1), false);
+    }
+    const gotoTimeout = Object.assign(new Error("page.goto: Timeout 45000ms exceeded.\nCall log:"), { name: "TimeoutError" });
+    const locatorTimeout = Object.assign(new Error("locator.waitFor: Timeout 8000ms exceeded."), { name: "TimeoutError" });
+    const K = (step, round, e) => fs2.stepErrorKind(step, round, e);
+    check("stepErrorKind: goto timeout ที่ open-flow รอบ 3 → worker_crash (ข้ามงานได้)", K("open-flow", 3, gotoTimeout), "worker_crash");
+    check("stepErrorKind: goto timeout ที่ open-flow รอบ 1 → worker_crash", K("open-flow", 1, gotoTimeout), "worker_crash");
+    check("stepErrorKind: goto timeout ที่ open-flow รอบ 4 → selector_drift (ของเดิม)", K("open-flow", 4, gotoTimeout), "selector_drift");
+    check("stepErrorKind: timeout ที่ข้อความมีแค่ 'Timeout Nms exceeded' (ไม่มีชื่อ TimeoutError) รอบ 4 → selector_drift", K("open-flow", 4, new Error("page.goto: Timeout 45000ms exceeded.")), "selector_drift");
+    check("stepErrorKind: goto timeout ที่ขั้นอื่น (ensure-project) รอบ 1 → selector_drift", K("ensure-project", 1, gotoTimeout), "selector_drift");
+    check("stepErrorKind: locator timeout ที่ open-flow รอบ 1 → selector_drift", K("open-flow", 1, locatorTimeout), "selector_drift");
+    check("stepErrorKind: net::ERR_NETWORK_CHANGED ที่ open-flow รอบ 4 → worker_crash (ของเดิม: ไม่ใช่ timeout)", K("open-flow", 4, netErr("ERR_NETWORK_CHANGED")), "worker_crash");
+    check("stepErrorKind: error อื่นที่ไม่ใช่ timeout → worker_crash", K("attach-reference", 2, new Error("boom")), "worker_crash");
+    check("stepErrorKind: ไม่ใช่ Error → worker_crash", K("open-flow", 1, "x"), "worker_crash");
+
+    const session = readFileSync("worker/flow-session.ts", "utf8").replace(/\r\n/g, "\n");
+    const stepAt = session.indexOf("async function step<T>(");
+    const stepBody = stepAt < 0 ? "" : session.slice(stepAt, session.indexOf("\n  }\n", stepAt));
+    check("step(): ชนิดความผิดพลาดมาจาก stepErrorKind(name, round, e) ที่เดียว (ไม่ตัดสินเน็ตสะดุดเองในนี้)",
+      stepBody.includes("stepErrorKind(name, round, e)") && !stepBody.includes("isTransientNetwork") && !/isTimeout\w*\(/.test(stepBody), true);
+    const openAt = session.indexOf("async function openProject(");
+    const openBody = openAt < 0 ? "" : session.slice(openAt, session.indexOf("\n  }\n", openAt));
+    const gateAt = openBody.indexOf('isNetworkRetryStep("open-flow", round)');
+    const retryAt = openBody.indexOf("retryTransientNav(");
+    check("openProject: ลองเปิดซ้ำ (retryTransientNav) อยู่หลังเงื่อนไข isNetworkRetryStep(\"open-flow\", round) — รอบ 4 goto ครั้งเดียว",
+      gateAt >= 0 && retryAt > gateAt && (openBody.match(/retryTransientNav\(/g) ?? []).length === 1, true);
+    check("retryTransientNav ถูกเรียกที่ openProject ที่เดียวใน session", (session.match(/retryTransientNav\(/g) ?? []).length, 1);
+  }
   // หลัง goto พังเพราะเน็ต Chrome ค้างอยู่หน้า error ของตัวเอง (วัดจริงด้วย Playwright: ERR_CONNECTION_REFUSED → chrome-error://chromewebdata/)
   // งานถัดไปที่บอทข้ามไปเริ่มที่ open-flow — ถ้าตรวจหน้าแบบปกติจะเจอโฮสต์ "chromewebdata" → host_unsupported หยุดคิว ทั้งที่ goto ข้างในจะทับหน้านี้
   check("chrome-error://chromewebdata/ → หน้า error ของเบราว์เซอร์", fs2.isBrowserErrorPage("chrome-error://chromewebdata/"), true);

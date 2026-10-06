@@ -31,6 +31,15 @@ const TRANSIENT_NET_CODES = [
  */
 const PAGE_LOAD_TIMEOUT_MARKER = "page.goto: Timeout";
 
+/**
+ * ขอบเขตของกฎเน็ตสะดุดทั้งชุด (บอทลองเปิดหน้าซ้ำ · step() ตี goto timeout เป็น worker_crash · นโยบายข้ามงาน) — **ขั้น open-flow
+ * ของรอบ 1–3 เท่านั้น** · รอบ 4 (โหลด 1080p, fetchFinalClip) คงพฤติกรรมเดิม: goto ครั้งเดียว ไม่ลองซ้ำ goto timeout = selector_drift
+ * (มีทางจบด้วย 720p ของตัวเองใน roundFailed) · ขั้นอื่นไม่ได้ goto เอง จึงไม่มี error ของการเปิดหน้า
+ */
+export function isNetworkRetryStep(step: string, round: number): boolean {
+  return step === "open-flow" && round !== 4;
+}
+
 export function isTransientNetworkMessage(message: string): boolean {
   return message.includes(PAGE_LOAD_TIMEOUT_MARKER) || TRANSIENT_NET_CODES.some((code) => message.includes(`net::${code}`));
 }
