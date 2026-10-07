@@ -632,6 +632,25 @@ try {
 
   // เปิดบอทใหม่แล้วกู้การหยุดเพราะเน็ตสะดุด/โหลดหน้าไม่ทันเอง (2026-10-07) — ตัดสินใน lib (startupRecoverCause · DB: recoverPauseAtStartup ตรวจใน
   // check-flow-lifecycle-db.ts) ตรงนี้ตรวจการต่อสาย: หลังเช็ก login (session ใช้ได้) ก่อนลูปหลัก · ลงแถว auto_recover + log · ไม่เขียนงานเอง
+  // ลองเองตามเวลา (2026-10-07) — เวลา/ครั้งที่เป็น pure (probeSchedule/probeDue/nextProbeDelay ใน check-flow-lifecycle.mjs) · startProbe ตรวจใน
+  // check-flow-lifecycle-db.ts · ตรงนี้ตรวจการต่อสาย
+  const pauseFn = fnBody("async function pauseWorker(");
+  check("pauseWorker รับเวลานัดลองเอง (wakeAt) เขียนลง nextWakeAt — ไม่ส่ง = null (หยุดรอคน) · แจ้งเตือนบอกเวลา",
+    /async function pauseWorker\(reason: ErrorKind, wakeAt: Date \| null = null\)/.test(pauseFn) && pauseFn.includes("nextWakeAt: wakeAt") && pauseFn.includes("probeNote("), true);
+  const pausedAt0 = loop.indexOf("if (state?.pausedReason) {");
+  const pausedBranch = pausedAt0 < 0 ? "" : loop.slice(pausedAt0, loop.indexOf("if (state?.todayDate", pausedAt0));
+  check("main: ตอนหยุดอยู่ ถ้า probeDue → อ่านครั้งที่จากแถว probe ล่าสุด → startProbe (where เหตุ+เวลานัดเดิม) → จำ probeAttempt",
+    pausedBranch.includes("probeDue(state, now)") && /kind: "probe"/.test(pausedBranch) && pausedBranch.includes("probeNumberFromDetail(") &&
+      pausedBranch.indexOf("await startProbe(") > pausedBranch.indexOf("probeNumberFromDetail(") && /probeAttempt = /.test(pausedBranch), true);
+  check("main: ทางลองเองไม่ปลดการหยุด/เขียนงานเอง (startProbe ใน lib)", /unpauseWorker\(|applyPlan\(|applyBulk\(|upsertState\(/.test(pausedBranch), false);
+  check("main: ส่ง probeAttempt ให้ processJob แล้วล้างหลังจบงาน (ยกเว้น released ที่ยังไม่ได้แตะ Flow)",
+    /const ok = await processJob\(page, job, cfg, sel, lastBatchAt, probeAttempt\);\n\s*if \(ok !== "released"\) probeAttempt = null;/.test(loop), true);
+  const pauseCallAt = processFn.indexOf("await pauseWorker(failure.pause");
+  const pausePath = pauseCallAt < 0 ? "" : processFn.slice(processFn.lastIndexOf("probeSchedule(", pauseCallAt), processFn.indexOf("return false", pauseCallAt));
+  check("processJob: หยุดคิว → probeSchedule({ policy, kind, probeOfJob: probe }) → pauseWorker(failure.pause, เวลานัด) + ลงแถว probe",
+    /probeSchedule\(\{ policy, kind, probeOfJob: probe,/.test(pausePath) && /pauseWorker\(failure\.pause, schedule\?\.wakeAt \?\? null\)/.test(pausePath) &&
+      pausePath.includes('kind: "probe"'), true);
+
   const sessionAt = loop.indexOf("hasSignInButton(page)");
   const recoverAt = loop.indexOf("await recoverPauseAtStartup()");
   check("main: เรียก recoverPauseAtStartup หลังเช็กว่า session ใช้ได้ (hasSignInButton) และก่อนลูปหลัก · ไม่เรียกตอนหยุดเพราะ login",

@@ -518,6 +518,62 @@ try {
         L.isNetworkSkipFailure("worker_crash", "ensure-project", 1, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 1, "งานนี้ไม่มีรูปแคปต้นทาง")],
       [true, false, false, false]);
   }
+  // ---------- ลองเองตามเวลา (circuit breaker half-open) หลังจอดงานติดกันครบ — 2026-10-07 ----------
+  // หยุดเพราะ pause_streak + เหตุที่ไม่ใช่สัญญาณบอท/หน้าเปลี่ยน → ตั้ง nextWakeAt · ถึงเวลาบอทปลดการหยุดเองแล้วทำงานถัดไป 1 งาน
+  // รอ 15 → 30 → 60 นาที (±20%) เพดาน 4 ชม. · ลองไม่ผ่านครบ 3 ครั้ง = หยุดรอคน (ไม่ตั้งเวลา)
+  {
+    const MIN = 60_000;
+    check("ค่าคงที่: เริ่ม 15 นาที · เพดาน 4 ชม. · ลองได้ 3 ครั้ง", [L.PROBE_BASE_MS, L.PROBE_CAP_MS, L.PROBE_MAX_FAILED], [15 * MIN, 4 * 60 * MIN, 3]);
+    check("nextProbeDelay ครั้งแรก rand 0.5 = 15 นาทีพอดี", L.nextProbeDelay(0, 0.5), 15 * MIN);
+    check("nextProbeDelay ลองไม่ผ่านแล้ว 1 ครั้ง = 30 นาที", L.nextProbeDelay(1, 0.5), 30 * MIN);
+    check("nextProbeDelay ลองไม่ผ่านแล้ว 2 ครั้ง = 60 นาที", L.nextProbeDelay(2, 0.5), 60 * MIN);
+    check("nextProbeDelay ลองไม่ผ่านครบ 3 ครั้ง → null (หยุดรอคน)", L.nextProbeDelay(3, 0.5), null);
+    check("nextProbeDelay เกิน 3 → null", L.nextProbeDelay(7, 0.5), null);
+    check("jitter ต่ำสุด (rand 0) = -20%", L.nextProbeDelay(0, 0), 12 * MIN);
+    check("jitter สูงสุด (rand → 1) = +20%", L.nextProbeDelay(0, 1), 18 * MIN);
+    check("jitter ครั้งที่ 3 ช่วง 48–72 นาที", [L.nextProbeDelay(2, 0), L.nextProbeDelay(2, 1)], [48 * MIN, 72 * MIN]);
+    check("rand นอกช่วงถูกบีบเข้า [0,1]", [L.nextProbeDelay(0, -5), L.nextProbeDelay(0, 9)], [12 * MIN, 18 * MIN]);
+    check("rand ไม่ใช่ตัวเลข (NaN) = กลางช่วง", L.nextProbeDelay(0, Number.NaN), 15 * MIN);
+    check("failedProbes ติดลบ/ไม่ใช่จำนวนเต็ม → ถือเป็น 0", [L.nextProbeDelay(-1, 0.5), L.nextProbeDelay(0.7, 0.5)], [15 * MIN, 15 * MIN]);
+    // เพดาน 4 ชม. (ค่าตั้งต้นลองได้ 3 ครั้งจึงไม่ถึง — ตรวจตัวคำนวณด้วยค่าที่ส่งเข้าตรงๆ)
+    check("เพดาน 4 ชม. หลัง jitter", L.probeDelayFor(5, 1), 4 * 60 * MIN);
+    check("probeDelayFor(4) rand 0.5 = 15×16 = 240 นาที (= เพดาน)", L.probeDelayFor(4, 0.5), 240 * MIN);
+    check("probeDelayFor(3) rand 1 = 120 นาที +20% = 144 นาที", L.probeDelayFor(3, 1), 144 * MIN);
+
+    for (const reason of ["worker_crash", "generation_timeout", "flow_error", "download_failed"]) check(`canProbe: ${reason} ได้`, L.canProbe(reason), true);
+    for (const reason of ["captcha", "login_required", "host_unsupported", "selector_drift", "", "zzz"]) check(`canProbe: ${reason || "(ว่าง)"} ไม่ได้`, L.canProbe(reason), false);
+
+    const now = new Date("2026-10-07T03:00:00Z");
+    const S = (o) => L.probeSchedule({ policy: "pause_streak", kind: "flow_error", probeOfJob: null, now, rand: 0.5, ...o });
+    check("probeSchedule: pause_streak + flow_error งานปกติ → ลองครั้งที่ 1 อีก 15 นาที",
+      S({}), { probe: 1, waitMs: 15 * MIN, wakeAt: new Date(now.getTime() + 15 * MIN) });
+    check("probeSchedule: งานที่พังคือการลองครั้งที่ 1 → ครั้งที่ 2 อีก 30 นาที", S({ probeOfJob: 1 }), { probe: 2, waitMs: 30 * MIN, wakeAt: new Date(now.getTime() + 30 * MIN) });
+    check("probeSchedule: การลองครั้งที่ 2 พัง → ครั้งที่ 3 อีก 60 นาที", S({ probeOfJob: 2 }), { probe: 3, waitMs: 60 * MIN, wakeAt: new Date(now.getTime() + 60 * MIN) });
+    check("probeSchedule: การลองครั้งที่ 3 พัง → null (หยุดรอคน)", S({ probeOfJob: 3 }), null);
+    for (const policy of ["pause", "continue", "continue_network"]) check(`probeSchedule: policy ${policy} → null`, S({ policy }), null);
+    for (const kind of ["captcha", "login_required", "host_unsupported", "selector_drift"]) check(`probeSchedule: pause_streak แต่ ${kind} → null (ไม่ลองเองเด็ดขาด)`, S({ kind }), null);
+    check("probeSchedule: worker_crash (เน็ตล่มงานที่ 3) → ลองได้", S({ kind: "worker_crash" })?.probe, 1);
+
+    check("probeNumberFromDetail: อ่าน probe จากแถว", L.probeNumberFromDetail(JSON.stringify({ probe: 2, waitMs: 1 })), 2);
+    for (const d of ["", "xx", "{}", JSON.stringify({ probe: 0 }), JSON.stringify({ probe: "2" }), JSON.stringify({ probe: 1.5 })]) {
+      check(`probeNumberFromDetail: ${d || "(ว่าง)"} → 1 (ไม่รู้ = ครั้งแรก)`, L.probeNumberFromDetail(d), 1);
+    }
+
+    const wake = new Date(now.getTime() + 15 * MIN);
+    check("probeDue: หยุดเหตุลองได้ + ถึงเวลาแล้ว → true", L.probeDue({ pausedReason: "flow_error", nextWakeAt: wake }, wake), true);
+    check("probeDue: ยังไม่ถึงเวลา → false", L.probeDue({ pausedReason: "flow_error", nextWakeAt: wake }, now), false);
+    check("probeDue: ไม่มีเวลา (หยุดรอคน) → false", L.probeDue({ pausedReason: "flow_error", nextWakeAt: null }, wake), false);
+    check("probeDue: เหตุที่ลองเองไม่ได้ (captcha) แม้มีเวลา → false", L.probeDue({ pausedReason: "captcha", nextWakeAt: wake }, wake), false);
+    check("probeDue: ไม่ได้หยุด (ผู้ใช้กดรันต่อแล้ว เวลาค้าง) → false", L.probeDue({ pausedReason: "", nextWakeAt: wake }, wake), false);
+
+    // แถบ "บอทหยุดแล้ว" บอกเวลาที่จะลองเอง (เวลาเครื่อง HH:mm)
+    const at = new Date(2026, 9, 7, 9, 5);
+    check("probeNote: มีเวลาลอง → ข้อความ HH:mm", L.probeNote({ pausedReason: "generation_timeout", nextWakeAt: at }), "บอทจะลองงานถัดไปเองอีกครั้งเวลา 09:05");
+    check("probeNote: ไม่มีเวลา → null", L.probeNote({ pausedReason: "generation_timeout", nextWakeAt: null }), null);
+    check("probeNote: เหตุที่ลองเองไม่ได้ → null", L.probeNote({ pausedReason: "selector_drift", nextWakeAt: at }), null);
+    check("probeNote: ไม่ได้หยุด → null", L.probeNote({ pausedReason: "", nextWakeAt: at }), null);
+  }
+
   // ---------- "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" — ปลดการหยุดโดยไม่แตะงานที่พัง ----------
   // ปลดได้เฉพาะเหตุที่ไม่ใช่สัญญาณบอท/session: worker_crash + generation_timeout · อย่างอื่นต้องรอ/รันต่อตามเดิม
   check("canUnpauseQueueOnly: worker_crash / generation_timeout ได้",
@@ -695,6 +751,8 @@ try {
   check("takeOverFlowJob ใช้ takeOver + applyTakeOver (เขียนแบบมี where กันแข่งกับบอท)", takeOverBody.includes(" takeOver(") && takeOverBody.includes("applyTakeOver("), true);
   const saveBody = (strip("app/actions.ts").match(/export async function saveFlowPrompt[^]*?\n}\n/) ?? [""])[0];
   check("saveFlowPrompt ใช้ applyPromptSave (gate+เขียนใน transaction เดียว) และ log user_edit_prompt", saveBody.includes("applyPromptSave(") && saveBody.includes('"user_edit_prompt"') && saveBody.includes("rerender: r.rerendered"), true);
+  const routeSrc = strip("components/flow-route.tsx");
+  check("แถบ \"บอทหยุดแล้ว\" โชว์เวลานัดลองเองด้วย probeNote(worker) (ไม่คำนวณเอง)", routeSrc.includes("probeNote(worker)"), true);
   check("หน้า /flow ใช้ promptSaveGate (ไม่เช็กสถานะแก้พรอมต์เอง)", detail.includes("promptSaveGate("), true);
   // ticket 05: เปลี่ยนรูปต้นทางมีทางเดียว (changeSourcePhoto → changeSource + applyChangeSource) ใช้ทั้ง /flow และ Showcase
   const csFlow = strip("lib/flow-change-source.ts");

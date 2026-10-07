@@ -14,9 +14,9 @@ import {
 import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
-  failurePolicy, isParkableFailure, parkedFailureText, previewUnsaved, releaseForShortName, roundFailed, staleRender, staleRunning, staleUpscale,
+  PROBE_MAX_FAILED, failurePolicy, isParkableFailure, parkedFailureText, previewUnsaved, probeDue, probeNote, probeNumberFromDetail, probeSchedule, releaseForShortName, roundFailed, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
-import { applyBulk, applyPlan, recoverPauseAtStartup, unpauseWorker } from "@/lib/flow-lifecycle-db";
+import { applyBulk, applyPlan, recoverPauseAtStartup, startProbe, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
 import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
 import { notify } from "./notify";
@@ -86,9 +86,13 @@ async function sleepUntil(target: number): Promise<void> {
   }
 }
 
-async function pauseWorker(reason: ErrorKind): Promise<void> {
-  await upsertState({ pausedReason: reason, pausedAt: new Date(), currentJobId: null, nextWakeAt: null });
-  notify("บอท Flow หยุดแล้ว", ERROR_KIND_LABELS[reason] ?? reason);
+/**
+ * หยุดทั้งคิว · wakeAt = เวลานัดลองงานถัดไปเอง (probeSchedule — เก็บใน nextWakeAt ขณะหยุด) · null = หยุดรอคน (ล้างนัดเก่าเสมอ)
+ */
+async function pauseWorker(reason: ErrorKind, wakeAt: Date | null = null): Promise<void> {
+  await upsertState({ pausedReason: reason, pausedAt: new Date(), currentJobId: null, nextWakeAt: wakeAt });
+  const note = wakeAt === null ? null : probeNote({ pausedReason: reason, nextWakeAt: wakeAt });
+  notify("บอท Flow หยุดแล้ว", `${ERROR_KIND_LABELS[reason] ?? reason}${note === null ? "" : ` · ${note}`}`);
 }
 
 /**
@@ -254,8 +258,11 @@ async function decideFailurePolicy(
  * true = งานเสร็จ · "skipped" = งานพังแต่บอทข้ามไปทำงานถัดไป (ไม่หยุดคิว) · "skipped_network" = เหมือน skipped แต่พังเพราะเน็ตสะดุดตอน
  * เปิด Flow (ยังไม่ได้ขออะไรจาก Google — ไม่นับเพดานรูป/คลิป) · "released" = คืนงานเข้าคิวโดยไม่ได้แตะ Flow (ชื่อยังเป็น
  * ชื่อเต็มของร้าน — ไม่นับเพดาน/round_ok) · false = หยุดคิวแล้ว
+ * @param probe งานนี้คือการลองเองตามเวลาครั้งที่เท่าไร (null = งานปกติ) — พังอีก = นัดครั้งถัดไปด้วยเวลารอที่ยาวขึ้น
  */
-async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number): Promise<boolean | "skipped" | "skipped_network" | "released"> {
+async function processJob(
+  page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: SelectorSet, lastBatchAt: number, probe: number | null,
+): Promise<boolean | "skipped" | "skipped_network" | "released"> {
   const round = toJobRound(job.round);
   const outDir = path.join(UPLOAD_ROOT, job.entryId, "flow");
   const stepLog = new StepLog(true);
@@ -402,7 +409,19 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       notify("คลิปพร้อมแล้ว (720p)", job.entry.productName);
       return true;
     }
-    await pauseWorker(failure.pause);
+    // จอดงานติดกันครบ (pause_streak) ด้วยเหตุที่ไม่ใช่สัญญาณบอท/หน้าเปลี่ยน → หยุดคิวแต่นัดลองงานถัดไปเอง (circuit breaker half-open):
+    // 15 → 30 → 60 นาที ±20% · การลองครั้งที่ 3 พัง = หยุดรอคน · เหตุอื่นทั้งหมด = หยุดรอคนเหมือนเดิม (schedule = null ล้างนัดเก่า)
+    const schedule = probeSchedule({ policy, kind, probeOfJob: probe, now: new Date(), rand: Math.random() });
+    await pauseWorker(failure.pause, schedule?.wakeAt ?? null);
+    if (schedule !== null) {
+      logActivity({
+        kind: "probe", jobId: job.id, round,
+        detail: { probe: schedule.probe, waitMs: schedule.waitMs, wakeAt: schedule.wakeAt.toISOString(), pausedReason: failure.pause },
+      });
+      log(`งานพังติดกันครบแล้ว — บอทจะลองงานถัดไปเอง (ครั้งที่ ${schedule.probe}/${PROBE_MAX_FAILED}) อีก ~${Math.round(schedule.waitMs / 60_000)} นาที`);
+    } else if (policy === "pause_streak") {
+      log(probe !== null ? `ลองเองครบ ${probe} ครั้งแล้วยังพัง — หยุดรอคน` : `งานพังติดกันครบ (${kind}) — ลองเองไม่ได้ หยุดรอคน`);
+    }
     log(`งาน ${job.id} พังที่ ${step} (${kind}) — หยุดทั้งคิว หลักฐาน: ${failureDirAbs}`);
     return false;
   }
@@ -563,12 +582,25 @@ async function main() {
 
   let longBreakTarget = pickLongBreakTarget(cfg.longBreakEvery);
   let lastBatchAt = 0;
+  // งานถัดไปที่หยิบคือการลองเองตามเวลาครั้งที่เท่าไร (null = ไม่ได้ลอง) — ตั้งตอน startProbe สำเร็จ ล้างหลังงานถัดไปจบ
+  let probeAttempt: number | null = null;
 
   while (!stopRequested()) {
     const state = await readState();
     const now = new Date();
 
     if (state?.pausedReason) {
+      // ถึงเวลานัดลองเอง (หยุดเพราะจอดงานติดกันครบ + เหตุที่ลองได้) → ปลดการหยุดชั่วคราว แล้วรอบหน้าของลูปหยิบงานถัดไป 1 งาน
+      // ผ่าน = round_ok กลับเป็นปกติ · พัง = pause_streak นัดครั้งถัดไป (processJob) · ผู้ใช้กดอะไรไปก่อน = startProbe ได้ false ไม่แตะ
+      if (probeDue(state, now) && state.nextWakeAt !== null) {
+        const last = await prisma.flowActivity.findFirst({ where: { kind: "probe" }, orderBy: { at: "desc" }, select: { detail: true } });
+        const n = probeNumberFromDetail(last?.detail ?? "");
+        if (await startProbe({ pausedReason: state.pausedReason, nextWakeAt: state.nextWakeAt })) {
+          probeAttempt = n;
+          log(`ถึงเวลาลองเอง (ครั้งที่ ${n}/${PROBE_MAX_FAILED}) — ปลดการหยุด (${state.pausedReason}) ชั่วคราว ทำงานถัดไป 1 งาน`);
+          continue;
+        }
+      }
       await sleepMs(cfg.pollIdleMs);
       continue;
     }
@@ -617,7 +649,8 @@ async function main() {
       continue;
     }
 
-    const ok = await processJob(page, job, cfg, sel, lastBatchAt);
+    const ok = await processJob(page, job, cfg, sel, lastBatchAt, probeAttempt);
+    if (ok !== "released") probeAttempt = null;
     if (ok === false) {
       // session หลุดกลางคิว → ปิดบอทเพื่อคืนโปรไฟล์ให้ Flow Login (หยุดรออยู่เฉยๆ ก็ login ไม่ได้
       // เพราะโปรไฟล์ถูกบอทถือไว้) พอเปิดบอทใหม่หลัง login ส่วนต้นของ main() จะคืนงานเข้าคิวเอง

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
 import {
-  UNPAUSE_QUEUE_ONLY_REASONS, canRerenderWithPrompt, promptSaveGate, redo, startupRecoverCause, startupRecoverPlan, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
+  UNPAUSE_QUEUE_ONLY_REASONS, canProbe, canRerenderWithPrompt, promptSaveGate, redo, startupRecoverCause, startupRecoverPlan, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -222,6 +222,20 @@ export async function recoverPauseAtStartup(): Promise<
   const n = await applyIfStatus(cause.id, startupRecoverPlan(cause), "failed");
   if (n === 0) return null;
   return { jobId: cause.id, round: cause.round, pausedReason: state.pausedReason, failedStep: cause.failedStep, errorMessage: cause.errorMessage };
+}
+
+/**
+ * ถึงเวลานัดลองเอง (probeDue) → ปลดการหยุดชั่วคราวให้บอททำงานถัดไป 1 งาน + ล้างเวลานัด · เขียนเฉพาะถ้าการหยุดยังเป็นอันเดิมเป๊ะ
+ * (เหตุ + nextWakeAt ตรงกับที่ลูปอ่านมา) และเหตุลองเองได้ (canProbe) — ผู้ใช้กดรันต่อ/ข้าม/ปลดไปก่อน หรือบอทหยุดใหม่ = false ไม่แตะ
+ * งานไม่ถูกแตะเลย (งานที่จอดไว้ยัง failed) · ผลของการลองตัดสินตามปกติ: ผ่าน = round_ok · พัง = pause_streak → นัดครั้งถัดไป
+ */
+export async function startProbe(expect: { pausedReason: string; nextWakeAt: Date }): Promise<boolean> {
+  if (!canProbe(expect.pausedReason)) return false;
+  const r = await prisma.flowWorkerState.updateMany({
+    where: { id: WORKER_STATE_ID, pausedReason: expect.pausedReason, nextWakeAt: expect.nextWakeAt },
+    data: { pausedReason: "", pausedAt: null, nextWakeAt: null },
+  });
+  return r.count === 1;
 }
 
 /**

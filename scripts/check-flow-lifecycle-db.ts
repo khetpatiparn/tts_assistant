@@ -1152,6 +1152,48 @@ async function startupRecovers(savedState: { pausedReason: string; pausedAt: Dat
 }
 
 /**
+ * ลองเองตามเวลา: ถึงเวลานัด (nextWakeAt) บอทปลดการหยุดชั่วคราวด้วย startProbe — เขียนเฉพาะถ้าการหยุดยังเป็นอันเดิมเป๊ะ
+ * (เหตุ + เวลานัดตรงกับที่อ่านมา) · ผู้ใช้กดอะไรไปก่อน / บอทหยุดใหม่ด้วยเหตุอื่น = ไม่แตะ
+ */
+async function probes() {
+  console.log("\n== ลองเองตามเวลา (startProbe) ==");
+  const wake = new Date(Date.now() - 1000);
+  const setState = (pausedReason: string, nextWakeAt: Date | null) =>
+    prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason, pausedAt: SENTINEL, nextWakeAt },
+      update: { pausedReason, pausedAt: SENTINEL, nextWakeAt },
+    });
+  for (const reason of ["flow_error", "generation_timeout", "worker_crash", "download_failed"]) {
+    await setState(reason, wake);
+    const r = await capture(() => db.startProbe({ pausedReason: reason, nextWakeAt: wake }));
+    const w = await snapWorker();
+    check(`${reason}: ถึงเวลานัด → ปลดการหยุด ล้างเวลานัด`,
+      r.ok && r.value === true && w?.pausedReason === "" && w?.pausedAt === null && w?.nextWakeAt === null, JSON.stringify({ r, w }));
+  }
+  {
+    await setState("flow_error", new Date(wake.getTime() + 60_000));
+    const r = await capture(() => db.startProbe({ pausedReason: "flow_error", nextWakeAt: wake }));
+    check("เวลานัดเปลี่ยนไปแล้ว (บอทหยุดรอบใหม่) → ไม่แตะ", r.ok && r.value === false && (await snapWorker())?.pausedReason === "flow_error", JSON.stringify(r));
+  }
+  {
+    await setState("", wake);
+    const r = await capture(() => db.startProbe({ pausedReason: "flow_error", nextWakeAt: wake }));
+    check("ผู้ใช้กดรันต่อ/ข้ามไปก่อน (ไม่ได้หยุดแล้ว) → ไม่แตะ", r.ok && r.value === false && (await snapWorker())?.pausedReason === "", JSON.stringify(r));
+  }
+  {
+    await setState("selector_drift", wake);
+    const r = await capture(() => db.startProbe({ pausedReason: "flow_error", nextWakeAt: wake }));
+    check("บอทหยุดใหม่ด้วยเหตุอื่นระหว่างนั้น → ไม่แตะ", r.ok && r.value === false && (await snapWorker())?.pausedReason === "selector_drift", JSON.stringify(r));
+  }
+  for (const reason of ["captcha", "login_required", "host_unsupported", "selector_drift"]) {
+    await setState(reason, wake);
+    const r = await capture(() => db.startProbe({ pausedReason: reason, nextWakeAt: wake }));
+    check(`${reason}: ลองเองไม่ได้เด็ดขาด แม้มีเวลานัดค้าง → ไม่แตะ`, r.ok && r.value === false && (await snapWorker())?.pausedReason === reason, JSON.stringify(r));
+  }
+}
+
+/**
  * ทำต่อเอง (takeOver) — สถานะที่เกินขั้นทำคลิปไม่มีของเดิมให้เทียบ จึงเช็กผลที่แถวงาน/FlowWorkerState ตรงๆ
  * (สถานะขั้นทำคลิปเทียบกับ OLD.finishManually แล้วใน branches)
  */
@@ -1735,6 +1777,7 @@ async function main() {
     await takeovers();
     await queueOnlyUnpauses();
     await startupRecovers(savedState);
+    await probes();
     await shortNameReleases();
     await promptSaves();
     await changeSources();

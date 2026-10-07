@@ -7,7 +7,7 @@ import type { FlowJobRow, FlowWorkerView } from "@/lib/flow-queries";
 import { FLOW_TABS, countByTab, defaultFlowTab, flowTabOf, orderJobsForTab, parseFlowTab, summarizeQueue, type FlowTab } from "@/lib/flow-jobs";
 import { GEMINI_MODELS } from "@/lib/gemini";
 import { generateWithAI } from "@/app/actions";
-import { pauseCauseJob, pausedAdvice, pausedReasonLabel } from "@/lib/flow-lifecycle";
+import { pauseCauseJob, pausedAdvice, pausedReasonLabel, probeNote } from "@/lib/flow-lifecycle";
 import { playCompletionSound } from "@/lib/completion-sound";
 import { cn } from "@/lib/utils";
 import { FlowJobList } from "@/components/flow-job-list";
@@ -108,6 +108,8 @@ export function FlowRoute({
   // เหตุที่หยุดมาจากงานที่ทำให้หยุดจริง (pauseCauseJob: งานพังที่ตรงเวลา pausedAt ไม่ใช่งานพังล่าสุด) — "เน็ตสะดุด" เฉพาะเมื่องานนั้นพังที่ open-flow
   const pausedLabel = pausedReasonLabel(worker.pausedReason, pauseCauseJob(worker, jobs));
   const advice = pausedAdvice(worker.pausedReason, summary.failed);
+  // จอดงานติดกันครบแล้วหยุด → บอทนัดลองงานถัดไปเอง (nextWakeAt ขณะหยุด) · ปุ่มเดิมยังกดได้ (กดแล้วการหยุดหาย = ไม่ลองเอง)
+  const probe = paused ? probeNote(worker) : null;
   const wake = minutesUntil(worker.nextWakeAt, now);
   // ลำดับต่อแท็บ: เสร็จ/ข้าม = เวลาปิดใหม่→เก่า · เลือกรูป/ดูคลิป/พัง = รอนานสุดก่อน · บอท = ตามเดิม (orderJobsForTab)
   const tabJobs = orderJobsForTab(tab, jobs.filter((j) => flowTabOf(j.status) === tab));
@@ -153,6 +155,7 @@ export function FlowRoute({
               {summary.failed === 0 && worker.pausedReason !== "login_required"
                 ? " — เปิด start.bat ใหม่แล้วบอทจะทำงานต่อเอง"
                 : ""}
+              {probe !== null && <span className="block font-normal text-foreground">{probe}</span>}
               {advice !== null && <span className="block font-normal text-muted-foreground">{advice}</span>}
             </span>
           ) : worker.alive ? (

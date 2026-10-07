@@ -746,6 +746,86 @@ export function failurePolicy(input: {
   return network ? "continue_network" : "continue";
 }
 
+// ---------------------------------------------------------------------------
+// ลองเองตามเวลา (circuit breaker half-open) — หลังจอดงานติดกันครบ (pause_streak) บอทหยุดคิวแล้วนัดเวลาลองงานถัดไป 1 งานเอง
+// สถานะเก็บโดยไม่เพิ่มคอลัมน์: เวลานัด = FlowWorkerState.nextWakeAt (ขณะ pausedReason ไม่ว่าง) · ครั้งที่ = แถว FlowActivity kind "probe"
+// ล่าสุด (detail.probe — เขียนตอนนัด อ่านตอนถึงเวลา จึงรอดการเปิดบอทใหม่) · "งานนี้คือการลองครั้งที่ n" อยู่ในหน่วยความจำของลูปหลัก
+// ---------------------------------------------------------------------------
+
+/** รอก่อนลองครั้งแรก */
+export const PROBE_BASE_MS = 15 * 60_000;
+/** เพดานเวลารอ (หลัง jitter) */
+export const PROBE_CAP_MS = 4 * 60 * 60_000;
+/** ลองเองไม่ผ่านครบเท่านี้ = หยุดรอคน (ไม่นัดอีก) */
+export const PROBE_MAX_FAILED = 3;
+/** jitter ±20% — กันลองตรงเวลาเป๊ะทุกครั้ง */
+const PROBE_JITTER = 0.2;
+
+/**
+ * เหตุหยุดที่บอทลองเองตามเวลาได้ — ไม่ใช่สัญญาณบอท/session/หน้าเปลี่ยน: worker_crash (เน็ตล่มงานที่ 3) · generation_timeout · flow_error ·
+ * download_failed · **ห้ามเด็ดขาด:** captcha (กฎพัก/ADR 0002), login_required, host_unsupported, selector_drift (รวมจำนวนรูปแนบไม่ตรง —
+ * ข้อมูลวันที่ 21 ก.ย. บอกว่ารอไปหน้าก็ไม่หาย)
+ */
+const PROBE_REASONS: readonly string[] = ["worker_crash", "generation_timeout", "flow_error", "download_failed"];
+
+export function canProbe(pausedReason: string): boolean {
+  return PROBE_REASONS.includes(pausedReason);
+}
+
+/** เวลารอก่อนลองครั้งถัดไป = min(เพดาน, 15 นาที × 2^failedProbes × (1 ± 20%)) · rand ∈ [0,1] (นอกช่วงถูกบีบ, NaN = กลาง) */
+export function probeDelayFor(failedProbes: number, rand: number): number {
+  const n = Number.isInteger(failedProbes) && failedProbes > 0 ? failedProbes : 0;
+  const r = Number.isNaN(rand) ? 0.5 : Math.min(1, Math.max(0, rand));
+  const base = Math.min(PROBE_CAP_MS, PROBE_BASE_MS * 2 ** n);
+  return Math.round(Math.min(PROBE_CAP_MS, base * (1 - PROBE_JITTER + 2 * PROBE_JITTER * r)));
+}
+
+/** เวลารอก่อนลองครั้งถัดไป (15 → 30 → 60 นาที ±20%) · null = ลองไม่ผ่านครบ PROBE_MAX_FAILED แล้ว หยุดรอคน */
+export function nextProbeDelay(failedProbes: number, rand: number): number | null {
+  const n = Number.isInteger(failedProbes) && failedProbes > 0 ? failedProbes : 0;
+  return n >= PROBE_MAX_FAILED ? null : probeDelayFor(n, rand);
+}
+
+/**
+ * ตอนหยุดคิว: นัดลองเองไหม · null = หยุดรอคน (เหตุอื่นที่ไม่ใช่ pause_streak, เหตุที่ลองเองไม่ได้, หรือลองครบแล้ว)
+ * @param probeOfJob งานที่เพิ่งพังคือการลองครั้งที่เท่าไร (null = งานปกติ → นัดครั้งที่ 1)
+ */
+export function probeSchedule(input: {
+  policy: string;
+  kind: string;
+  probeOfJob: number | null;
+  now: Date;
+  rand: number;
+}): { probe: number; waitMs: number; wakeAt: Date } | null {
+  if (input.policy !== "pause_streak" || !canProbe(input.kind)) return null;
+  const failed = input.probeOfJob ?? 0;
+  const waitMs = nextProbeDelay(failed, input.rand);
+  if (waitMs === null) return null;
+  return { probe: failed + 1, waitMs, wakeAt: new Date(input.now.getTime() + waitMs) };
+}
+
+/** ครั้งที่ของการลองจาก detail ของแถว FlowActivity "probe" ล่าสุด · อ่านไม่ได้ = 1 */
+export function probeNumberFromDetail(detail: string): number {
+  try {
+    const p = (JSON.parse(detail) as { probe?: unknown }).probe;
+    return typeof p === "number" && Number.isInteger(p) && p >= 1 ? p : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** ถึงเวลาลองเองแล้ว — หยุดอยู่ด้วยเหตุที่ลองได้ และมีเวลานัดที่ผ่านมาแล้ว (ผู้ใช้กดอะไรก็ตาม = ปลดการหยุด = ไม่ลอง) */
+export function probeDue(worker: { pausedReason: string; nextWakeAt: Date | null }, now: Date): boolean {
+  return canProbe(worker.pausedReason) && worker.nextWakeAt !== null && now.getTime() >= worker.nextWakeAt.getTime();
+}
+
+/** บรรทัดบนแถบ "บอทหยุดแล้ว" เมื่อมีนัดลองเอง (เวลาเครื่อง HH:mm) · null = ไม่มีนัด */
+export function probeNote(worker: { pausedReason: string; nextWakeAt: Date | null }): string | null {
+  if (!canProbe(worker.pausedReason) || worker.nextWakeAt === null) return null;
+  const d = worker.nextWakeAt;
+  return `บอทจะลองงานถัดไปเองอีกครั้งเวลา ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** ข้อความสั้นใต้งานที่พัง เมื่อบอทจอดงานไว้แล้วไปทำงานอื่น (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
 export function botMovedOnNote(
   job: { status: string; round: number; errorKind: string; failedStep: string; errorMessage: string },
