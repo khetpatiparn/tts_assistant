@@ -372,61 +372,101 @@ try {
     check("roundFailed ข้อความยาวตัด 2000", L.roundFailed({ ...base, round: 1, hasVideoRow: false, kind: "worker_crash", message: "y".repeat(2500) }).plan.job.errorMessage.length, 2000);
   }
 
-  // ---------- failurePolicy: ข้ามงานที่ Flow วาดไม่สำเร็จ ----------
+  // ---------- failurePolicy: จอดงานที่พังแบบเป็นปัญหาของงานนั้น แล้วทำงานถัดไป (2026-10-07 รวมกฎ "ติดกัน" เป็นตัวเดียว) ----------
+  // จอดได้: flow_error ที่ wait-* · generation_timeout ที่ wait-* · download_failed ที่ download-preview · จำนวนรูปแนบไม่ตรง (attach-reference)
+  // · เน็ตสะดุดตอนเปิด Flow (continue_network) — ทุกชนิดรวมกันจอดได้ไม่เกิน 2 งานติดกันโดยไม่มี round_ok คั่น งานที่ 3 = "pause_streak"
   {
     const t = (h) => new Date(2026, 9, 3, h, 0);
-    const ok = { kind: "flow_error", step: "wait-results", round: 1, message: "Flow: failed to generate", autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(9), cap: 2, recentNetworkSkipsAt: [] };
+    const ok = { kind: "flow_error", step: "wait-results", round: 1, message: "Flow: failed to generate", autoContinuesToday: 0, lastSuccessAt: t(9), cap: 999, recentParksAt: [] };
     const P = (o) => L.failurePolicy({ ...ok, ...o });
-    check("flow_error wait-results รอบ 1 → continue", P({}), "continue");
-    check("flow_error wait-render รอบ 3 → continue", P({ step: "wait-render", round: 3 }), "continue");
-    check("flow_error wait-results รอบ 2 → continue", P({ round: 2 }), "continue");
-    for (const kind of ["captcha", "login_required", "selector_drift", "generation_timeout", "worker_crash", "download_failed", "host_unsupported", ""]) {
-      check(`kind ${kind || "(ว่าง)"} ที่ wait-results → pause`, P({ kind }), "pause");
+    const attachMsg = L.attachCountMismatchMessage(3, 2);
+    check("ข้อความจำนวนรูปแนบไม่ตรง = ข้อความเดิมที่เก็บไว้ในงานเก่า (แถวเก่าอ่านได้ด้วยกฎเดียวกัน)",
+      attachMsg, "ช่องพรอมต์มีรูปแนบ 3 รูป (ต้อง 2) — ไม่กดสร้างเพื่อไม่เสียเครดิตกับคลิปผิดรูป");
+    for (const [label, o] of [
+      ["flow_error wait-results รอบ 1", {}],
+      ["flow_error wait-results รอบ 2", { round: 2 }],
+      ["flow_error wait-render รอบ 3", { step: "wait-render", round: 3 }],
+      ["generation_timeout wait-results รอบ 1", { kind: "generation_timeout", message: "รอผลเกิน 300 วิ" }],
+      ["generation_timeout wait-render รอบ 3", { kind: "generation_timeout", step: "wait-render", round: 3, message: "รอคลิปเกิน" }],
+      ["download_failed download-preview รอบ 3", { kind: "download_failed", step: "download-preview", round: 3, message: "กดโหลดแล้ว Flow ไม่ขอไฟล์" }],
+      ["จำนวนรูปแนบไม่ตรง (selector_drift ที่ attach-reference) รอบ 3", { kind: "selector_drift", step: "attach-reference", round: 3, message: attachMsg }],
+      ["จำนวนรูปแนบไม่ตรง รอบ 1", { kind: "selector_drift", step: "attach-reference", round: 1, message: attachMsg }],
+    ]) {
+      check(`จอด: ${label} → continue`, P(o), "continue");
+      check(`isParkableFailure: ${label}`, L.isParkableFailure(o.kind ?? ok.kind, o.step ?? ok.step, o.round ?? ok.round, o.message ?? ok.message), true);
+    }
+    // หยุดทั้งคิวเสมอ (hard stop): สัญญาณบอท / session / หน้าเปลี่ยน / บอทล้ม / รอบ 4
+    for (const [label, o] of [
+      ["captcha ที่ wait-results", { kind: "captcha" }],
+      ["login_required", { kind: "login_required" }],
+      ["host_unsupported", { kind: "host_unsupported" }],
+      ["selector_drift ที่ wait-results", { kind: "selector_drift" }],
+      ["selector_drift ที่ attach-reference จาก locator timeout (หาปุ่มไม่เจอ)", { kind: "selector_drift", step: "attach-reference", message: "locator.waitFor: Timeout 8000ms exceeded." }],
+      ["worker_crash ที่ wait-results", { kind: "worker_crash" }],
+      ["worker_crash ที่ open-flow ไม่ใช่เน็ต", { kind: "worker_crash", step: "open-flow", message: "งานนี้ไม่มีรูปแคปต้นทาง" }],
+      ["download_failed ที่ download-4 (รูปรอบ 1–2)", { kind: "download_failed", step: "download-4" }],
+      ["download_failed ที่ wait-results", { kind: "download_failed" }],
+      ["generation_timeout ที่ click-generate", { kind: "generation_timeout", step: "click-generate" }],
+      ["flow_error ที่ attach-reference (อัปโหลดตอบ HTTP)", { step: "attach-reference", message: "อัปโหลดรูปตอบ HTTP 500" }],
+      ["จำนวนรูปแนบไม่ตรง แต่ kind captcha", { kind: "captcha", step: "attach-reference", message: attachMsg }],
+      ["จำนวนรูปแนบไม่ตรง แต่ขั้นอื่น", { kind: "selector_drift", step: "click-generate", message: attachMsg }],
+      ["รอบ 4 flow_error", { round: 4 }],
+      ["รอบ 4 generation_timeout", { kind: "generation_timeout", round: 4 }],
+      ["kind ว่าง", { kind: "" }],
+    ]) {
+      check(`หยุดคิว: ${label} → pause`, P(o), "pause");
     }
     for (const step of ["click-generate", "attach-reference", "open-flow", "download", "find-video", "unknown", "wait-results ", ""]) {
       check(`flow_error ที่ขั้น ${step || "(ว่าง)"} → pause`, P({ step }), "pause");
     }
-    check("รอบ 4 flow_error wait-results → pause (ของเดิม)", P({ round: 4 }), "pause");
-    check("cap 0 = ปิดฟีเจอร์ → pause", P({ cap: 0 }), "pause");
-    check("cap 1: ใช้ 0 ครั้ง → continue", P({ cap: 1, autoContinuesToday: 0 }), "continue");
-    check("cap 1: ใช้ครบ 1 ครั้ง → pause", P({ cap: 1, autoContinuesToday: 1 }), "pause");
-    check("cap 2: ใช้ 1 ครั้ง (ข้ามล่าสุดเก่ากว่างานสำเร็จ) → continue", P({ autoContinuesToday: 1, lastAutoContinueAt: t(8), lastSuccessAt: t(9) }), "continue");
-    check("cap 2: ใช้ครบ 2 ครั้ง → pause", P({ autoContinuesToday: 2, lastAutoContinueAt: t(8), lastSuccessAt: t(9) }), "pause");
-    check("ติดกัน: ข้ามล่าสุดใหม่กว่างานสำเร็จล่าสุด → pause", P({ autoContinuesToday: 1, lastAutoContinueAt: t(10), lastSuccessAt: t(9) }), "pause");
-    check("ติดกัน: เวลาเท่ากันเป๊ะ ไม่ถือว่ามีงานสำเร็จคั่น → ไม่ใหม่กว่า → continue", P({ autoContinuesToday: 1, lastAutoContinueAt: t(9), lastSuccessAt: t(9) }), "continue");
-    check("ข้ามเมื่อวานล่าสุด ยังไม่เคยสำเร็จหลังจากนั้น → pause", P({ lastAutoContinueAt: new Date(2026, 9, 2, 20, 0), lastSuccessAt: null }), "pause");
-    check("ไม่เคยข้าม + ยังไม่เคยมีงานสำเร็จ → continue", P({ lastSuccessAt: null }), "continue");
-    check("ข้ามเมื่อวาน (autoContinuesToday 0) แต่มีงานสำเร็จหลังจากนั้น → continue", P({ lastAutoContinueAt: new Date(2026, 9, 2, 20, 0), lastSuccessAt: t(9) }), "continue");
-    check("isAutoContinueFailure ตรงกับนโยบาย", [L.isAutoContinueFailure("flow_error", "wait-render", 3), L.isAutoContinueFailure("flow_error", "wait-render", 4), L.isAutoContinueFailure("captcha", "wait-results", 1)], [true, false, false]);
+    // ตัวนับเดียว: แถวจอด (auto_continue + network_skip) ที่ใหม่กว่า round_ok ล่าสุด
+    check("จอดแล้ว 1 งานหลังรอบสำเร็จ → งานที่ 2 ยังจอดได้", P({ recentParksAt: [t(10)] }), "continue");
+    check("จอดแล้ว 2 งานหลังรอบสำเร็จ → งานที่ 3 = pause_streak", P({ recentParksAt: [t(11), t(10)] }), "pause_streak");
+    check("จอด 2 งานก่อนรอบสำเร็จ → นับใหม่ → continue", P({ recentParksAt: [t(8), t(7)] }), "continue");
+    check("หลัง 1 ก่อน 1 → continue", P({ recentParksAt: [t(10), t(8)] }), "continue");
+    check("เวลาเท่ากับรอบสำเร็จเป๊ะไม่นับ → continue", P({ recentParksAt: [t(9), t(9)] }), "continue");
+    check("ยังไม่เคยสำเร็จ + จอดแล้ว 1 → continue", P({ lastSuccessAt: null, recentParksAt: [t(1)] }), "continue");
+    check("ยังไม่เคยสำเร็จ + จอดแล้ว 2 → pause_streak", P({ lastSuccessAt: null, recentParksAt: [t(2), t(1)] }), "pause_streak");
+    check("รวมชนิด: Flow วาดไม่สำเร็จหลังข้ามเพราะเน็ต 2 งาน → pause_streak (เดิมข้ามได้ 3 งานติดกันถ้าพังสลับชนิด)",
+      P({ recentParksAt: [t(11), t(10)] }), "pause_streak");
+    check("generation_timeout งานที่ 3 ติดกัน → pause_streak", P({ kind: "generation_timeout", recentParksAt: [t(11), t(10)] }), "pause_streak");
+    // เพดานรายวัน autoContinueDailyCap (ค่าในไฟล์ 999) — ใช้กับการจอดทุกชนิดยกเว้นเน็ต · 0 = ปิดการจอด (หยุดคิวทุกครั้งเหมือนก่อนมีฟีเจอร์)
+    check("cap 0 → pause (ไม่ใช่ pause_streak — ไม่ลองเอง)", P({ cap: 0 }), "pause");
+    check("cap 1 ใช้แล้ว 1 → pause", P({ cap: 1, autoContinuesToday: 1 }), "pause");
+    check("cap 2 ใช้แล้ว 1 → continue", P({ cap: 2, autoContinuesToday: 1 }), "continue");
+    check("cap 0 กับ generation_timeout → pause", P({ kind: "generation_timeout", cap: 0 }), "pause");
+    check("isAutoContinueFailure ยังหมายถึง flow_error ที่ wait-* นอกรอบ 4",
+      [L.isAutoContinueFailure("flow_error", "wait-render", 3), L.isAutoContinueFailure("flow_error", "wait-render", 4), L.isAutoContinueFailure("captcha", "wait-results", 1)], [true, false, false]);
     const failedJob = { status: "failed", round: 1, errorKind: "flow_error", failedStep: "wait-results", errorMessage: "Flow: failed to generate" };
     check("botMovedOnNote: failed + คิวไม่หยุด → มีหมายเหตุ", typeof L.botMovedOnNote(failedJob, false), "string");
     check("botMovedOnNote: คิวหยุดอยู่ → ไม่มี", L.botMovedOnNote(failedJob, true), null);
-    check("botMovedOnNote: kind อื่น → ไม่มี", L.botMovedOnNote({ ...failedJob, errorKind: "selector_drift" }, false), null);
+    check("botMovedOnNote: kind ที่จอดไม่ได้ → ไม่มี", L.botMovedOnNote({ ...failedJob, errorKind: "selector_drift" }, false), null);
     check("botMovedOnNote: งานไม่ failed → ไม่มี", L.botMovedOnNote({ ...failedJob, status: "queued_r1" }, false), null);
+    check("botMovedOnNote: generation_timeout → รอนานเกิน + บอทข้ามไปแล้ว",
+      L.botMovedOnNote({ ...failedJob, errorKind: "generation_timeout" }, false), "Flow ใช้เวลานานเกินกำหนด — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง");
+    check("botMovedOnNote: จำนวนรูปแนบไม่ตรง → บอทข้ามไปแล้ว",
+      L.botMovedOnNote({ ...failedJob, round: 3, errorKind: "selector_drift", failedStep: "attach-reference", errorMessage: attachMsg }, false),
+      "แนบรูปอ้างอิงได้ไม่ตรงจำนวน (ยังไม่ได้กดสร้าง ไม่เสียเครดิต) — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง");
+    check("botMovedOnNote: โหลดคลิปตัวอย่างไม่ได้ → บอทข้ามไปแล้ว",
+      L.botMovedOnNote({ ...failedJob, round: 3, errorKind: "download_failed", failedStep: "download-preview", errorMessage: "x" }, false),
+      "โหลดคลิปตัวอย่างไม่ได้ — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง");
   }
 
-  // ---------- failurePolicy: เน็ตสะดุดตอนเปิด Flow (2026-10-05) — ข้ามได้ ไม่เกิน 2 ครั้งติดกันโดยไม่มีรอบสำเร็จคั่น ----------
+  // ---------- failurePolicy: เน็ตสะดุดตอนเปิด Flow (2026-10-05) — continue_network · นับรวมในตัวนับเดียวกับการจอดอื่น ----------
   {
     const t = (h) => new Date(2026, 9, 5, h, 0);
     // ข้อความจริงของเหตุการณ์ 2026-10-05 07:02Z (step() ห่อ error ของ page.goto เป็น worker_crash ที่ open-flow)
     const incident = "page.goto: net::ERR_NETWORK_CHANGED at https://labs.google/fx/tools/flow/project/abc\nCall log:\n  - navigating to \"https://labs.google/fx/tools/flow/project/abc\", waiting until \"domcontentloaded\"";
-    const net = { kind: "worker_crash", step: "open-flow", round: 3, message: incident, autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: t(6), cap: 2, recentNetworkSkipsAt: [] };
+    const net = { kind: "worker_crash", step: "open-flow", round: 3, message: incident, autoContinuesToday: 0, lastSuccessAt: t(6), cap: 999, recentParksAt: [] };
     const N = (o) => L.failurePolicy({ ...net, ...o });
     check("เน็ตสะดุด open-flow รอบ 3 (เคสจริง) → continue_network", N({}), "continue_network");
-    check("ครั้งที่ 2 ติดกัน (ข้ามเพราะเน็ตแล้ว 1 ครั้งหลังรอบสำเร็จ) → continue_network", N({ recentNetworkSkipsAt: [t(7)] }), "continue_network");
-    check("ครั้งที่ 3 ติดกัน (ข้ามเพราะเน็ตแล้ว 2 ครั้งหลังรอบสำเร็จ) → pause", N({ recentNetworkSkipsAt: [t(8), t(7)] }), "pause");
-    check("มีรอบสำเร็จคั่น: ข้าม 2 ครั้งก่อนรอบสำเร็จ → นับใหม่ → continue_network", N({ recentNetworkSkipsAt: [t(5), t(4)], lastSuccessAt: t(6) }), "continue_network");
-    check("รอบสำเร็จคั่นกลาง: ข้าม 1 ครั้งหลัง + 1 ครั้งก่อนรอบสำเร็จ → continue_network", N({ recentNetworkSkipsAt: [t(7), t(5)], lastSuccessAt: t(6) }), "continue_network");
-    check("เวลาเท่ากับรอบสำเร็จเป๊ะ ไม่นับเป็นข้ามหลังสำเร็จ → continue_network", N({ recentNetworkSkipsAt: [t(6), t(6)], lastSuccessAt: t(6) }), "continue_network");
+    check("ครั้งที่ 2 ติดกัน → continue_network", N({ recentParksAt: [t(7)] }), "continue_network");
+    check("ครั้งที่ 3 ติดกัน → pause_streak", N({ recentParksAt: [t(8), t(7)] }), "pause_streak");
+    check("มีรอบสำเร็จคั่น → นับใหม่ → continue_network", N({ recentParksAt: [t(5), t(4)], lastSuccessAt: t(6) }), "continue_network");
     check("ยังไม่เคยมีรอบสำเร็จ + ไม่เคยข้าม → continue_network", N({ lastSuccessAt: null }), "continue_network");
-    check("ยังไม่เคยมีรอบสำเร็จ + ข้ามเพราะเน็ตแล้ว 2 ครั้ง → pause", N({ lastSuccessAt: null, recentNetworkSkipsAt: [t(2), t(1)] }), "pause");
-    // กฎแยกจากการข้ามแบบ Flow วาดไม่สำเร็จ: ไม่ดูเพดาน cap และไม่ดูการข้าม flow_error ล่าสุด
+    check("ยังไม่เคยมีรอบสำเร็จ + จอดแล้ว 2 ครั้ง → pause_streak", N({ lastSuccessAt: null, recentParksAt: [t(2), t(1)] }), "pause_streak");
     check("ไม่นับเพดาน: cap 0 → ยัง continue_network", N({ cap: 0 }), "continue_network");
-    check("ไม่นับเพดาน: ข้าม flow_error ครบ cap วันนี้แล้ว → ยัง continue_network", N({ autoContinuesToday: 2 }), "continue_network");
-    check("ไม่ดูการข้าม flow_error ที่ใหม่กว่ารอบสำเร็จ → ยัง continue_network", N({ autoContinuesToday: 1, lastAutoContinueAt: t(7) }), "continue_network");
-    check("การข้ามเพราะเน็ตไม่กระทบกฎ flow_error: Flow วาดไม่สำเร็จหลังข้ามเพราะเน็ต 2 ครั้ง → continue",
-      N({ kind: "flow_error", step: "wait-results", message: "Flow: failed to generate", recentNetworkSkipsAt: [t(8), t(7)] }), "continue");
-    // ทุกอย่างอื่นหยุดเหมือนเดิม
+    check("ไม่นับเพดาน: จอดแบบอื่นครบ cap วันนี้แล้ว → ยัง continue_network", N({ cap: 2, autoContinuesToday: 2 }), "continue_network");
     for (const kind of ["captcha", "login_required", "selector_drift", "generation_timeout", "flow_error", "download_failed", "host_unsupported", ""]) {
       check(`kind ${kind || "(ว่าง)"} ที่ open-flow (ข้อความมี net::) → pause`, N({ kind }), "pause");
     }
@@ -435,7 +475,6 @@ try {
     }
     check("รอบ 4 เน็ตสะดุด open-flow → pause (ของเดิม — roundFailed จบด้วย 720p เองถ้ามีคลิป)", N({ round: 4 }), "pause");
     for (const round of [1, 2]) check(`รอบ ${round} เน็ตสะดุด open-flow → continue_network`, N({ round }), "continue_network");
-    // ข้อความ: ใช้รายการรหัสเดียวกับตัวลองซ้ำ (lib/flow-network.ts)
     const gotoErr = (code) => `page.goto: net::${code} at https://labs.google/fx/tools/flow\nCall log:`;
     for (const code of ["ERR_NETWORK_CHANGED", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED", "ERR_NETWORK_IO_SUSPENDED", "ERR_CONNECTION_RESET", "ERR_CONNECTION_CLOSED", "ERR_CONNECTION_TIMED_OUT", "ERR_CONNECTION_REFUSED", "ERR_ADDRESS_UNREACHABLE",
       "ERR_TIMED_OUT", "ERR_EMPTY_RESPONSE", "ERR_SOCKET_NOT_CONNECTED"]) {
@@ -459,11 +498,10 @@ try {
     ]) {
       check(`worker_crash open-flow ข้อความ ${label} → pause`, N({ message }), "pause");
     }
-    // หมายเหตุใต้งานที่พังในหน้า /flow — ตัดสินจากช่องที่เก็บไว้ (errorKind/failedStep/round/errorMessage) ด้วยกฎเดียวกับบอท
     const netJob = { status: "failed", round: 3, errorKind: "worker_crash", failedStep: "open-flow", errorMessage: incident };
     check("botMovedOnNote: เน็ตสะดุดตอนเปิด Flow + คิวไม่หยุด → หมายเหตุเน็ตสะดุด",
       L.botMovedOnNote(netJob, false), "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่");
-    check("botMovedOnNote: เน็ตสะดุด แต่คิวหยุดอยู่ (ครั้งที่ 3 ติดกัน) → ไม่มี", L.botMovedOnNote(netJob, true), null);
+    check("botMovedOnNote: เน็ตสะดุด แต่คิวหยุดอยู่ → ไม่มี", L.botMovedOnNote(netJob, true), null);
     check("botMovedOnNote: worker_crash open-flow ที่ไม่ใช่เน็ต → ไม่มี", L.botMovedOnNote({ ...netJob, errorMessage: "งานนี้ไม่มีรูปแคปต้นทาง" }, false), null);
     check("botMovedOnNote: เน็ตสะดุดรอบ 4 → ไม่มี", L.botMovedOnNote({ ...netJob, round: 4 }, false), null);
     check("botMovedOnNote: Flow วาดไม่สำเร็จยังได้ข้อความเดิม",
@@ -480,7 +518,6 @@ try {
         L.isNetworkSkipFailure("worker_crash", "ensure-project", 1, incident), L.isNetworkSkipFailure("worker_crash", "open-flow", 1, "งานนี้ไม่มีรูปแคปต้นทาง")],
       [true, false, false, false]);
   }
-
   // ---------- "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" — ปลดการหยุดโดยไม่แตะงานที่พัง ----------
   // ปลดได้เฉพาะเหตุที่ไม่ใช่สัญญาณบอท/session: worker_crash + generation_timeout · อย่างอื่นต้องรอ/รันต่อตามเดิม
   check("canUnpauseQueueOnly: worker_crash / generation_timeout ได้",

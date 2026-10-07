@@ -20,6 +20,7 @@ import { hasSignInButton } from "./browser";
 import { logActivity } from "./activity";
 import { isBrowserErrorPage, postRenderFailReason, retryTransientNav, stepErrorKind } from "./flow-signals";
 import { isNetworkRetryStep } from "@/lib/flow-network";
+import { attachCountMismatchMessage } from "@/lib/flow-lifecycle";
 import { clipCapture, type ClipCapture } from "./clip-capture";
 import type { ObservedResponse } from "./generation-watch";
 
@@ -514,11 +515,8 @@ export async function withFlowSession<T>(
     if (expectChips) {
       const chips = await page.locator(expectChips.selector).count();
       if (chips !== expectChips.count) {
-        throw new FlowStepError(
-          "attach-reference",
-          "selector_drift",
-          `ช่องพรอมต์มีรูปแนบ ${String(chips)} รูป (ต้อง ${String(expectChips.count)}) — ไม่กดสร้างเพื่อไม่เสียเครดิตกับคลิปผิดรูป`,
-        );
+        // ด่านข้อมูลของงานนั้น (ยังไม่ได้กดสร้าง) — นโยบายจอดงานอ่านข้อความนี้ด้วย isAttachCountMismatch (lib/flow-lifecycle.ts)
+        throw new FlowStepError("attach-reference", "selector_drift", attachCountMismatchMessage(chips, expectChips.count));
       }
     }
     await checkpoint(2, "reference");

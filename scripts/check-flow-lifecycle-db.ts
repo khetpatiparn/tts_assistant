@@ -814,7 +814,7 @@ async function branches() {
     const q = await makePair({ status: FLOW_STATUS.RUNNING_R3, round: 3, attempt: 1 });
     const policy = L.failurePolicy({
       kind: "worker_crash", step: "open-flow", round: 3, message: incident,
-      autoContinuesToday: 0, lastAutoContinueAt: null, lastSuccessAt: null, cap: 2, recentNetworkSkipsAt: [],
+      autoContinuesToday: 0, lastSuccessAt: null, cap: 2, recentParksAt: [],
     });
     check("network: failurePolicy → continue_network", policy === "continue_network", policy);
     await pauseForTest();

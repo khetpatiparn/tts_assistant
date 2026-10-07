@@ -644,16 +644,39 @@ export function finalClipMissing(downloadFailed: string | null, now: Date): Plan
   return { job: { status: FLOW_STATUS.DONE, finishedAt: now, errorMessage: previewOnlyMessage(`โหลด 1080p ไม่ได้: ${downloadFailed ?? ""}`) } };
 }
 
-/** ขั้นที่ Flow เองรายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (การ์ด "failed to generate" ไม่เสียเครดิต) — ขั้นเดียวที่ข้ามไปงานถัดไปได้ */
-const AUTO_CONTINUE_STEPS: ReadonlySet<string> = new Set(["wait-results", "wait-render"]);
+/** ขั้นรอผลหลังกดสร้าง — Flow รายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (flow_error) หรือรอนานเกิน (generation_timeout) เกิดที่นี่ */
+const WAIT_STEPS: ReadonlySet<string> = new Set(["wait-results", "wait-render"]);
 
-/** พังแบบที่เข้าข่ายให้บอทข้ามไปงานถัดไป (ก่อนดูเพดาน/กฎติดกัน) — หน้า /flow ใช้ตัดสินข้อความ "บอทข้ามไปแล้ว" ด้วย */
+/** Flow เองรายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (การ์ด "failed to generate" ไม่เสียเครดิต) ที่ wait-* นอกรอบ 4 */
 export function isAutoContinueFailure(kind: string, step: string, round: number): boolean {
-  return kind === "flow_error" && AUTO_CONTINUE_STEPS.has(step) && round !== 4;
+  return kind === "flow_error" && WAIT_STEPS.has(step) && round !== 4;
 }
 
-/** ข้ามเพราะเน็ตติดกันได้กี่ครั้งโดยไม่มีรอบสำเร็จคั่น — เกินนี้ = เน็ตล่มทั้งระบบ ข้ามต่อก็พังทุกงาน → หยุดคิว */
+// ---------------------------------------------------------------------------
+// ด่านจำนวนรูปแนบ (attach-reference) — โปรโตคอลในข้อความ: worker/flow-session.ts เขียนด้วย attachCountMismatchMessage
+// นโยบายอ่านด้วย isAttachCountMismatch (แถวเก่าก่อน 2026-10-07 ใช้ข้อความเดียวกันทุกตัวอักษร จึงอ่านได้ด้วย)
+// ---------------------------------------------------------------------------
+
+const ATTACH_COUNT_PREFIX = "ช่องพรอมต์มีรูปแนบ ";
+
+/** เขียน: แนบรูปแล้วจำนวนชิปในช่องพรอมต์ไม่ตรง — บอทไม่กดสร้าง (ไม่เสียเครดิต) · kind ยังเป็น selector_drift ตามเดิม */
+export function attachCountMismatchMessage(chips: number, expected: number): string {
+  return `${ATTACH_COUNT_PREFIX}${String(chips)} รูป (ต้อง ${String(expected)}) — ไม่กดสร้างเพื่อไม่เสียเครดิตกับคลิปผิดรูป`;
+}
+
+/** อ่าน: ด่านจำนวนรูปแนบของงานนั้น (ไม่ใช่หาปุ่มไม่เจอ — selector_drift จาก locator/waitFor ยังหยุดคิว) */
+export function isAttachCountMismatch(kind: string, step: string, message: string): boolean {
+  return kind === "selector_drift" && step === "attach-reference" && message.startsWith(ATTACH_COUNT_PREFIX);
+}
+
+/** ข้ามเพราะเน็ตติดกันได้กี่ครั้ง — เท่ากับ PARK_MAX_CONSECUTIVE (คงชื่อเดิมไว้ให้ผู้อ่านเอกสารเก่า) */
 export const NETWORK_SKIP_MAX_CONSECUTIVE = 2;
+
+/**
+ * จอดงาน (งานเป็น failed ทิ้งไว้ บอททำงานถัดไป) ได้ติดกันกี่งานโดยไม่มี round_ok คั่น — นับรวมทุกชนิดที่จอดได้ (แถว FlowActivity
+ * auto_continue + network_skip) · งานที่พังถัดจากนี้ = "pause_streak" (สองงานติดกันพัง = น่าจะที่ระบบ ไม่ใช่ที่งาน)
+ */
+export const PARK_MAX_CONSECUTIVE = NETWORK_SKIP_MAX_CONSECUTIVE;
 
 /**
  * เน็ตสะดุดตอนเปิด Flow จนลองซ้ำครบแล้ว (retryTransientNav) — step() ห่อเป็น worker_crash ที่ open-flow · ตัดสินจากข้อความ error
@@ -665,14 +688,43 @@ export function isNetworkSkipFailure(kind: string, step: string, round: number, 
 }
 
 /**
- * นโยบายตอนงานพัง: "continue" = งานเป็น failed แต่บอทไม่หยุดคิว ไปงานถัดไปหลังพักปกติ · "pause" = หยุดทั้งคิว (ของเดิม)
- * ข้ามได้เฉพาะ flow_error ที่ wait-results/wait-render (Flow วาดไม่สำเร็จเอง) ทุกอย่างอื่นหยุดเหมือนเดิม ·
- * เพดาน cap ครั้ง/วัน (0 = ปิดฟีเจอร์) · ห้ามข้ามติดกัน: ถ้าการข้ามล่าสุดใหม่กว่างานที่บอททำสำเร็จล่าสุด (หรือยังไม่เคยสำเร็จเลย)
- * แปลว่าสองสินค้าพังติดกัน = น่าจะเป็นที่ระบบ → หยุดคิว
- *
- * "continue_network" = เน็ตสะดุดตอนเปิด Flow (isNetworkSkipFailure) — กฎแยกของตัวเอง: ไม่นับเพดาน cap ไม่ดูการข้ามแบบ flow_error
- * ข้ามได้ไม่เกิน 2 ครั้งติดกันโดยไม่มีรอบสำเร็จคั่น (ครั้งที่ 3 = เน็ตล่มจริง → หยุดคิว) · recentNetworkSkipsAt = เวลาของการข้าม
- * เพราะเน็ตล่าสุด (อย่างน้อย 2 แถวล่าสุด)
+ * ประโยคสั้นบอกว่าพังแบบ "ปัญหาของงานนั้น" แบบไหน (ใช้ทั้งหมายเหตุใต้งานและ toast) · null = จอดไม่ได้ (ต้องหยุดคิว)
+ * จอดได้เฉพาะนอกรอบ 4 (รอบ 4 มีทางจบด้วย 720p ของตัวเองใน roundFailed):
+ * - เน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow (isNetworkSkipFailure) — ยังไม่ได้ขออะไรจาก Google
+ * - flow_error ที่ wait-* — Flow บอกเองว่าวาดไม่สำเร็จ ไม่เสียเครดิต
+ * - generation_timeout ที่ wait-* — รอผลนานเกิน (เคยผ่านเมื่อกดรันต่อ 3/3 ครั้ง)
+ * - download_failed ที่ download-preview — โหลดคลิปตัวอย่าง (ปกติ capturePreview ไม่ throw — กันไว้)
+ * - จำนวนรูปแนบไม่ตรง (isAttachCountMismatch) — ด่านข้อมูลของงานนั้น ยังไม่ได้กดสร้าง
+ * ไม่มีทาง: captcha / login_required / host_unsupported / selector_drift จากหาปุ่มไม่เจอ / worker_crash อื่น / download-4
+ */
+function parkText(kind: string, step: string, round: number, message: string): string | null {
+  if (round === 4) return null;
+  if (isNetworkSkipFailure(kind, step, round, message)) return "เน็ตสะดุดตอนเปิด Flow";
+  if (isAutoContinueFailure(kind, step, round)) return "Flow วาดไม่สำเร็จ";
+  if (kind === "generation_timeout" && WAIT_STEPS.has(step)) return "Flow ใช้เวลานานเกินกำหนด";
+  if (kind === "download_failed" && step === "download-preview") return "โหลดคลิปตัวอย่างไม่ได้";
+  if (isAttachCountMismatch(kind, step, message)) return "แนบรูปอ้างอิงได้ไม่ตรงจำนวน (ยังไม่ได้กดสร้าง ไม่เสียเครดิต)";
+  return null;
+}
+
+/** พังแบบที่จอดงานแล้วไปงานถัดไปได้ (ก่อนดูเพดาน/ตัวนับติดกัน) */
+export function isParkableFailure(kind: string, step: string, round: number, message: string): boolean {
+  return parkText(kind, step, round, message) !== null;
+}
+
+/** toast ตอนบอทจอดงาน — "ข้าม <สินค้า> ไปก่อน — <ประโยคนี้>" */
+export function parkedFailureText(kind: string, step: string, round: number, message: string): string {
+  return parkText(kind, step, round, message) ?? (ERROR_KIND_LABELS[kind] ?? kind);
+}
+
+/**
+ * นโยบายตอนงานพัง:
+ * - "continue" = จอดงาน (failed หลักฐานครบ "รันต่อ" ได้) แล้วไปงานถัดไปหลังพักปกติ — ลงแถว auto_continue
+ * - "continue_network" = เหมือน continue แต่เป็นเน็ตสะดุดตอนเปิด Flow — ลงแถว network_skip ไม่นับเพดานรูป/คลิป
+ * - "pause_streak" = จอดได้ แต่จอดติดกันครบ PARK_MAX_CONSECUTIVE แล้วโดยไม่มี round_ok คั่น → หยุดคิว (บอทลองเองตามเวลาได้ — probeWakeAt)
+ * - "pause" = หยุดทั้งคิวรอคน (ชนิดที่จอดไม่ได้ หรือเพดาน cap ของวันเต็ม)
+ * ตัวนับเดียว: recentParksAt = เวลาของแถวจอด (auto_continue + network_skip) ล่าสุด ≥ 2 แถว นับเฉพาะที่ใหม่กว่า lastSuccessAt (round_ok ล่าสุด)
+ * cap = autoContinueDailyCap (ไฟล์ตั้ง 999) ใช้กับการจอดทุกชนิดยกเว้นเน็ต (นับแถว auto_continue ของวันนี้) · 0 = ปิดการจอด
  */
 export function failurePolicy(input: {
   kind: string;
@@ -680,35 +732,35 @@ export function failurePolicy(input: {
   round: number;
   message: string;
   autoContinuesToday: number;
-  lastAutoContinueAt: Date | null;
   lastSuccessAt: Date | null;
   cap: number;
-  recentNetworkSkipsAt: Date[];
-}): "continue" | "continue_network" | "pause" {
-  if (isNetworkSkipFailure(input.kind, input.step, input.round, input.message)) {
-    const success = input.lastSuccessAt;
-    const sinceSuccess = input.recentNetworkSkipsAt.filter((at) => success === null || at.getTime() > success.getTime()).length;
-    return sinceSuccess >= NETWORK_SKIP_MAX_CONSECUTIVE ? "pause" : "continue_network";
-  }
-  if (!isAutoContinueFailure(input.kind, input.step, input.round)) return "pause";
-  if (input.cap <= 0 || input.autoContinuesToday >= input.cap) return "pause";
-  if (input.lastAutoContinueAt !== null) {
-    if (input.lastSuccessAt === null || input.lastAutoContinueAt.getTime() > input.lastSuccessAt.getTime()) return "pause";
-  }
-  return "continue";
+  recentParksAt: Date[];
+}): "continue" | "continue_network" | "pause_streak" | "pause" {
+  const { kind, step, round, message } = input;
+  if (!isParkableFailure(kind, step, round, message)) return "pause";
+  const network = isNetworkSkipFailure(kind, step, round, message);
+  if (!network && (input.cap <= 0 || input.autoContinuesToday >= input.cap)) return "pause";
+  const success = input.lastSuccessAt;
+  const sinceSuccess = input.recentParksAt.filter((at) => success === null || at.getTime() > success.getTime()).length;
+  if (sinceSuccess >= PARK_MAX_CONSECUTIVE) return "pause_streak";
+  return network ? "continue_network" : "continue";
 }
 
-/** ข้อความสั้นใต้งานที่พัง เมื่อบอทข้ามไปทำงานอื่นแล้ว (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
+/** ข้อความสั้นใต้งานที่พัง เมื่อบอทจอดงานไว้แล้วไปทำงานอื่น (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
 export function botMovedOnNote(
   job: { status: string; round: number; errorKind: string; failedStep: string; errorMessage: string },
   queuePaused: boolean,
 ): string | null {
   if (queuePaused || job.status !== FLOW_STATUS.FAILED) return null;
+  const text = parkText(job.errorKind, job.failedStep, job.round, job.errorMessage);
+  if (text === null) return null;
   if (isNetworkSkipFailure(job.errorKind, job.failedStep, job.round, job.errorMessage)) {
     return "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่";
   }
-  if (!isAutoContinueFailure(job.errorKind, job.failedStep, job.round)) return null;
-  return "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง";
+  if (isAutoContinueFailure(job.errorKind, job.failedStep, job.round)) {
+    return "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง";
+  }
+  return `${text} — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง`;
 }
 
 /**

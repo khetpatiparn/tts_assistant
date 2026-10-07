@@ -14,7 +14,7 @@ import {
 import { ensureShortName, linkedShopTitles } from "@/lib/short-name-db";
 import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
-  failurePolicy, previewUnsaved, releaseForShortName, roundFailed, isAutoContinueFailure, isNetworkSkipFailure, staleRender, staleRunning, staleUpscale,
+  failurePolicy, isParkableFailure, parkedFailureText, previewUnsaved, releaseForShortName, roundFailed, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
 import { applyBulk, applyPlan, recoverPauseAtStartup, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
@@ -222,30 +222,27 @@ async function persistAfterRender(
 }
 
 /**
- * พังแล้วข้ามไปงานถัดไปได้ไหม (failurePolicy ใน lib/flow-lifecycle.ts) — ดึงตัวเลขจาก FlowActivity: การข้ามวันนี้ (ตั้งแต่เที่ยงคืนท้องถิ่น),
- * การข้ามล่าสุด, และรอบที่บอททำสำเร็จล่าสุด (kind round_ok) · เน็ตสะดุดตอนเปิด Flow ใช้แถว network_skip 2 แถวล่าสุดแทน (ไม่ขึ้นกับ
- * autoContinueDailyCap) · อ่านไม่ได้ = หยุดคิวเหมือนเดิม (ปลอดภัยไว้ก่อน)
+ * พังแล้วจอดงานไว้ทำงานถัดไปได้ไหม (failurePolicy ใน lib/flow-lifecycle.ts) — ดึงตัวเลขจาก FlowActivity: การจอดวันนี้ (แถว auto_continue
+ * ตั้งแต่เที่ยงคืนท้องถิ่น — เพดาน autoContinueDailyCap ไม่รวมเน็ต), แถวจอดล่าสุด 2 แถว (auto_continue + network_skip — ตัวนับ "ติดกัน"
+ * ตัวเดียว) และรอบที่บอททำสำเร็จล่าสุด (round_ok) · ชนิดที่จอดไม่ได้หยุดทันทีไม่อ่าน DB · อ่านไม่ได้ = หยุดคิว (ปลอดภัยไว้ก่อน)
  */
 async function decideFailurePolicy(
   cfg: WorkerConfig, round: JobRound, step: string, kind: string, message: string,
-): Promise<"continue" | "continue_network" | "pause"> {
-  const network = isNetworkSkipFailure(kind, step, round, message);
-  if (!network && (!isAutoContinueFailure(kind, step, round) || cfg.autoContinueDailyCap <= 0)) return "pause";
+): Promise<"continue" | "continue_network" | "pause_streak" | "pause"> {
+  if (!isParkableFailure(kind, step, round, message)) return "pause";
   try {
     const now = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const [autoContinuesToday, lastAuto, lastOk, netSkips] = await Promise.all([
+    const [autoContinuesToday, lastOk, parks] = await Promise.all([
       prisma.flowActivity.count({ where: { kind: "auto_continue", at: { gte: midnight } } }),
-      prisma.flowActivity.findFirst({ where: { kind: "auto_continue" }, orderBy: { at: "desc" }, select: { at: true } }),
       prisma.flowActivity.findFirst({ where: { kind: "round_ok" }, orderBy: { at: "desc" }, select: { at: true } }),
-      prisma.flowActivity.findMany({ where: { kind: "network_skip" }, orderBy: { at: "desc" }, take: 2, select: { at: true } }),
+      prisma.flowActivity.findMany({ where: { kind: { in: ["auto_continue", "network_skip"] } }, orderBy: { at: "desc" }, take: 2, select: { at: true } }),
     ]);
     return failurePolicy({
       kind, step, round, message, autoContinuesToday,
-      lastAutoContinueAt: lastAuto?.at ?? null,
       lastSuccessAt: lastOk?.at ?? null,
       cap: cfg.autoContinueDailyCap,
-      recentNetworkSkipsAt: netSkips.map((r) => r.at),
+      recentParksAt: parks.map((r) => r.at),
     });
   } catch (e) {
     log(`อ่านสถิติข้ามงานไม่ได้ — หยุดคิวตามเดิม: ${String(e)}`);
@@ -391,11 +388,13 @@ async function processJob(page: Page, job: ClaimedJob, cfg: WorkerConfig, sel: S
       return "skipped_network";
     }
     if (policy === "continue") {
-      // งานเป็น failed เหมือนเดิม (หลักฐาน + "รันต่อ" ใช้ได้) แต่ไม่หยุดคิว · ต้องเขียนแถว auto_continue ก่อนงานถัดไปจะพัง
-      // เพื่อให้เพดาน/กฎ "ห้ามติดกัน" เห็น (logActivity ไม่ await แต่ใช้เวลาไม่กี่ ms เทียบกับพักระหว่างสินค้า 30+ วิ)
-      logActivity({ kind: "auto_continue", jobId: job.id, round, detail: { jobId: job.id, round, step, message: message.slice(0, 300) } });
-      log(`งาน ${job.id} Flow วาดไม่สำเร็จที่ ${step} — ข้ามไปงานถัดไป ไม่หยุดคิว หลักฐาน: ${failureDirAbs}`);
-      notify(`ข้าม ${job.entry.productName} ไปก่อน`, "Flow วาดไม่สำเร็จ · กด 'รันต่อ' ที่งานนั้นในหน้า /flow ได้");
+      // จอดงาน (Flow วาดไม่สำเร็จ / รอนานเกิน / โหลดคลิปตัวอย่างไม่ได้ / จำนวนรูปแนบไม่ตรง): งานเป็น failed เหมือนเดิม (หลักฐาน + "รันต่อ")
+      // แต่ไม่หยุดคิว · ต้องเขียนแถว auto_continue ก่อนงานถัดไปจะพัง เพื่อให้เพดาน/ตัวนับ "จอดติดกัน" เห็น (logActivity ไม่ await แต่ใช้
+      // เวลาไม่กี่ ms เทียบกับพักระหว่างสินค้า 30+ วิ)
+      const why = parkedFailureText(kind, step, round, message);
+      logActivity({ kind: "auto_continue", jobId: job.id, round, detail: { jobId: job.id, round, step, kind, message: message.slice(0, 300) } });
+      log(`งาน ${job.id} ${why} ที่ ${step} (${kind}) — จอดงานไว้ ข้ามไปงานถัดไป ไม่หยุดคิว หลักฐาน: ${failureDirAbs}`);
+      notify(`ข้าม ${job.entry.productName} ไปก่อน`, `${why} · กด 'รันต่อ' ที่งานนั้นในหน้า /flow ได้`);
       return "skipped";
     }
     if (failure.pause === null) {

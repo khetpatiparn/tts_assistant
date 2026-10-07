@@ -605,10 +605,15 @@ try {
   // ตรงนี้ตรวจแค่การต่อสาย: อ่านแถว network_skip + round_ok ส่งเข้า failurePolicy · ทาง "continue_network" ไม่หยุดคิว ลงแถว network_skip
   // · main ยังพักระหว่างสินค้าตามปกติ แต่ไม่นับเพดานรูป/คลิป (ไม่ได้ขออะไรจาก Google)
   const decideFn = fnBody("async function decideFailurePolicy(");
-  check("decideFailurePolicy อ่าน network_skip ล่าสุด 2 แถว + round_ok ล่าสุด แล้วส่ง message/recentNetworkSkipsAt ให้ failurePolicy",
-    /kind: "network_skip"[^\n]*take: 2/.test(decideFn) && decideFn.includes('kind: "round_ok"') && /failurePolicy\(\{[^]*message[^]*recentNetworkSkipsAt/.test(decideFn), true);
-  check("decideFailurePolicy: เช็ก isNetworkSkipFailure ก่อนทางลัด pause ของ flow_error (cap 0 ไม่ปิดการข้ามเพราะเน็ต)",
-    decideFn.indexOf("isNetworkSkipFailure(") >= 0 && decideFn.indexOf("isNetworkSkipFailure(") < decideFn.indexOf("autoContinueDailyCap <= 0"), true);
+  // ตัวนับ "จอดติดกัน" ตัวเดียว (2026-10-07): แถวจอดล่าสุด 2 แถวของทั้ง auto_continue และ network_skip เทียบกับ round_ok ล่าสุด
+  check("decideFailurePolicy อ่านแถวจอด (auto_continue + network_skip) ล่าสุด 2 แถว + round_ok ล่าสุด แล้วส่ง message/recentParksAt ให้ failurePolicy",
+    /kind: \{ in: \["auto_continue", "network_skip"\] \}[^\n]*take: 2/.test(decideFn) && decideFn.includes('kind: "round_ok"') &&
+      /failurePolicy\(\{[^]*message[^]*recentParksAt/.test(decideFn) && !decideFn.includes("recentNetworkSkipsAt"), true);
+  check("decideFailurePolicy: ชนิดที่จอดไม่ได้ (isParkableFailure เป็นเท็จ) หยุดทันทีโดยไม่อ่าน DB · cap ตัดสินใน failurePolicy (cap 0 ไม่ปิดการข้ามเพราะเน็ต)",
+    decideFn.indexOf("isParkableFailure(") >= 0 && decideFn.indexOf("isParkableFailure(") < decideFn.indexOf("prisma.") && !decideFn.includes("autoContinueDailyCap <= 0"), true);
+  const sessionSrc = readFileSync("worker/flow-session.ts", "utf8");
+  check("ด่านจำนวนรูปแนบเขียนข้อความด้วย attachCountMismatchMessage (lib) — ไม่มีข้อความซ้ำใน worker",
+    sessionSrc.includes("attachCountMismatchMessage(") && !sessionSrc.includes("ช่องพรอมต์มีรูปแนบ"), true);
   const processFn = fnBody("async function processJob(");
   const netAt = processFn.indexOf('policy === "continue_network"');
   const netBranch = netAt < 0 ? "" : processFn.slice(netAt, processFn.indexOf("return", netAt) + 40);
@@ -616,6 +621,11 @@ try {
     /skipPause: policy === "continue" \|\| policy === "continue_network"/.test(processFn), true);
   check("processJob: continue_network ลงแถว network_skip + แจ้งเตือน 'เน็ตสะดุด' แล้ว return \"skipped_network\" (ไม่ pause)",
     netBranch.includes('kind: "network_skip"') && netBranch.includes("เน็ตสะดุด") && netBranch.includes('return "skipped_network"') && !netBranch.includes("pauseWorker("), true);
+  const contAt = processFn.indexOf('policy === "continue")');
+  const contBranch = contAt < 0 ? "" : processFn.slice(contAt, processFn.indexOf("return", contAt) + 30);
+  check("processJob: continue (จอดงาน) ลงแถว auto_continue พร้อม kind + แจ้งเตือนด้วย parkedFailureText แล้ว return \"skipped\" (ไม่ pause)",
+    contBranch.includes('kind: "auto_continue"') && /detail: \{[^}]*kind[^}]*\}/.test(contBranch) && contBranch.includes("parkedFailureText(") &&
+      contBranch.includes('return "skipped"') && !contBranch.includes("pauseWorker("), true);
   check("processJob: continue_network ไม่ลงแถว auto_continue (ไม่กินเพดาน/กฎห้ามข้ามติดกันของ Flow วาดไม่สำเร็จ)", netBranch.includes('kind: "auto_continue"'), false);
   check("main: skipped_network ไม่นับเพดานรูป/คลิป แต่ยังพักระหว่างสินค้า (why: between)",
     /ok !== "skipped_network"/.test(loop) && loop.indexOf('ok !== "skipped_network"') < loop.indexOf("todayBatches: { increment") && loop.includes('why: "between"'), true);
