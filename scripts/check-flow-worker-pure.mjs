@@ -619,6 +619,20 @@ try {
   check("processJob: continue_network ไม่ลงแถว auto_continue (ไม่กินเพดาน/กฎห้ามข้ามติดกันของ Flow วาดไม่สำเร็จ)", netBranch.includes('kind: "auto_continue"'), false);
   check("main: skipped_network ไม่นับเพดานรูป/คลิป แต่ยังพักระหว่างสินค้า (why: between)",
     /ok !== "skipped_network"/.test(loop) && loop.indexOf('ok !== "skipped_network"') < loop.indexOf("todayBatches: { increment") && loop.includes('why: "between"'), true);
+
+  // เปิดบอทใหม่แล้วกู้การหยุดเพราะเน็ตสะดุด/โหลดหน้าไม่ทันเอง (2026-10-07) — ตัดสินใน lib (startupRecoverCause · DB: recoverPauseAtStartup ตรวจใน
+  // check-flow-lifecycle-db.ts) ตรงนี้ตรวจการต่อสาย: หลังเช็ก login (session ใช้ได้) ก่อนลูปหลัก · ลงแถว auto_recover + log · ไม่เขียนงานเอง
+  const sessionAt = loop.indexOf("hasSignInButton(page)");
+  const recoverAt = loop.indexOf("await recoverPauseAtStartup()");
+  check("main: เรียก recoverPauseAtStartup หลังเช็กว่า session ใช้ได้ (hasSignInButton) และก่อนลูปหลัก · ไม่เรียกตอนหยุดเพราะ login",
+    sessionAt >= 0 && recoverAt > sessionAt && recoverAt < loop.indexOf("while (!stopRequested())") &&
+      /pausedReason === "login_required" \? null : await recoverPauseAtStartup\(\)/.test(loop), true);
+  const branchAt = loop.indexOf("} else if (recovered !== null) {");
+  const recoverBranch = branchAt < 0 ? "" : loop.slice(branchAt, loop.indexOf("} else if", branchAt + 5));
+  check("main: กู้ได้ → ลงแถว auto_recover (jobId/round/pausedReason/step/message) + log บรรทัดใน flow-worker.log",
+    recoverBranch.includes('kind: "auto_recover"') && /pausedReason: recovered\.pausedReason/.test(recoverBranch) && recoverBranch.includes("log(`"), true);
+  check("main: ทางกู้ไม่ปลดการหยุดเอง/ไม่เขียนงานเอง (ทำใน recoverPauseAtStartup)",
+    recoverBranch !== "" && !/unpauseWorker\(|applyPlan\(|applyBulk\(/.test(recoverBranch), true);
 }
 
 // ticket 05 (เปลี่ยนรูปต้นทาง): งานมีแถว source ได้หลายแถว — รอบ 1 ต้องแนบรูปต้นทางล่าสุด (attempt สูงสุด, index ต่ำสุดใน attempt นั้น)

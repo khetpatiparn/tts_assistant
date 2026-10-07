@@ -528,6 +528,48 @@ try {
     check("pauseCauseJob: ขอบหน้าต่างเวลา — PAUSE_CAUSE_WINDOW_MS พอดีนับ · เกินไม่นับ",
       `${C("worker_crash", pausedAt, [fj("in", ago(L.PAUSE_CAUSE_WINDOW_MS / 1000))])}|${C("worker_crash", pausedAt, [fj("out", ago(L.PAUSE_CAUSE_WINDOW_MS / 1000 + 1))])}`, "in|null");
 
+    // ---------- เปิดบอทใหม่แล้วการหยุดเพราะเน็ตสะดุด/โหลดหน้าไม่ทันหายเอง (startupRecoverCause) ----------
+    // เคสจริง 2026-10-06: งาน "ผ้าห่มลายนูน" พังที่ open-flow ด้วย page.goto timeout แต่โค้ดเก่าตีเป็น selector_drift → หยุดทั้งคิว
+    // แล้วเปิดบอทใหม่กี่ครั้งก็ไม่หาย (ปุ่ม "ให้บอททำงานอื่นต่อ" ไม่ขึ้นกับ selector_drift)
+    {
+      const stuckMsg = "timeout: page.goto: Timeout 45000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"https://flow.google.com/project/fa1c?hl=en\", waiting until \"domcontentloaded\"\u001b[22m\n";
+      const stuckPausedAt = new Date("2026-10-06T11:54:55.456Z");
+      const sj = (id, o = {}) => ({ id, status: "failed", round: 3, errorKind: "selector_drift", failedStep: "open-flow", errorMessage: stuckMsg,
+        updatedAt: new Date("2026-10-06T11:54:55.454Z"), startedAt: new Date("2026-10-06T11:53:58.156Z"), ...o });
+      const R = (reason, jobs, parked = [], at = stuckPausedAt) => L.startupRecoverCause({ pausedReason: reason, pausedAt: at }, jobs, new Set(parked))?.id ?? null;
+      check("startupRecoverCause: เคสจริง selector_drift + page.goto timeout ที่ open-flow รอบ 3 → กู้งานนั้น", R("selector_drift", [sj("stuck")]), "stuck");
+      check("startupRecoverCause: worker_crash + net::ERR_NETWORK_CHANGED ที่ open-flow → กู้",
+        R("worker_crash", [sj("net", { errorKind: "worker_crash", errorMessage: netMsg })]), "net");
+      for (const round of [1, 2]) check(`startupRecoverCause: รอบ ${round} ก็กู้`, R("selector_drift", [sj("r", { round })]), "r");
+      check("startupRecoverCause: รอบ 4 (goto ของ 1080p) → ไม่แตะ", R("selector_drift", [sj("r4", { round: 4 })]), null);
+      for (const reason of ["captcha", "login_required", "host_unsupported", "generation_timeout", "flow_error", "download_failed", ""]) {
+        check(`startupRecoverCause: เหตุหยุด ${reason || "(ไม่ได้หยุด)"} → ไม่แตะ`, R(reason, [sj("x", { errorKind: reason })]), null);
+      }
+      check("startupRecoverCause: selector_drift ที่ขั้นอื่น (หาปุ่มไม่เจอ = หน้าเปลี่ยนจริง) → ไม่แตะ",
+        R("selector_drift", [sj("a", { failedStep: "attach-reference", errorMessage: "locator.waitFor: Timeout 8000ms exceeded." })]), null);
+      check("startupRecoverCause: selector_drift ที่ open-flow แต่ timeout ของ locator (ไม่ใช่ page.goto) → ไม่แตะ",
+        R("selector_drift", [sj("l", { errorMessage: "locator.waitFor: Timeout 8000ms exceeded." })]), null);
+      check("startupRecoverCause: worker_crash ที่ open-flow แต่ไม่ใช่เน็ต (ไม่มีรูปแคป) → ไม่แตะ",
+        R("worker_crash", [sj("n", { errorKind: "worker_crash", errorMessage: "งานนี้ไม่มีรูปแคปต้นทาง" })]), null);
+      check("startupRecoverCause: ต้นเหตุจริง (ใกล้ pausedAt) ไม่ใช่เน็ต แม้มีงานเน็ตพังเก่ากว่า → ไม่แตะ",
+        R("worker_crash", [
+          sj("old-net", { errorKind: "worker_crash", errorMessage: netMsg, updatedAt: new Date(stuckPausedAt.getTime() - 3_600_000), startedAt: new Date(stuckPausedAt.getTime() - 3_700_000) }),
+          sj("crash", { errorKind: "worker_crash", failedStep: "unknown", errorMessage: "worker ตายกลางคันในรอบก่อน", updatedAt: new Date(stuckPausedAt.getTime() - 1000), startedAt: new Date(stuckPausedAt.getTime() - 60_000) }),
+        ]), null);
+      // ทางสำรองของแถวเก่า: การหยุดถูกตั้งหลังงานพังเกิน PAUSE_CAUSE_WINDOW_MS → งานล่าสุดที่บอทเริ่มก่อนหยุด (ถ้าพังด้วยเหตุเดียวกัน)
+      const late = new Date(stuckPausedAt.getTime() + 5 * 60_000);
+      check("startupRecoverCause: หยุดหลังงานพัง 5 นาที (แถวเก่า) → ใช้งานล่าสุดที่บอทเริ่ม → กู้", R("selector_drift", [sj("stuck")], [], late), "stuck");
+      check("startupRecoverCause: ทางสำรอง — งานที่บอทข้ามไปแล้ว (network_skip) ไม่ใช่ต้นเหตุ → ไม่แตะ",
+        R("worker_crash", [sj("parked", { errorKind: "worker_crash", errorMessage: netMsg })], ["parked"], late), null);
+      check("startupRecoverCause: ทางสำรอง — บอทเริ่มงานอื่นหลังงานนี้แล้ว (ไม่ใช่งานสุดท้ายก่อนหยุด) → ไม่แตะ",
+        R("selector_drift", [sj("stuck"), sj("later", { status: "review_r1", errorKind: "", failedStep: "", errorMessage: "", startedAt: new Date(stuckPausedAt.getTime() + 60_000), updatedAt: new Date(stuckPausedAt.getTime() + 120_000) })], [], late), null);
+      check("startupRecoverCause: ทางสำรอง — errorKind ไม่ตรงเหตุหยุด → ไม่แตะ",
+        R("worker_crash", [sj("stuck")], [], late), null);
+      check("startupRecoverCause: ไม่มีงานพังเลย → null", R("selector_drift", []), null);
+      check("startupRecoverPlan: แผน = รันต่อ (queued รอบเดิม ล้างร่องรอยพัง ปลดการหยุด)",
+        L.startupRecoverPlan(sj("stuck")), L.resume(sj("stuck")));
+    }
+
     // ปุ่มบนแถบหยุด: ข้อความ "ปล่อยงานพังไว้" ต้องมีงานพังจริง · ไม่มีงานพัง = ปุ่มธรรมดา (action เดียวกัน) · เหตุที่ห้ามปลด = ไม่มีปุ่ม
     check("unpauseQueueButtonLabel: ปลดได้ + มีงานพัง → ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)",
       L.unpauseQueueButtonLabel("worker_crash", 2), "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)");

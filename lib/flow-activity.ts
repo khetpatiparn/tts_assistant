@@ -21,6 +21,11 @@ export const ACTIVITY_KINDS = [
    * จาก Google · แยกจาก auto_continue: ไม่นับเพดาน autoContinueDailyCap · กฎของมันเอง = ไม่เกิน 2 แถวติดกันหลัง round_ok ล่าสุด
    */
   "network_skip",
+  /**
+   * เปิดบอทใหม่แล้วคิวหยุดค้างเพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow → บอทคืนงานต้นเหตุเข้าคิว + ปลดการหยุดเอง (recoverPauseAtStartup)
+   * (detail: jobId/round/pausedReason/step/message) — ไม่ใช่คำขอถึง Flow ไม่นับใน "ยิง Flow วันนี้"
+   */
+  "auto_recover",
   /** บอททำรอบสำเร็จ (รูปพร้อม/คลิปพร้อม/โหลด 1080p) — จุดอ้างอิงของกฎ "ห้ามข้ามติดกัน" ไม่ใช่คำขอถึง Flow */
   "round_ok",
   /** เปิดบอท — detail เก็บค่าจังหวะที่ใช้ตอนนั้น */

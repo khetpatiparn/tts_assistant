@@ -6,7 +6,8 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { FINAL_VIDEO_FILENAME, WORKER_STATE_ID } from "@/lib/flow-jobs";
-import { UNPAUSE_QUEUE_ONLY_REASONS, canRerenderWithPrompt, promptSaveGate, redo, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
+import {
+  UNPAUSE_QUEUE_ONLY_REASONS, canRerenderWithPrompt, promptSaveGate, redo, startupRecoverCause, startupRecoverPlan, type BulkPlan, type ImageRow, type JobPatch, type Plan } from "@/lib/flow-lifecycle";
 
 type Db = Prisma.TransactionClient;
 
@@ -70,6 +71,14 @@ export async function applyBulk(bulk: BulkPlan, scope: { id?: string; entryId?: 
  * (ผู้เรียกแปลง 0 เป็นข้อความไทย) · ปลดการหยุดอยู่ในทรานแซกชันเดียวกับการจบงาน
  */
 export async function applyTakeOver(jobId: string, plan: Plan, fromStatus: string): Promise<number> {
+  return applyIfStatus(jobId, plan, fromStatus);
+}
+
+/**
+ * เขียนแผน (แพตช์งาน + ปลดการหยุดถ้าแผนสั่ง) เฉพาะถ้างานยังเป็น fromStatus ตรงตัว ในทรานแซกชันเดียว — 0 แถว = ไม่แตะอะไรเลย
+ * (ไม่ปลดการหยุด) · ใช้กับแผนที่มีแค่ job + unpauseWorker (ทำต่อเอง, บอทกู้การหยุดตอนเปิดใหม่)
+ */
+export async function applyIfStatus(jobId: string, plan: Plan, fromStatus: string): Promise<number> {
   return prisma.$transaction(async (tx) => {
     const res = await tx.flowJob.updateMany({
       where: { id: jobId, status: fromStatus },
@@ -173,6 +182,46 @@ export async function unpauseWorker(db: Db = prisma): Promise<void> {
     create: { id: WORKER_STATE_ID, pausedReason: "", pausedAt: null },
     update: { pausedReason: "", pausedAt: null },
   });
+}
+
+/** แถว FlowActivity ของงานที่บอทข้ามไปแล้วโดยไม่หยุดคิว (จอดงานไว้) — ไม่ใช่ต้นเหตุของการหยุดใดๆ */
+const PARKED_ACTIVITY_KINDS = ["network_skip", "auto_continue"];
+
+/**
+ * งานที่บอทจะคืนเข้าคิวเองตอนเปิดใหม่ (startupRecoverCause) สำหรับสถานะหยุด `worker` — อ่านอย่างเดียว · null = ไม่กู้
+ * อ่านงานพังทั้งหมด + งานล่าสุดที่บอทเริ่มก่อน pausedAt (ทางสำรองของแถวเก่า) + jobId ที่บอทเคยข้ามไป
+ */
+export async function loadStartupRecoverCause(worker: { pausedReason: string; pausedAt: Date | null }, db: Db = prisma) {
+  if (worker.pausedReason === "") return null;
+  const fields = { id: true, status: true, round: true, errorKind: true, failedStep: true, errorMessage: true, updatedAt: true, startedAt: true } as const;
+  const [failed, lastStarted, parked] = await Promise.all([
+    db.flowJob.findMany({ where: { status: "failed" }, select: fields }),
+    db.flowJob.findFirst({
+      where: { startedAt: worker.pausedAt === null ? { not: null } : { lte: worker.pausedAt } },
+      orderBy: { startedAt: "desc" },
+      select: fields,
+    }),
+    db.flowActivity.findMany({ where: { kind: { in: PARKED_ACTIVITY_KINDS } }, select: { jobId: true } }),
+  ]);
+  const jobs = lastStarted === null || failed.some((j) => j.id === lastStarted.id) ? failed : [...failed, lastStarted];
+  return startupRecoverCause(worker, jobs, new Set(parked.map((r) => r.jobId)));
+}
+
+/**
+ * เปิดบอทใหม่แล้วคิวหยุดค้างเพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow → คืนงานต้นเหตุเข้าคิวรอบเดิม + ปลดการหยุด (แผนเดียวกับ "รันต่อ")
+ * เขียนเฉพาะถ้างานยัง failed (applyIfStatus — ผู้ใช้กดข้าม/รันต่อไปก่อน = ไม่แตะ) · null = ไม่ได้กู้ (ไม่ได้หยุด / เหตุอื่น — การหยุดคงเดิม)
+ * ผู้เรียก (worker) ลง FlowActivity auto_recover + log เอง
+ */
+export async function recoverPauseAtStartup(): Promise<
+  { jobId: string; round: number; pausedReason: string; failedStep: string; errorMessage: string } | null
+> {
+  const state = await prisma.flowWorkerState.findUnique({ where: { id: WORKER_STATE_ID }, select: { pausedReason: true, pausedAt: true } });
+  if (state === null) return null;
+  const cause = await loadStartupRecoverCause(state);
+  if (cause === null) return null;
+  const n = await applyIfStatus(cause.id, startupRecoverPlan(cause), "failed");
+  if (n === 0) return null;
+  return { jobId: cause.id, round: cause.round, pausedReason: state.pausedReason, failedStep: cause.failedStep, errorMessage: cause.errorMessage };
 }
 
 /**

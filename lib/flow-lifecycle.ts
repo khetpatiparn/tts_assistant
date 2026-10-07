@@ -414,6 +414,43 @@ export function pauseCauseJob<T extends { status: string; errorKind: string; upd
   return best;
 }
 
+/** เหตุหยุดที่บอทกู้เองตอนเปิดใหม่ได้ ถ้างานต้นเหตุพังเพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow (startupRecoverCause) */
+const STARTUP_RECOVER_REASONS: readonly string[] = ["selector_drift", "worker_crash"];
+
+/**
+ * เปิดบอทใหม่แล้วคิวหยุดค้างอยู่ — งานที่บอทคืนเข้าคิวเองได้ (แบบ "รันต่อ") · null = ปล่อยการหยุดไว้ตามเดิม
+ * กู้ได้เฉพาะ: เหตุหยุด selector_drift/worker_crash + งานต้นเหตุพังที่ open-flow รอบ 1–3 (isNetworkRetryStep) + ข้อความเป็นเน็ตสะดุด/
+ * page.goto timeout (isTransientNetworkMessage) — ยังไม่ได้ขออะไรจาก Google และไม่ใช่หลักฐานว่าหน้าเปลี่ยน · selector_drift รวมไว้
+ * เพราะแถวเก่า (ก่อน 2026-10-06 21:04) ตี goto timeout เป็น selector_drift — เคสจริงที่ค้าง "เปิดบอทใหม่แล้วยังไม่หาย"
+ * งานต้นเหตุ = pauseCauseJob · ไม่เจอ (แถวเก่าที่หยุดหลังงานพังเกิน PAUSE_CAUSE_WINDOW_MS) = งานล่าสุดที่บอทเริ่มก่อน pausedAt
+ * ถ้างานนั้นยัง failed ด้วยเหตุเดียวกันและไม่ใช่งานที่บอทข้ามไปแล้ว (parkedJobIds = jobId ของแถว network_skip/auto_continue)
+ * — งานพังเก่าที่ผู้ใช้ปล่อยไว้แล้วบอททำงานอื่นต่อจึงไม่ถูกเอามาอ้าง (กันบอทล้มทั้งโปรเซสถูกกู้ผิด)
+ * @param jobs งานพัง + งานที่บอทเริ่มล่าสุด (startedAt) — ส่งทุกงานได้
+ */
+export function startupRecoverCause<
+  T extends { id: string; status: string; round: number; errorKind: string; failedStep: string; errorMessage: string; updatedAt: Date; startedAt: Date | null },
+>(worker: { pausedReason: string; pausedAt: Date | null }, jobs: T[], parkedJobIds: ReadonlySet<string>): T | null {
+  const reason = worker.pausedReason;
+  if (!STARTUP_RECOVER_REASONS.includes(reason)) return null;
+  let cause = pauseCauseJob(worker, jobs);
+  if (cause === null) {
+    const limit = worker.pausedAt?.getTime() ?? Infinity;
+    let last: T | null = null;
+    for (const j of jobs) {
+      if (j.startedAt === null || j.startedAt.getTime() > limit) continue;
+      if (last === null || j.startedAt.getTime() > (last.startedAt as Date).getTime()) last = j;
+    }
+    if (last !== null && last.status === FLOW_STATUS.FAILED && last.errorKind === reason && !parkedJobIds.has(last.id)) cause = last;
+  }
+  if (cause === null) return null;
+  return isNetworkRetryStep(cause.failedStep, cause.round) && isTransientNetworkMessage(cause.errorMessage) ? cause : null;
+}
+
+/** แผนของ startupRecoverCause — ทางเดียวกับ "รันต่อ" (queued รอบเดิม ล้างร่องรอยพัง ปลดการหยุด) · เขียนด้วย applyIfStatus(…, "failed") */
+export function startupRecoverPlan(job: { status: string; round: number }): Plan {
+  return resume(job);
+}
+
 /**
  * ข้อความปุ่ม "ปลดการหยุดอย่างเดียว" (unpauseQueueOnly — action เดียวกันทั้งสองข้อความ) · null = ไม่มีปุ่ม (เหตุที่ห้ามปลดเอง)
  * มีงานพัง → บอกว่างานพังยังค้างอยู่ · ไม่มีงานพัง (หยุดโดยไม่มีงานพัง เช่น บอทล้มระหว่างพัก) → ปุ่มธรรมดา ไม่พูดถึงงานพังที่ไม่มี

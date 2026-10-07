@@ -16,7 +16,7 @@ import {
   claim, claimCrashed, finalClipMissing, finalClipSaved, finalClipUnsaved, imagesReady, loginRecovered, previewReady,
   failurePolicy, previewUnsaved, releaseForShortName, roundFailed, isAutoContinueFailure, isNetworkSkipFailure, staleRender, staleRunning, staleUpscale,
 } from "@/lib/flow-lifecycle";
-import { applyBulk, applyPlan, unpauseWorker } from "@/lib/flow-lifecycle-db";
+import { applyBulk, applyPlan, recoverPauseAtStartup, unpauseWorker } from "@/lib/flow-lifecycle-db";
 import { loadWorkerConfig, type WorkerConfig } from "./config";
 import { hasSignInButton, launchFlowBrowser, openFlowAndSettle } from "./browser";
 import { notify } from "./notify";
@@ -540,10 +540,20 @@ async function main() {
   // (การเปิดบอทใหม่คือการกระทำของคน ไม่ใช่บอท retry เอง) → ปลดการหยุด และคืนงานที่พังเพราะ
   // login_required กลับเข้าคิวรอบเดิม แบบเดียวกับกด "รันต่อ" (resumeFlowWorker ใน app/actions.ts)
   const pausedReason = (await readState())?.pausedReason ?? "";
+  // หยุดค้างเพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow (รวมแถวเก่าที่ goto timeout ถูกตีเป็น selector_drift — เคสจริง 2026-10-06 ที่
+  // "เปิดบอทใหม่แล้วยังไม่หาย") → คืนงานต้นเหตุเข้าคิวรอบเดิม + ปลดการหยุด แบบเดียวกับ "รันต่อ" · เหตุ/ขั้น/ข้อความอื่น = ปล่อยการหยุดไว้ตามเดิม
+  // (ตัดสินใน startupRecoverCause — การเปิดบอทใหม่คือการกระทำของคน และยังไม่ได้ขออะไรจาก Google แบบเดียวกับ loginRecovered)
+  const recovered = pausedReason === "login_required" ? null : await recoverPauseAtStartup();
   if (pausedReason === "login_required") {
     for (const requeue of loginRecovered()) await applyBulk(requeue);
     await unpauseWorker();
     log("session กลับมาใช้ได้แล้ว — ปลดการหยุดและคืนงานที่ค้างเพราะ login เข้าคิว");
+  } else if (recovered !== null) {
+    logActivity({
+      kind: "auto_recover", jobId: recovered.jobId, round: recovered.round,
+      detail: { jobId: recovered.jobId, round: recovered.round, pausedReason: recovered.pausedReason, step: recovered.failedStep, message: recovered.errorMessage.slice(0, 300) },
+    });
+    log(`คิวหยุดค้าง (${recovered.pausedReason}) เพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow — คืนงาน ${recovered.jobId} เข้าคิวรอบ ${recovered.round} และปลดการหยุดเอง`);
   } else if (pausedReason !== "" && (await prisma.flowJob.count({ where: { status: FLOW_STATUS.FAILED } })) === 0) {
     // หยุดค้างอยู่แต่ไม่มีงานที่พังเลย = ทางตันในหน้า /flow (ปุ่ม "รันต่อ"/"ข้าม" อยู่บนงานที่พังเท่านั้น)
     // เช่นรอบก่อนล้มระหว่างเปิดตัว · การเปิดบอทใหม่คือการกู้คืนของคน จึงปลดให้ ส่วนการหยุดที่มีงานพัง

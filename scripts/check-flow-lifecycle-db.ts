@@ -1078,6 +1078,80 @@ async function queueOnlyUnpauses() {
 }
 
 /**
+ * เปิดบอทใหม่แล้วกู้การหยุดเพราะเน็ตสะดุด/โหลดหน้าไม่ทันเอง (recoverPauseAtStartup) — เคสจริง 2026-10-06: selector_drift + page.goto
+ * timeout ที่ open-flow รอบ 3 ค้างข้ามการเปิดบอทใหม่ · savedState = FlowWorkerState ของสำเนาก่อนสคริปต์แตะ (ถ้าสำเนายังค้างอยู่ ตรวจกับแถวจริงด้วย)
+ */
+async function startupRecovers(savedState: { pausedReason: string; pausedAt: Date | null } | null) {
+  console.log("\n== เปิดบอทใหม่: กู้การหยุดเพราะเน็ตสะดุด/โหลดหน้าไม่ทันเอง ==");
+  const stuckMsg = "timeout: page.goto: Timeout 45000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"https://flow.google.com/project/x?hl=en\", waiting until \"domcontentloaded\"\u001b[22m\n";
+  if (savedState !== null && savedState.pausedReason !== "") {
+    const real = await db.loadStartupRecoverCause(savedState);
+    console.log(`info สำเนา DB หยุดอยู่ (${savedState.pausedReason}) → บอทจะกู้งาน: ${real === null ? "ไม่กู้ (ปล่อยการหยุดไว้)" : `${real.id} ${real.failedStep} "${real.errorMessage.slice(0, 50)}"`}`);
+  }
+  /** ปลูกสถานะค้างแบบเคสจริง: งาน running ถูก applyPlan(roundFailed) แล้วหยุดคิวทันที (pausedAt ห่างไม่กี่ ms) */
+  const seed = async (o: { round: JobRound; kind: string; step: string; message: string; pausedLater?: number }) => {
+    const p = await makePair({ status: runningStatus(o.round), round: o.round, attempt: 1, startedAt: new Date() });
+    const f = L.roundFailed({ round: o.round, hasVideoRow: false, step: o.step, kind: o.kind, message: o.message, failureDir: "uploads/_flow-failures/x", now: new Date() });
+    await db.applyPlan(p.b, f.plan);
+    const job = await prisma.flowJob.findUniqueOrThrow({ where: { id: p.b } });
+    const pausedAt = new Date(job.updatedAt.getTime() + (o.pausedLater ?? 2));
+    await prisma.flowWorkerState.upsert({
+      where: { id: WORKER_STATE_ID },
+      create: { id: WORKER_STATE_ID, pausedReason: o.kind, pausedAt },
+      update: { pausedReason: o.kind, pausedAt, nextWakeAt: null },
+    });
+    return p.b;
+  };
+  {
+    const id = await seed({ round: 3, kind: "selector_drift", step: "open-flow", message: stuckMsg });
+    const r = await capture(() => db.recoverPauseAtStartup());
+    const j = await snapJob(id);
+    const w = await snapWorker();
+    check("เคสจริง: selector_drift + page.goto timeout ที่ open-flow รอบ 3 → งานกลับ queued_r3 (ล้างร่องรอยพัง) + ปลดการหยุด · คืนข้อมูลให้ log",
+      r.ok && (r.value as { jobId: string } | null)?.jobId === id && (r.value as { pausedReason: string }).pausedReason === "selector_drift" &&
+        j.status === FLOW_STATUS.QUEUED_R3 && j.round === 3 && j.errorKind === "" && j.failedStep === "" && j.errorMessage === "" && j.failureDir === "" &&
+        w?.pausedReason === "" && w?.pausedAt === null,
+      JSON.stringify({ r, j, w }));
+    const again = await capture(() => db.recoverPauseAtStartup());
+    check("เปิดซ้ำหลังกู้แล้ว (ไม่ได้หยุด) → ไม่ทำอะไร", again.ok && again.value === null, JSON.stringify(again));
+  }
+  {
+    const id = await seed({ round: 1, kind: "worker_crash", step: "open-flow", message: "page.goto: net::ERR_NETWORK_CHANGED at https://flow.google.com/" });
+    const r = await capture(() => db.recoverPauseAtStartup());
+    check("worker_crash + เน็ตสะดุด ที่ open-flow รอบ 1 → queued_r1 + ปลดการหยุด",
+      r.ok && (await snapJob(id)).status === FLOW_STATUS.QUEUED_R1 && (await snapWorker())?.pausedReason === "", JSON.stringify(r));
+  }
+  {
+    const id = await seed({ round: 2, kind: "selector_drift", step: "open-flow", message: stuckMsg, pausedLater: 5 * 60_000 });
+    const r = await capture(() => db.recoverPauseAtStartup());
+    check("แถวเก่า: หยุดหลังงานพัง 5 นาที → ยังกู้ได้ (งานล่าสุดที่บอทเริ่ม)",
+      r.ok && (await snapJob(id)).status === FLOW_STATUS.QUEUED_R2 && (await snapWorker())?.pausedReason === "", JSON.stringify(r));
+  }
+  for (const o of [
+    { label: "selector_drift ที่ attach-reference (หาปุ่มไม่เจอ)", round: 1 as JobRound, kind: "selector_drift", step: "attach-reference", message: "locator.waitFor: Timeout 8000ms exceeded." },
+    { label: "selector_drift ที่ open-flow แต่ timeout ของ locator", round: 3 as JobRound, kind: "selector_drift", step: "open-flow", message: "locator.waitFor: Timeout 8000ms exceeded." },
+    { label: "captcha", round: 1 as JobRound, kind: "captcha", step: "open-flow", message: stuckMsg },
+    { label: "worker_crash ที่ open-flow ไม่ใช่เน็ต", round: 1 as JobRound, kind: "worker_crash", step: "open-flow", message: "งานนี้ไม่มีรูปแคปต้นทาง" },
+    { label: "รอบ 4 goto timeout", round: 4 as JobRound, kind: "selector_drift", step: "open-flow", message: stuckMsg },
+  ]) {
+    const id = await seed(o);
+    const before = JSON.stringify(await snapJob(id));
+    const r = await capture(() => db.recoverPauseAtStartup());
+    const w = await snapWorker();
+    check(`${o.label} → ไม่แตะ: งานยัง failed เหมือนเดิม · การหยุดคงเดิม`,
+      r.ok && r.value === null && before === JSON.stringify(await snapJob(id)) && w?.pausedReason === o.kind, JSON.stringify({ r, w }));
+  }
+  {
+    // แข่งกับผู้ใช้: อ่านได้งานพัง แต่ผู้ใช้กด "ข้าม" ไปก่อนเขียน → applyIfStatus(failed) ได้ 0 แถว ไม่คืนงานที่ถูกข้ามเข้าคิว ไม่ปลดการหยุด
+    const id = await seed({ round: 3, kind: "selector_drift", step: "open-flow", message: stuckMsg });
+    await prisma.flowJob.update({ where: { id }, data: { status: FLOW_STATUS.SKIPPED } });
+    const n = await capture(() => db.applyIfStatus(id, L.startupRecoverPlan({ status: FLOW_STATUS.FAILED, round: 3 }), FLOW_STATUS.FAILED));
+    check("applyIfStatus: สถานะไม่ใช่ failed แล้ว → 0 แถว งานยัง skipped การหยุดคงเดิม",
+      n.ok && n.value === 0 && (await snapJob(id)).status === FLOW_STATUS.SKIPPED && (await snapWorker())?.pausedReason === "selector_drift", JSON.stringify(n));
+  }
+}
+
+/**
  * ทำต่อเอง (takeOver) — สถานะที่เกินขั้นทำคลิปไม่มีของเดิมให้เทียบ จึงเช็กผลที่แถวงาน/FlowWorkerState ตรงๆ
  * (สถานะขั้นทำคลิปเทียบกับ OLD.finishManually แล้วใน branches)
  */
@@ -1660,6 +1734,7 @@ async function main() {
     await sweeps();
     await takeovers();
     await queueOnlyUnpauses();
+    await startupRecovers(savedState);
     await shortNameReleases();
     await promptSaves();
     await changeSources();
