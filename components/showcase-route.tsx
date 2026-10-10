@@ -5,13 +5,16 @@ import Link from "next/link";
 import { ImageOff, Link2 } from "lucide-react";
 
 import {
+  clearRequiredHashtags,
   createEntryFromCandidate,
   importShowcaseFile,
   retryShowcasePhoto,
+  setRequiredHashtags,
   setShowcaseDismissed,
   startShowcaseProduct,
 } from "@/app/actions";
 import { commissionPercent, isCommissionPercentPlausible } from "@/lib/candidates";
+import { suggestHashtags } from "@/lib/required-hashtag";
 import {
   itemsForTab,
   SHOWCASE_STATUS_LABEL,
@@ -46,6 +49,10 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
   const [picking, setPicking] = useState<{ item: ShowcaseItem; retry: boolean } | null>(null);
   const [message, setMessage] = useState<{ text: string; entryId?: string; tone: "ok" | "error" } | null>(null);
   const [pending, startTransition] = useTransition();
+  // ติ๊กเลือกสินค้า (sourceProductId) เพื่อใส่แฮชแท็กที่ต้องลงทีเดียวหลายตัว · เปลี่ยนแท็บ = ล้าง ไม่งั้นจะใส่ให้ตัวที่มองไม่เห็น
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [hashtagText, setHashtagText] = useState("");
+  const suggestions = useMemo(() => suggestHashtags(items.map((i) => i.hashtags)), [items]);
 
   const counts = useMemo(() => {
     const c: Record<ShowcaseStatus, number> = { todo: 0, in_progress: 0, posted: 0, dismissed: 0 };
@@ -114,6 +121,43 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
     });
   }
 
+  function toggle(sourceProductId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(sourceProductId)) next.delete(sourceProductId);
+      else next.add(sourceProductId);
+      return next;
+    });
+  }
+
+  function applyHashtags() {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const { updated } = await setRequiredHashtags([...selected], hashtagText);
+        setMessage({ tone: "ok", text: `ใส่แฮชแท็กที่ต้องลงให้ ${updated} สินค้าแล้ว` });
+        // ล้างทั้งช่องพิมพ์และที่เลือก — ค่าเก่าค้างแล้วไปใช้กับชุดถัดไปโดยไม่ตั้งใจอันตรายกว่ากดเลือกใหม่
+        setHashtagText("");
+        setSelected(new Set());
+      } catch (e) {
+        setMessage({ tone: "error", text: e instanceof Error ? e.message : "ใส่แฮชแท็กไม่สำเร็จ" });
+      }
+    });
+  }
+
+  function removeHashtags() {
+    setMessage(null);
+    startTransition(async () => {
+      try {
+        const { cleared } = await clearRequiredHashtags([...selected]);
+        setMessage({ tone: "ok", text: cleared > 0 ? `ลบแฮชแท็กของ ${cleared} สินค้าแล้ว` : "สินค้าที่เลือกยังไม่มีแฮชแท็กให้ลบ" });
+        setSelected(new Set());
+      } catch (e) {
+        setMessage({ tone: "error", text: e instanceof Error ? e.message : "ลบแฮชแท็กไม่สำเร็จ" });
+      }
+    });
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {/* เชื่อม extension ทำครั้งเดียว — พับไว้ ไม่ให้แย่งที่รายการงาน · เปิดเองถ้ายังไม่มีสินค้าเลย (น่าจะยังไม่ได้เชื่อม) */}
@@ -159,7 +203,10 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
             type="button"
             role="tab"
             aria-selected={tab === t}
-            onClick={() => setTab(t)}
+            onClick={() => {
+              setTab(t);
+              setSelected(new Set());
+            }}
             className={cn(
               "inline-flex h-11 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors lg:h-9",
               tab === t
@@ -202,6 +249,60 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
           {EMPTY_TEXT[tab]}
         </p>
       ) : (
+        <>
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelected(new Set(visible.map((i) => i.sourceProductId)))}
+              disabled={pending}
+            >
+              เลือกทั้งหมดในแท็บนี้
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set())} disabled={pending || selected.size === 0}>
+              ไม่เลือกเลย
+            </Button>
+            <span className="text-sm leading-relaxed text-muted-foreground" role="status">
+              เลือกอยู่ <span className="font-mono">{selected.size}</span> จาก <span className="font-mono">{visible.length}</span>
+            </span>
+          </div>
+          {selected.size > 0 && (
+            <div className="flex flex-col gap-2">
+              <label htmlFor="required-hashtag-input" className="text-sm leading-relaxed font-medium text-foreground">
+                แฮชแท็กที่ต้องลง (หลายอันเว้นวรรคหรือคั่นด้วยจุลภาค)
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  id="required-hashtag-input"
+                  type="text"
+                  value={hashtagText}
+                  onChange={(e) => setHashtagText(e.target.value)}
+                  placeholder="#trendyselected"
+                  autoComplete="off"
+                  className="h-11 min-w-0 flex-1 rounded-lg border border-border-interactive bg-background px-3 text-sm lg:h-9"
+                />
+                <Button type="button" onClick={applyHashtags} disabled={pending || hashtagText.trim() === ""}>
+                  ใส่แฮชแท็ก
+                </Button>
+                <Button type="button" variant="outline" onClick={removeHashtags} disabled={pending}>
+                  ลบแฮชแท็ก
+                </Button>
+              </div>
+              {suggestions.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs leading-relaxed text-muted-foreground">ที่เคยใช้:</span>
+                  {suggestions.map((tag) => (
+                    <Button key={tag} type="button" variant="outline" size="xs" onClick={() => setHashtagText(tag)} disabled={pending}>
+                      {tag}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <ul className="flex flex-col gap-2">
           {visible.map((item) => {
             const pct = commissionPercent(item.price, item.commission);
@@ -211,6 +312,16 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
                 key={item.id}
                 className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-nowrap"
               >
+                <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center lg:size-9">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(item.sourceProductId)}
+                    onChange={() => toggle(item.sourceProductId)}
+                    aria-label={`เลือก ${item.name}`}
+                    className="size-5 accent-primary"
+                  />
+                </label>
+
                 {cover ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -237,6 +348,16 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
                     {formatThaiDate(item.firstSeen)}
                     {item.images.length > 0 && ` · รูป ${item.images.length}`}
                   </p>
+                  {item.hashtags.length > 0 && (
+                    <p className="flex flex-wrap items-center gap-1 text-xs leading-relaxed">
+                      <span className="text-muted-foreground">แฮชแท็กที่ต้องลง</span>
+                      {item.hashtags.map((tag) => (
+                        <span key={tag} className="rounded-md bg-surface-2 px-2 py-0.5 text-foreground">
+                          {tag}
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
@@ -299,6 +420,7 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
             );
           })}
         </ul>
+        </>
       )}
 
       {picking && (
