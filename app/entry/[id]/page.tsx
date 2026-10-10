@@ -1,7 +1,12 @@
 import { notFound } from "next/navigation";
 
 import { getEntryDetail, getEntryRows, getUsedAngles } from "@/lib/entry-queries";
-import { getOpenFlowJobForEntry, getProductIdsByEntry, getRenderVideoForEntry } from "@/lib/flow-queries";
+import {
+  getOpenFlowJobForEntry,
+  getProductIdsByEntry,
+  getRenderVideoForEntry,
+  getRequiredHashtagsByEntry,
+} from "@/lib/flow-queries";
 import { getPhotoLibrary } from "@/lib/photo-library-db";
 import { EntryWorkspace } from "@/components/entry-workspace";
 
@@ -28,6 +33,8 @@ export default async function EntryPage({
 
   if (entry === null) notFound();
 
+  const requiredHashtags = (await getRequiredHashtagsByEntry(productIds)).get(id) ?? [];
+
   const index = rows.findIndex((r) => r.id === id);
 
   // 15 อันแรกตามลำดับของแถบข้าง (ยังไม่ลงคลิปบนสุด แล้วใหม่ไปเก่า) บวกตัวที่เปิดอยู่
@@ -44,6 +51,7 @@ export default async function EntryPage({
       flowJob={flowJob}
       renderVideo={renderVideo}
       productId={productIds.get(id) ?? null}
+      requiredHashtags={requiredHashtags}
       photoLibrary={photoLibrary}
     />
   );

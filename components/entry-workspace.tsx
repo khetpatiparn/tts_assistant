@@ -20,6 +20,7 @@ import type { EntryRenderVideo } from "@/lib/flow-queries";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
 import { ProductIdCopy } from "@/components/product-id-copy";
+import { RequiredHashtagCopy } from "@/components/required-hashtag-copy";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductSpecPanel } from "@/components/product-spec-panel";
@@ -91,6 +92,7 @@ export function EntryWorkspace({
   flowJob,
   renderVideo = null,
   productId = null,
+  requiredHashtags = [],
   photoLibrary = null,
 }: {
   entry: PromptEntry | null;
@@ -101,6 +103,8 @@ export function EntryWorkspace({
   renderVideo?: EntryRenderVideo | null;
   /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = null ไม่แสดง) */
   productId?: string | null;
+  /** แฮชแท็กที่ต้องลงของสินค้าจาก Showcase (ว่าง = ไม่แสดง) */
+  requiredHashtags?: string[];
   /** คลังรูป (รูปจากร้าน + รูปที่ Flow วาด) · หน้า /entry/new ไม่มี */
   photoLibrary?: PhotoLibrary | null;
 }) {
@@ -270,9 +274,10 @@ export function EntryWorkspace({
         </div>
       </EntryHeader>
 
-      {productId !== null && (
-        <div className="mx-4 mt-3 sm:mx-6">
-          <ProductIdCopy productId={productId} />
+      {(productId !== null || requiredHashtags.length > 0) && (
+        <div className="mx-4 mt-3 flex flex-col gap-1.5 sm:mx-6">
+          {productId !== null && <ProductIdCopy productId={productId} />}
+          {requiredHashtags.length > 0 && <RequiredHashtagCopy hashtags={requiredHashtags} />}
         </div>
       )}
 

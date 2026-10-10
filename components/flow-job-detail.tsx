@@ -40,6 +40,7 @@ import { ManualRenderPanel } from "@/components/manual-render-panel";
 import { UnpauseQueueButton } from "@/components/flow-unpause-queue-button";
 import { BotSteps, ClipLayout, ExportToFolder, PromptCard, ReadyToPostCard, UsedImages } from "@/components/flow-clip-layout";
 import { ProductIdCopy } from "@/components/product-id-copy";
+import { RequiredHashtagCopy } from "@/components/required-hashtag-copy";
 import { ShowcasePhotoPicker, shopPhotoSrc } from "@/components/showcase-photo-picker";
 import { ClipPlayer, ExtraPromptField, FlowProjectLink, JobMessage, ROUND_LABELS, badgeVariant, imgUrl, timeLabel } from "@/components/flow-job-parts";
 
@@ -215,6 +216,7 @@ export function FlowJobDetail({
             </p>
             <FlowProjectLink jobId={job.id} flowProjectId={job.flowProjectId} status={job.status} />
             {job.productId !== null && <ProductIdCopy productId={job.productId} />}
+            {job.requiredHashtags.length > 0 && <RequiredHashtagCopy hashtags={job.requiredHashtags} />}
           </div>
           {onNext && (
             <Button type="button" variant="outline" onClick={onNext}>
