@@ -48,6 +48,13 @@ try {
   check("ซ้ำแล้วคงตำแหน่งของที่พิมพ์ก่อน", tags("#a #b #A"), ["#A", "#b"]);
   check("ลำดับที่พิมพ์คงเดิม", tags("#c #a #b"), ["#c", "#a", "#b"]);
 
+  // --- อักขระล่องหน (วางจาก LINE/เว็บ): ห้ามกลายเป็นแฮชแท็กว่าง หรือติดไปกับแฮชแท็กจริง ---
+  check("zero-width space ล้วน = ปฏิเสธ", typeof tags("\u200B") === "string" && tags("\u200B").startsWith("ERR:"), true);
+  check("zero-width ท้ายแฮชแท็กถูกตัด", tags("#trendyselected\u200B"), ["#trendyselected"]);
+  check("zero-width กลางคำถูกตัด (ไม่แตกเป็นสองอัน)", tags("#trendy\u200Bselected"), ["#trendyselected"]);
+  check("BOM/word-joiner ถูกตัด", tags("\uFEFF#a\u2060"), ["#a"]);
+  check("zero-width คั่นระหว่างช่องว่างยังแยกอันได้", tags("#a \u200B #b"), ["#a", "#b"]);
+
   // --- ปฏิเสธ (ห้ามเงียบจนกลายเป็นลบ) ---
   for (const bad of ["", "   ", "#", "##", ",", " , # , "]) {
     check(`ปฏิเสธ ${JSON.stringify(bad)}`, tags(bad).startsWith("ERR:"), true);
@@ -71,6 +78,17 @@ try {
   check("นับต่างตัวพิมพ์เป็นอันเดียว แสดงตัวพิมพ์ที่เจอก่อน", h.suggestHashtags([["#Abc"], ["#abc"]]), ["#Abc"]);
   check("จำกัดจำนวน", h.suggestHashtags([["#a", "#b", "#c"]], 2), ["#a", "#b"]);
   check("ไม่มีสินค้ามีแฮชแท็ก = ว่าง", h.suggestHashtags([[], []]), []);
+
+  // --- ที่เลือกต้องจำกัดอยู่ที่แถวที่มองเห็น + ตรวจข้อความฝั่งหน้าจอก่อนเรียก action (prod ซ่อนข้อความ error ของ action) ---
+  check("visibleSelection ตัดตัวที่ไม่อยู่ในแท็บ", h.visibleSelection(new Set(["A", "B", "Z"]), ["A", "B", "C"]), ["A", "B"]);
+  check("visibleSelection คงลำดับของรายการที่เห็น", h.visibleSelection(["B", "A"], ["A", "B"]), ["A", "B"]);
+  check("visibleSelection ไม่เลือกอะไร = ว่าง", h.visibleSelection(new Set(), ["A"]), []);
+  const plan = h.planHashtagApply(new Set(["A", "GONE"]), ["A", "B"], "trendyselected, #x");
+  check("plan: ใส่ได้ ใช้เฉพาะที่เห็น + ข้อความที่ normalize แล้ว", plan, { ok: true, ids: ["A"], text: "#trendyselected #x" });
+  const noneVisible = h.planHashtagApply(new Set(["GONE"]), ["A"], "#a");
+  check("plan: เลือกไว้แต่ไม่อยู่ในแท็บ = ปฏิเสธพร้อมข้อความไทย", noneVisible.ok === false && /เลือก/.test(noneVisible.message), true);
+  const badText = h.planHashtagApply(new Set(["A"]), ["A"], "#");
+  check("plan: ข้อความไม่ผ่าน = ปฏิเสธพร้อมข้อความไทยเดียวกับ normalize", badText.ok === false && badText.message.includes("ลบแฮชแท็ก"), true);
 
   // --- เอาไปติดกับ entry ผ่านสินค้า Showcase ---
   const byEntry = h.hashtagsForEntries(

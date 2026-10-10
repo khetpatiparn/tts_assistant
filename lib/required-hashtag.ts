@@ -10,6 +10,12 @@ export const MAX_HASHTAGS = 10;
 /** นับรวม # */
 export const MAX_HASHTAG_LENGTH = 100;
 
+/**
+ * อักขระล่องหน (zero-width space/joiner, word joiner, BOM) — JS \s กับ trim() ไม่จับ แต่ติดมาตอนวางข้อความจาก LINE/เว็บไทยบ่อย
+ * ถ้าไม่ตัด จะได้แฮชแท็กที่ตาเห็นเป็น "#" เปล่า หรือแฮชแท็กจริงที่มีตัวล่องหนต่อท้าย (วางลง TikTok แล้วไม่ตรงกับของกิจกรรม)
+ */
+const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
+
 export type HashtagParse = { ok: true; tags: string[] } | { ok: false; message: string };
 
 /**
@@ -20,7 +26,7 @@ export type HashtagParse = { ok: true; tags: string[] } | { ok: false; message: 
 export function normalizeHashtags(input: string): HashtagParse {
   const order: string[] = [];
   const shown = new Map<string, string>();
-  for (const token of input.split(/[\s,，]+/)) {
+  for (const token of input.replace(INVISIBLE, "").split(/[\s,，]+/)) {
     for (const piece of token.split("#")) {
       if (piece === "") continue;
       const tag = `#${piece}`;
@@ -84,4 +90,25 @@ export function hashtagsForEntries(
     if (tags !== undefined && tags.length > 0) map.set(entryId, tags);
   }
   return map;
+}
+
+/** แถวที่ติ๊กไว้และยังอยู่ในแท็บที่เห็นอยู่ (คงลำดับของรายการที่เห็น) — ที่ติ๊กไว้แต่หายจากแท็บ (กด "ไม่ทำแล้ว"/"ทำคลิปตัวนี้") ไม่นับ */
+export function visibleSelection(selected: Iterable<string>, visible: string[]): string[] {
+  const picked = new Set(selected);
+  return visible.filter((id) => picked.has(id));
+}
+
+export type HashtagApplyPlan = { ok: true; ids: string[]; text: string } | { ok: false; message: string };
+
+/**
+ * ตรวจฝั่งหน้าจอก่อนเรียก server action — เพราะ prod ซ่อนข้อความ error ที่ action throw (ผู้ใช้จะเห็นข้อความอังกฤษทั่วไป
+ * แทนเหตุผลภาษาไทย) · คืนเฉพาะ id ที่เห็นอยู่ และข้อความที่ normalize แล้ว (action normalize ซ้ำได้ ผลเท่าเดิม)
+ */
+export function planHashtagApply(selected: Iterable<string>, visible: string[], text: string): HashtagApplyPlan {
+  const ids = visibleSelection(selected, visible);
+  if (ids.length === 0) return { ok: false, message: "ยังไม่ได้เลือกสินค้าในแท็บนี้" };
+  const parsed = normalizeHashtags(text);
+  // เทียบ === false (ไม่ใช้ !ok): สคริปต์ตรวจคอมไพล์โดยไม่เปิด strict ซึ่ง !ok ไม่ narrow union
+  if (parsed.ok === false) return { ok: false, message: parsed.message };
+  return { ok: true, ids, text: serializeHashtags(parsed.tags) };
 }

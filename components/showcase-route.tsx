@@ -14,7 +14,7 @@ import {
   startShowcaseProduct,
 } from "@/app/actions";
 import { commissionPercent, isCommissionPercentPlausible } from "@/lib/candidates";
-import { suggestHashtags } from "@/lib/required-hashtag";
+import { planHashtagApply, suggestHashtags, visibleSelection } from "@/lib/required-hashtag";
 import {
   itemsForTab,
   SHOWCASE_STATUS_LABEL,
@@ -60,6 +60,11 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
     return c;
   }, [items]);
   const visible = useMemo(() => itemsForTab(items, tab), [items, tab]);
+  // ที่ติ๊กไว้ แต่ยังอยู่ในแท็บที่เห็น — ติ๊กแล้วกด "ไม่ทำแล้ว"/"ทำคลิปตัวนี้" แถวย้ายแท็บ แต่ id ยังค้างใน selected
+  const selectedIds = useMemo(
+    () => visibleSelection(selected, visible.map((i) => i.sourceProductId)),
+    [selected, visible]
+  );
 
   function retry(item: ShowcaseItem, photo: File, extra: string) {
     setMessage(null);
@@ -132,28 +137,41 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
 
   function applyHashtags() {
     setMessage(null);
+    // ตรวจที่หน้าจอก่อน: server action ที่ throw ใน production ถูกซ่อนข้อความ (ผู้ใช้จะไม่เห็นเหตุผลภาษาไทย)
+    const plan = planHashtagApply(selected, visible.map((i) => i.sourceProductId), hashtagText);
+    if (plan.ok === false) {
+      setMessage({ tone: "error", text: plan.message });
+      return;
+    }
     startTransition(async () => {
       try {
-        const { updated } = await setRequiredHashtags([...selected], hashtagText);
+        const { updated } = await setRequiredHashtags(plan.ids, plan.text);
         setMessage({ tone: "ok", text: `ใส่แฮชแท็กที่ต้องลงให้ ${updated} สินค้าแล้ว` });
         // ล้างทั้งช่องพิมพ์และที่เลือก — ค่าเก่าค้างแล้วไปใช้กับชุดถัดไปโดยไม่ตั้งใจอันตรายกว่ากดเลือกใหม่
         setHashtagText("");
         setSelected(new Set());
       } catch (e) {
-        setMessage({ tone: "error", text: e instanceof Error ? e.message : "ใส่แฮชแท็กไม่สำเร็จ" });
+        // production ซ่อนข้อความ error ของ action — ใช้ข้อความไทยตายตัวแทน (ดู comment ด้านบน)
+        console.error("setRequiredHashtags:", e);
+        setMessage({ tone: "error", text: "ใส่แฮชแท็กไม่สำเร็จ — ลองใหม่อีกครั้ง (ถ้ายังไม่ได้ ให้เช็กว่ารัน migrate ฐานข้อมูลแล้ว)" });
       }
     });
   }
 
   function removeHashtags() {
     setMessage(null);
+    if (selectedIds.length === 0) {
+      setMessage({ tone: "error", text: "ยังไม่ได้เลือกสินค้าในแท็บนี้" });
+      return;
+    }
     startTransition(async () => {
       try {
-        const { cleared } = await clearRequiredHashtags([...selected]);
+        const { cleared } = await clearRequiredHashtags(selectedIds);
         setMessage({ tone: "ok", text: cleared > 0 ? `ลบแฮชแท็กของ ${cleared} สินค้าแล้ว` : "สินค้าที่เลือกยังไม่มีแฮชแท็กให้ลบ" });
         setSelected(new Set());
       } catch (e) {
-        setMessage({ tone: "error", text: e instanceof Error ? e.message : "ลบแฮชแท็กไม่สำเร็จ" });
+        console.error("clearRequiredHashtags:", e);
+        setMessage({ tone: "error", text: "ลบแฮชแท็กไม่สำเร็จ — ลองใหม่อีกครั้ง (ถ้ายังไม่ได้ ให้เช็กว่ารัน migrate ฐานข้อมูลแล้ว)" });
       }
     });
   }
@@ -261,14 +279,14 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
             >
               เลือกทั้งหมดในแท็บนี้
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set())} disabled={pending || selected.size === 0}>
+            <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set())} disabled={pending || selectedIds.length === 0}>
               ไม่เลือกเลย
             </Button>
             <span className="text-sm leading-relaxed text-muted-foreground" role="status">
-              เลือกอยู่ <span className="font-mono">{selected.size}</span> จาก <span className="font-mono">{visible.length}</span>
+              เลือกอยู่ <span className="font-mono">{selectedIds.length}</span> จาก <span className="font-mono">{visible.length}</span>
             </span>
           </div>
-          {selected.size > 0 && (
+          {selectedIds.length > 0 && (
             <div className="flex flex-col gap-2">
               <label htmlFor="required-hashtag-input" className="text-sm leading-relaxed font-medium text-foreground">
                 แฮชแท็กที่ต้องลง (หลายอันเว้นวรรคหรือคั่นด้วยจุลภาค)
