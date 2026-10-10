@@ -278,6 +278,15 @@ model ScannerLink {
   createdAt DateTime @default(now())
 }
 
+/// แฮชแท็กที่ต้องลงตอนปักตะกร้า (CONTEXT.md: Required hashtag) — 1 แถวต่อสินค้า ผูกด้วย sourceProductId
+/// ไม่ผูกแถว ProductCandidate (ส่งซ้ำจาก extension = แถวใหม่ทุกครั้ง) · hashtags = รายการที่ normalize แล้ว
+/// คั่นด้วยช่องว่าง ("#a #b") ดู lib/required-hashtag.ts · ไม่มีแถว = ไม่ต้องลงอะไร · import ไม่แตะตารางนี้
+model ProductHashtag {
+  sourceProductId String   @id
+  hashtags        String
+  updatedAt       DateTime @updatedAt
+}
+
 /// สมุดบันทึกการกระทำของบอท Flow — 1 แถวต่อ 1 สิ่งที่ Google เห็น (กด Generate/อัปโหลด/สร้างโปรเจกต์/โหลด)
 /// + สัญญาณเตือน (HTTP ไม่ใช่ 2xx, captcha) + พักจริง · ไว้วิเคราะห์ว่าถ้าโดนแบน "ยิงถี่แค่ไหนก่อนโดน"
 /// (spec 2026-09-30-flow-bot-speed-and-resilience-design.md §3) · kind ดู lib/flow-activity.ts · เก็บตลอด (ไม่กี่ร้อยแถว/วัน)

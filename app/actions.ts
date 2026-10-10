@@ -33,6 +33,7 @@ import { normalizeName, parseCandidateRows } from "@/lib/candidates";
 import { commissionBahtFromPercent, originalImageUrl, parseShowcasePayload } from "@/lib/showcase-import";
 import { downloadImage } from "@/lib/showcase-images";
 import { showcaseFlowState } from "@/lib/showcase";
+import { normalizeHashtags, serializeHashtags } from "@/lib/required-hashtag";
 import { loadWorkerConfig } from "@/worker/config";
 import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -1262,6 +1263,57 @@ export async function setShowcaseDismissed(candidateId: string, dismissed: boole
     data: { dismissedAt: dismissed ? new Date() : null },
   });
   revalidatePath("/showcase");
+}
+
+/** ID ที่เป็นสินค้า Showcase จริง (มีแถว ProductCandidate ที่มี sourceProductId) — อันอื่นข้ามเงียบๆ */
+async function existingShowcaseProductIds(ids: string[]): Promise<string[]> {
+  const unique = [...new Set(ids.map((i) => i.trim()).filter((i) => i !== ""))];
+  if (unique.length === 0) return [];
+  const rows = await prisma.productCandidate.findMany({
+    where: { sourceProductId: { in: unique } },
+    select: { sourceProductId: true },
+    distinct: ["sourceProductId"],
+  });
+  return rows.flatMap((r) => (r.sourceProductId === null ? [] : [r.sourceProductId]));
+}
+
+/** แฮชแท็กโผล่ที่ 3 หน้า: รายการ Showcase, งานใน /flow, หน้า entry (ไม่รู้ว่า entry ไหนบ้าง จึง revalidate ทั้งแพตเทิร์น) */
+function revalidateHashtagViews(): void {
+  revalidatePath("/showcase");
+  revalidatePath("/flow");
+  revalidatePath("/entry/[id]", "page");
+}
+
+/**
+ * หน้า Showcase: ใส่ "แฮชแท็กที่ต้องลง" (CONTEXT.md) ให้สินค้าหลายตัวพร้อมกัน — **ทับ**ของเดิม · ผูกด้วย sourceProductId
+ * (ไม่ใช่ id ของแถว) · พิมพ์ไม่ผ่าน (ว่าง/ยาวเกิน/เกิน 10 อัน) = throw ข้อความไทย ไม่เขียนอะไร · คืนจำนวนสินค้าที่ใส่จริง
+ */
+export async function setRequiredHashtags(sourceProductIds: string[], text: string): Promise<{ updated: number }> {
+  const parsed = normalizeHashtags(text);
+  if (!parsed.ok) throw new Error(parsed.message);
+  const ids = await existingShowcaseProductIds(sourceProductIds);
+  if (ids.length === 0) throw new Error("ไม่พบสินค้าที่เลือก");
+  const value = serializeHashtags(parsed.tags);
+  await prisma.$transaction(
+    ids.map((sourceProductId) =>
+      prisma.productHashtag.upsert({
+        where: { sourceProductId },
+        create: { sourceProductId, hashtags: value },
+        update: { hashtags: value },
+      })
+    )
+  );
+  revalidateHashtagViews();
+  return { updated: ids.length };
+}
+
+/** ปุ่ม "ลบแฮชแท็ก" — ลบแถวของสินค้าที่เลือก (ช่องพิมพ์ว่างไม่ใช่การลบ) · คืนจำนวนที่ลบจริง */
+export async function clearRequiredHashtags(sourceProductIds: string[]): Promise<{ cleared: number }> {
+  const ids = await existingShowcaseProductIds(sourceProductIds);
+  if (ids.length === 0) throw new Error("ไม่พบสินค้าที่เลือก");
+  const r = await prisma.productHashtag.deleteMany({ where: { sourceProductId: { in: ids } } });
+  revalidateHashtagViews();
+  return { cleared: r.count };
 }
 
 

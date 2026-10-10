@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { loadHashtagsByProduct } from "@/lib/hashtag-queries";
 import {
   buildShowcaseItems,
   SHOWCASE_TRACKING_SINCE,
@@ -8,12 +9,15 @@ import {
 
 /** หน้า Showcase — แถวจาก Showcase import เท่านั้น (sourceProductId ไม่ null) · ตรรกะอยู่ใน lib/showcase.ts */
 export async function getShowcaseItems(): Promise<ShowcaseItem[]> {
-  const rows = await prisma.productCandidate.findMany({
-    // ตัดชุดก่อนวันเริ่มนับตั้งแต่ใน DB ไม่ได้ — สินค้าที่เห็นครั้งแรกก่อนวันนั้นแล้วถูกส่งซ้ำทีหลังต้องยังไม่นับ
-    // buildShowcaseItems ต้องเห็นทุกแถวของ sourceProductId เดียวกันจึงตัดสินได้ถูก
-    where: { sourceProductId: { not: null } },
-    include: { images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } } },
-  });
+  const [rows, hashtagsByProduct] = await Promise.all([
+    prisma.productCandidate.findMany({
+      // ตัดชุดก่อนวันเริ่มนับตั้งแต่ใน DB ไม่ได้ — สินค้าที่เห็นครั้งแรกก่อนวันนั้นแล้วถูกส่งซ้ำทีหลังต้องยังไม่นับ
+      // buildShowcaseItems ต้องเห็นทุกแถวของ sourceProductId เดียวกันจึงตัดสินได้ถูก
+      where: { sourceProductId: { not: null } },
+      include: { images: { orderBy: { sortOrder: "asc" }, select: { id: true, filename: true } } },
+    }),
+    loadHashtagsByProduct(),
+  ]);
 
   const linkedIds = [...new Set(rows.flatMap((r) => (r.linkedEntryId === null ? [] : [r.linkedEntryId])))];
   const [entries, jobs] =
@@ -41,7 +45,8 @@ export async function getShowcaseItems(): Promise<ShowcaseItem[]> {
       images: r.images,
     })),
     new Map(entries.map((e) => [e.id, e.videoUrl])),
-    SHOWCASE_TRACKING_SINCE
+    SHOWCASE_TRACKING_SINCE,
+    hashtagsByProduct
   );
 
   // งาน Flow ล่าสุดต่อ Entry (jobs เรียงใหม่→เก่า ตัวแรกที่เจอคือล่าสุด)

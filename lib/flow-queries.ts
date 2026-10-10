@@ -7,6 +7,8 @@ import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQu
 import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
 import { entryStatus } from "@/lib/entry-rows";
 import { shopPhotosForEntry, type ShopPhoto } from "@/lib/showcase";
+import { loadHashtagsByProduct } from "@/lib/hashtag-queries";
+import { hashtagsForEntries } from "@/lib/required-hashtag";
 
 export type FlowImageRow = {
   id: string;
@@ -39,6 +41,15 @@ export async function getProductIdsByEntry(entryIds: string[]): Promise<Map<stri
     if (r.linkedEntryId !== null && r.sourceProductId !== null && !map.has(r.linkedEntryId)) map.set(r.linkedEntryId, r.sourceProductId);
   }
   return map;
+}
+
+/**
+ * แฮชแท็กที่ต้องลงของแต่ละ entry — ผ่านสินค้า Showcase ที่ผูกอยู่ (รับ map entry→Product ID จาก getProductIdsByEntry
+ * ไม่คิวรีซ้ำ) · entry ที่ไม่มีแฮชแท็กไม่อยู่ใน map
+ */
+export async function getRequiredHashtagsByEntry(productIds: Map<string, string>): Promise<Map<string, string[]>> {
+  const tagsByProduct = await loadHashtagsByProduct([...new Set(productIds.values())]);
+  return hashtagsForEntries(productIds, tagsByProduct);
 }
 
 /**
@@ -84,6 +95,8 @@ export type FlowJobRow = {
   tookOver: boolean;
   /** Product ID จาก Showcase (null = ไม่ได้มาจาก Showcase) — แสดงพร้อมปุ่มคัดลอก */
   productId: string | null;
+  /** แฮชแท็กที่ต้องลงของสินค้าจาก Showcase (ว่าง = ไม่ต้องลงอะไร หรือไม่ได้มาจาก Showcase) */
+  requiredHashtags: string[];
   /** โฟลเดอร์ใน TTS ที่ส่งคลิปไปแล้ว (จาก FlowActivity user_export_clip ล่าสุด) · null = ยังไม่เคยส่ง */
   exportedPath: string | null;
   /** ชื่อไฟล์คลิปของงานตอนส่งครั้งล่าสุด (เทียบกับ video.filename เพื่อชวนอัปเดต) · null = ไม่เคยส่ง/แถวเก่าที่ไม่ได้เก็บ */
@@ -226,6 +239,7 @@ export async function getFlowQueueData(): Promise<{
     getProductIdsByEntry(entryIds),
     getShopPhotosByEntry(entryIds),
   ]);
+  const requiredHashtags = await getRequiredHashtagsByEntry(productIds);
 
   const jobs: FlowJobRow[] = raw
     .map((j) => {
@@ -237,6 +251,7 @@ export async function getFlowQueueData(): Promise<{
         id: j.id,
         tookOver: tookOverIds.has(j.id),
         productId: productIds.get(j.entryId) ?? null,
+        requiredHashtags: requiredHashtags.get(j.entryId) ?? [],
         exportedPath: null as string | null,
         exportedVideo: null as string | null,
         entryId: j.entryId,
