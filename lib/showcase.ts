@@ -95,6 +95,8 @@ export type ShowcaseItem = {
   status: ShowcaseStatus;
   /** มีความหมายเฉพาะ status "in_progress" — เติมทีหลังโดยผู้เรียก (ต้องอ่าน FlowJob) ค่าเริ่มต้น busy */
   flowState: ShowcaseFlowState;
+  /** แฮชแท็กที่ต้องลง (CONTEXT.md) ของสินค้านี้ · ว่าง = ไม่ต้องลงอะไร */
+  hashtags: string[];
 };
 
 export function showcaseStatus(
@@ -114,11 +116,14 @@ export function showcaseStatus(
  * สินค้าที่เห็นครั้งแรกก่อน SHOWCASE_TRACKING_SINCE ถูกตัดทิ้งทั้งตัว แม้จะถูกส่งซ้ำมาหลังวันนั้น
  *
  * @param entryVideoUrls videoUrl ของ Entry ที่ผูกอยู่ (key = entry id) — Entry ที่ถูกลบไปแล้วจะไม่มี key
+ * @param hashtagsByProduct แฮชแท็กที่ต้องลงต่อ sourceProductId (ผู้เรียกอ่านจากตาราง ProductHashtag) — ผูกกับสินค้า
+ *   ไม่ใช่แถว จึงเหมือนกันทุกชุดที่ส่งซ้ำ
  */
 export function buildShowcaseItems(
   rows: ShowcaseSourceRow[],
   entryVideoUrls: Map<string, string>,
-  since: Date = SHOWCASE_TRACKING_SINCE
+  since: Date = SHOWCASE_TRACKING_SINCE,
+  hashtagsByProduct: Map<string, string[]> = new Map()
 ): ShowcaseItem[] {
   const byProduct = new Map<string, ShowcaseSourceRow[]>();
   for (const r of rows) {
@@ -157,6 +162,7 @@ export function buildShowcaseItems(
         linkedEntryId === null ? undefined : entryVideoUrls.get(linkedEntryId)
       ),
       flowState: "busy",
+      hashtags: hashtagsByProduct.get(sourceProductId) ?? [],
     });
   }
 

@@ -41,7 +41,7 @@ try {
   try {
     execFileSync(
       "npx",
-      ["tsc", "lib/showcase.ts", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+      ["tsc", "lib/showcase.ts", "lib/flow-lifecycle.ts", "lib/flow-jobs.ts", "lib/flow-network.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
       { stdio: "pipe", shell: true }
     );
   } catch (e) {
@@ -150,6 +150,26 @@ try {
       photos([r({ id: "b", capturedOn: day("09-29"), images: [im("5")] }), r({ id: "a", linkedEntryId: "E", images: [im("1")] })]), ["a/1.jpg"]);
     check("สินค้าที่ไม่ได้ผูกกับ entry นี้ไม่มา", photos([r({ id: "z", sourceProductId: "Q", linkedEntryId: "OTHER", images: [im("9")] }), r({ id: "y", sourceProductId: "Q", images: [im("8")] })]), []);
     check("entry ที่ไม่ได้มาจาก Showcase → ว่าง", photos([]), []);
+  }
+
+  // --- แฮชแท็กที่ต้องลง ---
+  {
+    const withTags = s.buildShowcaseItems(
+      [row({ sourceProductId: "P1" }), row({ sourceProductId: "P2" })],
+      new Map(),
+      SINCE,
+      new Map([["P1", ["#a", "#b"]]])
+    );
+    check("สินค้าที่มีแฮชแท็กได้รายการ", withTags.find((i) => i.sourceProductId === "P1").hashtags, ["#a", "#b"]);
+    check("สินค้าที่ไม่มี = รายการว่าง (ไม่ใช่ undefined)", withTags.find((i) => i.sourceProductId === "P2").hashtags, []);
+    check("ไม่ส่ง map = ทุกตัวว่าง (เรียกแบบเดิมยังได้)", build([row()])[0].hashtags, []);
+    const twoBatches = s.buildShowcaseItems(
+      [row({ sourceProductId: "P1", capturedOn: day("09-30") }), row({ sourceProductId: "P1", capturedOn: day("10-02") })],
+      new Map(),
+      SINCE,
+      new Map([["P1", ["#x"]]])
+    );
+    check("สินค้าเดียว 2 ชุด = รายการเดียว แฮชแท็กเดียว", twoBatches.map((i) => i.hashtags), [["#x"]]);
   }
 
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
