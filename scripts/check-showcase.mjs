@@ -172,6 +172,31 @@ try {
     check("สินค้าเดียว 2 ชุด = รายการเดียว แฮชแท็กเดียว", twoBatches.map((i) => i.hashtags), [["#x"]]);
   }
 
+  // --- ชุดที่เข้ามาล่าสุด (ปุ่ม "เลือกชุดล่าสุด" ของหน้า Showcase) ---
+  {
+    const it = (id, firstSeen) => ({ sourceProductId: id, firstSeen });
+    const ids = (r) => (r === null ? null : r.ids);
+    const t = (iso) => new Date(iso);
+    check(
+      "ชุดล่าสุด = สินค้าที่เวลาเข้ามาตรงกับรอบล่าสุดเป๊ะ (ของเก่าไม่ปน)",
+      ids(s.latestArrivalBatch([it("A", t("2026-10-04T07:36:50.407Z")), it("B", t("2026-10-10T11:28:37.602Z")), it("C", t("2026-10-10T11:28:37.602Z"))])),
+      ["B", "C"]
+    );
+    check(
+      "คนละมิลลิวินาที = คนละชุด",
+      ids(s.latestArrivalBatch([it("B", t("2026-10-10T11:28:37.602Z")), it("C", t("2026-10-10T11:28:37.603Z"))])),
+      ["C"]
+    );
+    check("ไม่ขึ้นกับลำดับในอาร์เรย์", ids(s.latestArrivalBatch([it("N", t("2026-10-10T11:28:37.602Z")), it("O", t("2026-10-04T07:36:50.407Z"))])), ["N"]);
+    check("รายการเดียว = ชุดนั้น", ids(s.latestArrivalBatch([it("A", t("2026-10-04T07:36:50.407Z"))])), ["A"]);
+    check("ไม่มีรายการ = null", s.latestArrivalBatch([]), null);
+    check(
+      "คืนเวลาที่เข้ามาของชุดไว้แสดงบนปุ่ม",
+      s.latestArrivalBatch([it("A", t("2026-10-04T07:36:50.407Z")), it("B", t("2026-10-10T11:28:37.602Z"))]).arrivedAt.toISOString(),
+      "2026-10-10T11:28:37.602Z"
+    );
+  }
+
   console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
 } finally {
   rmSync(out, { recursive: true, force: true });

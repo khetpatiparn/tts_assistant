@@ -169,6 +169,22 @@ export function buildShowcaseItems(
   return items;
 }
 
+/**
+ * ชุดที่เข้ามาล่าสุดของรายการที่ส่งมา (ปุ่ม "เลือกชุดล่าสุด" — ไว้ใส่แฮชแท็กให้สินค้าที่เพิ่งสแกนเข้ามาโดยไม่ปนของเก่า)
+ * สินค้าที่ส่งเข้ามาในรอบเดียวมี firstSeen ตรงกันเป๊ะ (importShowcaseBatch ใช้ capturedOn ค่าเดียวทั้งรอบ) — เทียบที่ระดับ
+ * มิลลิวินาที คนละมิลลิวินาที = คนละรอบ · ผู้เรียกส่งรายการของแท็บที่เปิดอยู่ ชุดล่าสุดจึงนับเฉพาะที่เห็น
+ */
+export function latestArrivalBatch<T extends { sourceProductId: string; firstSeen: Date }>(
+  items: T[]
+): { ids: string[]; arrivedAt: Date } | null {
+  if (items.length === 0) return null;
+  const latest = Math.max(...items.map((i) => i.firstSeen.getTime()));
+  return {
+    ids: items.filter((i) => i.firstSeen.getTime() === latest).map((i) => i.sourceProductId),
+    arrivedAt: new Date(latest),
+  };
+}
+
 /** ยังไม่เริ่ม = คิวงาน ค้างนานสุดขึ้นก่อน · แท็บอื่นเป็นประวัติ ใหม่สุดขึ้นก่อน */
 export function itemsForTab(items: ShowcaseItem[], status: ShowcaseStatus): ShowcaseItem[] {
   const direction = status === "todo" ? 1 : -1;

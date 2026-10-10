@@ -17,6 +17,7 @@ import { commissionPercent, isCommissionPercentPlausible } from "@/lib/candidate
 import { planHashtagApply, suggestHashtags, visibleSelection } from "@/lib/required-hashtag";
 import {
   itemsForTab,
+  latestArrivalBatch,
   SHOWCASE_STATUS_LABEL,
   type ShowcaseItem,
   type ShowcaseStatus,
@@ -37,6 +38,10 @@ const EMPTY_TEXT: Record<ShowcaseStatus, string> = {
 
 function formatThaiDate(d: Date): string {
   return d.toLocaleDateString("th-TH", { day: "numeric", month: "short" });
+}
+
+function formatThaiDateTime(d: Date): string {
+  return d.toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -60,6 +65,8 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
     return c;
   }, [items]);
   const visible = useMemo(() => itemsForTab(items, tab), [items, tab]);
+  // สินค้าที่เข้ามาในการส่งครั้งล่าสุดของแท็บนี้ — ปุ่ม "เลือกชุดล่าสุด" (ใส่แฮชแท็กให้ของที่เพิ่งสแกนโดยไม่ปนของเก่าที่ค้างอยู่)
+  const latestBatch = useMemo(() => latestArrivalBatch(visible), [visible]);
   // ที่ติ๊กไว้ แต่ยังอยู่ในแท็บที่เห็น — ติ๊กแล้วกด "ไม่ทำแล้ว"/"ทำคลิปตัวนี้" แถวย้ายแท็บ แต่ id ยังค้างใน selected
   const selectedIds = useMemo(
     () => visibleSelection(selected, visible.map((i) => i.sourceProductId)),
@@ -279,6 +286,12 @@ export function ShowcaseRoute({ items, scannerToken }: { items: ShowcaseItem[]; 
             >
               เลือกทั้งหมดในแท็บนี้
             </Button>
+            {/* ซ่อนเมื่อชุดล่าสุดคือทุกตัวในแท็บอยู่แล้ว (ซ้ำกับ "เลือกทั้งหมด") */}
+            {latestBatch !== null && latestBatch.ids.length < visible.length && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set(latestBatch.ids))} disabled={pending}>
+                เลือกชุดล่าสุด ({latestBatch.ids.length} ตัว · {formatThaiDateTime(latestBatch.arrivedAt)})
+              </Button>
+            )}
             <Button type="button" variant="outline" size="sm" onClick={() => setSelected(new Set())} disabled={pending || selectedIds.length === 0}>
               ไม่เลือกเลย
             </Button>
