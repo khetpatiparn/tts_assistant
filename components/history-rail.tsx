@@ -9,6 +9,7 @@ import { Drawer } from "@base-ui/react/drawer";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { RequiredHashtagChips } from "@/components/required-hashtag-chips";
 import type { EntryRow } from "@/lib/entry-rows";
 
 /** "12 ก.ค." ของวันที่ลงคลิป — postedAt เก็บเป็น UTC midnight จึงอ่านด้วย UTC */
@@ -111,6 +112,7 @@ function RailBody({
                         </span>
                       )}
                     </span>
+                    <RequiredHashtagChips hashtags={row.requiredHashtags} max={1} tone="rail" />
                   </span>
                 </Link>
 
