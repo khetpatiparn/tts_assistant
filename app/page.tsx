@@ -11,6 +11,7 @@ import {
   parseDateParam,
   parseDateBasisParam,
 } from "@/lib/entry-date-filter";
+import { getRequiredHashtagsForEntryIds } from "@/lib/flow-queries";
 import { AppHeader } from "@/components/app-header";
 import { EntryList } from "@/components/entry-list";
 
@@ -44,6 +45,7 @@ export default async function EntryListPage({
 
   const filtered = searchAndFilter(searchable, { query, status });
   const { items, totalPages, page: safePage } = paginate(filtered, page);
+  const requiredHashtags = await getRequiredHashtagsForEntryIds(items.map((r) => r.id));
 
   return (
     <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
@@ -60,6 +62,7 @@ export default async function EntryListPage({
             duplicatedFromId: r.duplicatedFromId,
             status: r.status,
             thumbnailFilename: r.thumbnailFilename,
+            requiredHashtags: requiredHashtags.get(r.id) ?? [],
           }))}
           query={query}
           status={status}

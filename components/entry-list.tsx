@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EntryFilters } from "@/components/entry-filters";
+import { RequiredHashtagChips } from "@/components/required-hashtag-chips";
 import type { EntryRow, EntryStatus } from "@/lib/entry-rows";
 import type { DateFilterBasis } from "@/lib/entry-date-filter";
 
@@ -162,6 +163,8 @@ export function EntryList({
                           angle: {row.angle}
                         </p>
                       )}
+
+                      <RequiredHashtagChips hashtags={row.requiredHashtags} showLabel />
 
                       {/* ต่ำกว่า md: สถานะกับวันที่ย้ายลงมาอยู่ใต้ชื่อแทนที่จะเป็นคอลัมน์ตายตัว
                           ที่กินความกว้าง 240px จนชื่อสินค้าไม่เหลือที่บนจอ 390px */}
