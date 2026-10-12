@@ -53,6 +53,14 @@ export async function getRequiredHashtagsByEntry(productIds: Map<string, string>
 }
 
 /**
+ * แฮชแท็กที่ต้องลงของ entry ชุดหนึ่ง (แถวรายการ / แถบข้าง) — สองคิวรีรวมไม่ว่ากี่แถว ไม่ N+1 · entry ที่ไม่มีแฮชแท็กไม่อยู่ใน map
+ * ส่งเฉพาะ id ของแถวที่โชว์จริง (หน้าละ 30 / แถบข้าง 15) ไม่ใช่ทั้งตาราง
+ */
+export async function getRequiredHashtagsForEntryIds(entryIds: string[]): Promise<Map<string, string[]>> {
+  return getRequiredHashtagsByEntry(await getProductIdsByEntry(entryIds));
+}
+
+/**
  * รูปจากร้าน (Shop photos) ของแต่ละ entry — ตัวเลือก "เปลี่ยนรูปต้นทาง" ของหน้า /flow · entry ที่ไม่ได้มาจาก Showcase = ไม่มีใน map
  * ดึงแถวของสินค้าที่ผูกกับ entry + แถวสแกนซ้ำ (sourceProductId เดียวกัน) แล้วให้ shopPhotosForEntry (lib/showcase.ts) เลือกชุดเดียว
  */

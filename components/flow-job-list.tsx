@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { FlowStepperCompact } from "@/components/flow-stepper";
+import { RequiredHashtagChips } from "@/components/required-hashtag-chips";
 import { JobThumb, badgeVariant, imgUrl } from "@/components/flow-job-parts";
 
 /** รายการงานของแท็บที่เลือก (ฝั่งซ้ายของหน้า /flow) · กดแถว = เลือกงาน · ป้ายรอบ/ชนิดงานมาจาก jobKindLabel */
@@ -100,6 +101,7 @@ function FlowJobListItem({
               </span>
             )}
           </span>
+          <RequiredHashtagChips hashtags={job.requiredHashtags} showLabel />
         </span>
       </button>
       {job.status === FLOW_STATUS.DONE && job.video && (
