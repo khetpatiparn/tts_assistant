@@ -54,9 +54,12 @@ next-env.d.ts
 /dev-test.db
 /dev-test.db-shm
 /dev-test.db-wal
+/dev-test*.db*
 /dev-backup-*.db
 /dev-backup-*.db-wal
 /dev-backup-*.db-shm
+/.scratch/
+/.playwright-mcp/
 
 # TikTok analytics exports (personal data, not source)
 /data_last28days

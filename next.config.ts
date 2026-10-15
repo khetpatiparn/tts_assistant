@@ -1,4 +1,11 @@
 import type { NextConfig } from "next";
+import { getRuntimePaths } from "./lib/runtime-paths";
+
+// Validate before accepting any request, including a test DB with production storage.
+const runtime = getRuntimePaths();
+if (runtime.sandboxRoot && process.env.NEXT_DIST_DIR !== ".next-dev") {
+  throw new Error("Sandbox requires NEXT_DIST_DIR=.next-dev; production .next must not be shared.");
+}
 
 const nextConfig: NextConfig = {
   // ปกติคือ ".next" — แต่ให้ override ผ่าน env ได้ เพื่อให้ dev server ของ agent
@@ -8,7 +15,7 @@ const nextConfig: NextConfig = {
   // uploads/ คือไฟล์ที่ผู้ใช้อัปตอนรันจริง (รูปสินค้า/รูปจาก Flow ~3,700 ไฟล์ 400+ MB) ไม่ใช่ของที่
   // route ต้องพกไปด้วย — ไม่ตัดออก ตัว trace จะลากทั้งโฟลเดอร์เข้าไปในทุก route ที่ import actions
   outputFileTracingExcludes: {
-    "/*": ["./uploads/**/*"],
+    "/*": ["./uploads/**/*", "./.scratch/**/*"],
   },
   experimental: {
     serverActions: {

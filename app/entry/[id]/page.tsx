@@ -7,6 +7,7 @@ import {
   getRenderVideoForEntry,
   getRequiredHashtagsByEntry,
   getRequiredHashtagsForEntryIds,
+  getTtsAudioForEntry,
 } from "@/lib/flow-queries";
 import { getPhotoLibrary } from "@/lib/photo-library-db";
 import { EntryWorkspace } from "@/components/entry-workspace";
@@ -22,12 +23,13 @@ export default async function EntryPage({
 }) {
   const { id } = await params;
 
-  const [entry, rows, usedAngles, flowJob, renderVideo, productIds, photoLibrary] = await Promise.all([
+  const [entry, rows, usedAngles, flowJob, renderVideo, ttsAudio, productIds, photoLibrary] = await Promise.all([
     getEntryDetail(id),
     getEntryRows(),
     getUsedAngles(id),
     getOpenFlowJobForEntry(id),
     getRenderVideoForEntry(id),
+    getTtsAudioForEntry(id),
     getProductIdsByEntry([id]),
     getPhotoLibrary(id),
   ]);
@@ -53,6 +55,7 @@ export default async function EntryPage({
       usedAngles={usedAngles}
       flowJob={flowJob}
       renderVideo={renderVideo}
+      ttsAudio={ttsAudio}
       productId={productIds.get(id) ?? null}
       requiredHashtags={requiredHashtags}
       photoLibrary={photoLibrary}

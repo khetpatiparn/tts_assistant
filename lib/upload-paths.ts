@@ -1,9 +1,10 @@
 import path from "node:path";
+import { getRuntimePaths } from "@/lib/runtime-paths";
 
 // Turbopack วิเคราะห์ path ที่สร้างจาก process.cwd() ตอน build แล้วลากไฟล์ใน uploads/ ทั้งโฟลเดอร์
 // (~18,000 ไฟล์) เข้า trace ของทุก route ที่ import actions — build ช้าและขึ้น warning
 // "Overly broad patterns" ทุกครั้ง · ไฟล์เหล่านี้เป็นข้อมูลที่ผู้ใช้อัปตอนรันจริง ไม่ใช่ของที่ต้อง bundle
-export const UPLOAD_ROOT = path.join(/* turbopackIgnore: true */ process.cwd(), "uploads");
+export const UPLOAD_ROOT = getRuntimePaths().uploadRoot;
 export const CANDIDATE_IMAGE_ROOT = path.join(UPLOAD_ROOT, "_candidates");
 
 // ใช้ต่อ path ที่มีชื่อไฟล์แบบ `${uuid}.${ext}` — ถ้าต่อตรงในที่เรียก writeFile/copyFile จุด "." ใน

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Compass } from "lucide-react";
 
+import { SettingsDialog } from "@/components/settings-dialog";
 import { SoundToggle } from "@/components/sound-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -44,6 +45,7 @@ export function EntryHeader({
             </p>
           </div>
           <SoundToggle />
+          <SettingsDialog />
           <ThemeToggle />
         </div>
       </div>

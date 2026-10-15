@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "worker/smoke/out/**",
     ".check-flow-tmp-*/**",
     ".check-candidates-tmp-*/**",
+    ".scratch/**",
+    "showcase-extension/**",
   ]),
 ]);
 

@@ -1,7 +1,8 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { prisma } from "@/lib/prisma";
 import { UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { loadWorkerConfig } from "@/worker/config";
+import { getRuntimePaths } from "@/lib/runtime-paths";
 import { isTakeoverKind, summarizeActivity } from "@/lib/flow-activity";
 import { FLOW_STATUS, WORKER_STATE_ID, isWorkerAlive, queueCategory, summarizeQueue } from "@/lib/flow-jobs";
 import { parseExportDetail, type ExportRecord } from "@/lib/clip-export";
@@ -317,7 +318,7 @@ export async function getFlowQueueData(): Promise<{
     jobs.map(async (j) => ({ ...j, checkpoints: await listCheckpoints(j.entryId) }))
   );
 
-  const cfg = loadWorkerConfig();
+  const cfg = loadWorkerConfig(getRuntimePaths().workerConfigFile);
   const now = new Date();
   const worker: FlowWorkerView = {
     alive: isWorkerAlive(state?.lastSeenAt ?? null, now, cfg.heartbeatMs),
@@ -356,7 +357,22 @@ export async function getOpenFlowJobForEntry(
 export type EntryRenderVideo = {
   path: string;
   stage: "final" | "approved" | "preview";
+  originalPath?: string;
+  mergedPath?: string | null;
+  isMerged?: boolean;
 };
+
+export type EntryTtsAudio = {
+  path: string;
+  durationSec: number;
+  rawDurationSec?: number;
+  trimmedDurationSec?: number;
+  tempoApplied?: number;
+};
+
+async function isFile(p: string): Promise<boolean> {
+  return stat(p).then((s) => s.isFile(), () => false);
+}
 
 export async function getRenderVideoForEntry(entryId: string): Promise<EntryRenderVideo | null> {
   const rows = await prisma.flowJobImage.findMany({
@@ -368,5 +384,42 @@ export async function getRenderVideoForEntry(entryId: string): Promise<EntryRend
   if (pick === undefined) return null;
   // round 4 = ผู้ใช้กดผ่านแล้ว บอทกำลัง/จะโหลด 1080p (รวมตอนที่การโหลดพังค้างอยู่)
   const stage = pick.chosen ? "final" : pick.job.round === 4 ? "approved" : "preview";
-  return { path: `${entryId}/flow/${pick.filename}`, stage };
+  const originalPath = `${entryId}/flow/${pick.filename}`;
+  const mergedFilename = "r3-merged.mp4";
+  const mergedDiskPath = joinPath(UPLOAD_ROOT, entryId, "flow", mergedFilename);
+  const isMerged = await isFile(mergedDiskPath);
+  return {
+    path: isMerged ? `${entryId}/flow/${mergedFilename}` : originalPath,
+    stage,
+    originalPath,
+    mergedPath: isMerged ? `${entryId}/flow/${mergedFilename}` : null,
+    isMerged,
+  };
+}
+
+export async function getTtsAudioForEntry(entryId: string): Promise<EntryTtsAudio | null> {
+  const audioDiskPath = joinPath(UPLOAD_ROOT, entryId, "flow", "tts-audio.wav");
+  if (!(await isFile(audioDiskPath))) return null;
+  const metaDiskPath = joinPath(UPLOAD_ROOT, entryId, "flow", "tts-meta.json");
+  let durationSec = 10;
+  let rawDurationSec: number | undefined;
+  let trimmedDurationSec: number | undefined;
+  let tempoApplied: number | undefined;
+  try {
+    const metaStr = await readFile(metaDiskPath, "utf-8");
+    const meta = JSON.parse(metaStr);
+    if (typeof meta.durationSec === "number") durationSec = meta.durationSec;
+    if (typeof meta.rawDurationSec === "number") rawDurationSec = meta.rawDurationSec;
+    if (typeof meta.trimmedDurationSec === "number") trimmedDurationSec = meta.trimmedDurationSec;
+    if (typeof meta.tempoApplied === "number") tempoApplied = meta.tempoApplied;
+  } catch {
+    // ไม่มี meta หรืออ่านไม่ได้
+  }
+  return {
+    path: `${entryId}/flow/tts-audio.wav`,
+    durationSec,
+    rawDurationSec,
+    trimmedDurationSec,
+    tempoApplied,
+  };
 }

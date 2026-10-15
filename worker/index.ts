@@ -27,10 +27,13 @@ import { StepLog, captureFailure } from "./failure";
 import { FlowStepError, isFlowStepError, type ErrorKind } from "./errors";
 import { randInt, sleepMs } from "./humanize";
 import { idleCountsAsLongBreak, isWithinActiveHours, localDateKey, msUntilActiveWindow, pickLongBreakTarget } from "./schedule";
+import { readSystemSettings } from "@/lib/tts-settings";
+import { mergeVideoWithAudio } from "@/lib/video-merge";
 import type { Page } from "playwright";
 
-const UPLOAD_ROOT = path.join(process.cwd(), "uploads");
-const STOP_FILE = path.join(process.cwd(), ".flow-worker.stop");
+import { UPLOAD_ROOT } from "@/lib/upload-paths";
+import { assertLiveFlowAllowed, getRuntimePaths } from "@/lib/runtime-paths";
+const STOP_FILE = getRuntimePaths().stopFile;
 const SLEEP_CHUNK_MS = 20_000;
 /** ภาพจุดเช็กของงาน (uploads/<entryId>/flow/checkpoints/) เก็บไว้กี่วัน — หลักฐานตอนพังเก็บถาวรแยกกันเหมือนเดิม */
 const CHECKPOINT_KEEP_DAYS = 14;
@@ -60,6 +63,39 @@ function sweepOldCheckpoints(): void {
 
 function log(msg: string): void {
   console.log(`${new Date().toISOString()}  ${msg}`);
+}
+
+/**
+ * รวมคลิปวิดีโอเข้ากับเสียงพากย์ TTS โดยอัตโนมัติหากเปิดการตั้งค่า autoMergeVideo ไว้และมีไฟล์ tts-audio.wav
+ */
+async function autoMergeFlowVideo(entryId: string): Promise<void> {
+  try {
+    const settings = await readSystemSettings();
+    if (!settings.autoMergeVideo) return;
+    const flowDir = path.join(UPLOAD_ROOT, entryId, "flow");
+    const audioPath = path.join(flowDir, "tts-audio.wav");
+    if (!existsSync(audioPath)) return;
+
+    // หาไฟล์วิดีโอที่มีอยู่ (1080p หรือ r3 ล่าสุด)
+    const finalVideo = path.join(flowDir, FINAL_VIDEO_FILENAME);
+    let videoSrc: string | null = existsSync(finalVideo) ? finalVideo : null;
+    if (!videoSrc && existsSync(flowDir)) {
+      const files = readdirSync(flowDir).filter(
+        (f) => f.startsWith("r3-") && f.endsWith(".mp4") && !f.includes("merged")
+      );
+      if (files.length > 0) {
+        files.sort((a, b) => statSync(path.join(flowDir, b)).mtimeMs - statSync(path.join(flowDir, a)).mtimeMs);
+        videoSrc = path.join(flowDir, files[0]);
+      }
+    }
+    if (!videoSrc) return;
+
+    const outputPath = path.join(flowDir, "r3-merged.mp4");
+    await mergeVideoWithAudio(videoSrc, audioPath, outputPath);
+    log(`งาน ${entryId}: รวมคลิปกับเสียงพากย์อัตโนมัติสำเร็จ`);
+  } catch (err) {
+    log(`งาน ${entryId}: รวมคลิปกับเสียงพากย์อัตโนมัติล้มเหลว (ไม่กระทบคิวงาน): ${String(err)}`);
+  }
 }
 
 async function upsertState(data: Record<string, unknown>) {
@@ -307,6 +343,7 @@ async function processJob(
         );
         if (!saved) return true;
         if (approvedVideo.filename !== FINAL_VIDEO_FILENAME) removeFlowFile(job.entryId, approvedVideo.filename);
+        await autoMergeFlowVideo(job.entryId);
         log(`งาน ${job.id} ได้คลิป 1080p แล้ว → เสร็จ`);
         notify("คลิป 1080p พร้อมแล้ว", job.entry.productName);
       } else {
@@ -336,6 +373,7 @@ async function processJob(
         () => applyPlan(job.id, previewUnsaved()),
       );
       if (!saved) return true;
+      if (gotFile) await autoMergeFlowVideo(job.entryId);
       log(gotFile ? `งาน ${job.id} Render เสร็จ → รอผู้ใช้ดูคลิป` : `งาน ${job.id} Render เสร็จแต่โหลดไม่ได้ → รอผู้ใช้โหลดเองใน Flow`);
       notify(gotFile ? "คลิปพร้อมให้ดู" : "คลิปเสร็จแล้วใน Flow (โหลดมาไม่ได้)", job.entry.productName);
       return true;
@@ -428,7 +466,13 @@ async function processJob(
 }
 
 async function main() {
-  const cfg = loadWorkerConfig();
+  // Sandbox must exit before clearing stop flags, opening Chrome, or changing queue state.
+  if (getRuntimePaths().sandboxRoot) {
+    log("Sandbox: Flow worker is disabled; no browser or queue was touched.");
+    return;
+  }
+  assertLiveFlowAllowed();
+  const cfg = loadWorkerConfig(getRuntimePaths().workerConfigFile);
   if (existsSync(STOP_FILE)) unlinkSync(STOP_FILE);
 
   // เปิด Chrome ก่อนแตะ DB เสมอ — โปรไฟล์ .flow-profile เปิดได้ทีละโปรเซส จึงใช้เป็นตัวกันบอทซ้อน

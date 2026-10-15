@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3050",
     "lint": "eslint",
     "flow-worker": "tsx worker/index.ts",
     "flow-smoke:s1": "tsx worker/smoke/s1-session.ts",

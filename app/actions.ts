@@ -6,12 +6,15 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { parseExportDetail } from "@/lib/clip-export";
 import { clipExportRoot, exportClip } from "@/lib/clip-export-fs";
-import { readPostsPerDay, writePostsPerDay } from "@/lib/tts-settings";
+import { readPostsPerDay, writePostsPerDay, readSystemSettings, updateSystemSettings, type SystemSettings } from "@/lib/tts-settings";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { newToken } from "@/lib/scanner-link";
 import { logUserActivity, waitedMsSince } from "@/lib/flow-user-activity";
-import { getProductIdsByEntry, getTookOverJobIds } from "@/lib/flow-queries";
+import { getProductIdsByEntry, getRenderVideoForEntry, getTookOverJobIds } from "@/lib/flow-queries";
+import { synthesizeSpeech } from "@/lib/tts-engine";
+import { mergeVideoWithAudio } from "@/lib/video-merge";
+import { extractVoiceoverScript } from "@/lib/claim-check";
 import { buildPromptText } from "@/lib/prompt-template";
 import { getFewShotExamples } from "@/lib/few-shot";
 import {
@@ -35,6 +38,7 @@ import { downloadImage } from "@/lib/showcase-images";
 import { showcaseFlowState } from "@/lib/showcase";
 import { normalizeHashtags, serializeHashtags } from "@/lib/required-hashtag";
 import { loadWorkerConfig } from "@/worker/config";
+import { getRuntimePaths } from "@/lib/runtime-paths";
 import { CANDIDATE_IMAGE_ROOT, UPLOAD_ROOT, joinPath } from "@/lib/upload-paths";
 import { Prisma } from "@/lib/generated/prisma/client";
 import { parseCaptionOutput } from "@/lib/caption";
@@ -619,6 +623,16 @@ export async function generateWithAI(
     where: { id: entryId },
     data: { chatgptOutput: output },
   });
+
+  // สร้างเสียงพากย์ TTS อัตโนมัติตามการตั้งค่าระบบ (ถ้าเปิดใช้งาน)
+  const sysSettings = await readSystemSettings().catch(() => null);
+  if (sysSettings?.autoGenerateTts) {
+    try {
+      await generateVoiceover(entryId);
+    } catch (ttsErr) {
+      console.error("[generateWithAI auto-tts error]", ttsErr);
+    }
+  }
 
   // มีงาน Flow รอพรอมต์อยู่ (เพิ่งเลือกรูปรอบ 2) → ส่งให้บอท Render คลิปต่อทันที — พรอมต์บันทึกแล้วจริง
   // จึงทำตรงนี้ ไม่รอขั้น caption · ครอบกรณีที่ผู้ใช้มากด "สร้างด้วย AI" เองทีหลังด้วย (ถ้าตัวอัตโนมัติพัง)
@@ -1507,7 +1521,7 @@ export async function chooseFlowCandidate(jobId: string, imageId: string, extraP
   const plan = choose(
     { ...job, images: await loadEntryFlowImages(job.entryId) },
     job.images.find((i) => i.id === imageId),
-    () => loadWorkerConfig().renderEnabled,
+    () => loadWorkerConfig(getRuntimePaths().workerConfigFile).renderEnabled,
     new Date(),
   );
   const image = plan.image;
@@ -1681,6 +1695,8 @@ function openInExplorer(dir: string): void {
  * · ห้ามชี้ไป .flow-profile ของบอท — ชนกับบอทที่เปิดอยู่
  */
 export async function openFlowProjectInBackupProfile(jobId: string): Promise<void> {
+  const { assertLiveFlowAllowed } = await import("@/lib/runtime-paths");
+  assertLiveFlowAllowed();
   const job = await prisma.flowJob.findUnique({ where: { id: jobId }, select: { flowProjectId: true } });
   if (!job) throw new Error("ไม่พบงาน Flow");
   const url = flowProjectUrl(job.flowProjectId);
@@ -1962,4 +1978,202 @@ export async function regenerateScannerToken(): Promise<string> {
   });
   revalidatePath("/showcase");
   return token;
+}
+
+/**
+ * สังเคราะห์เสียงพากย์ภาษาไทยด้วย Gemini 3.8 Flash TTS สำหรับ entry
+ * - ตัดต่อ Dead Air / Silence และเร่งสปีดให้อยู่ในระยะเวลาที่ตั้งไว้ด้วย FFmpeg
+ * - บันทึกเป็น uploads/<entryId>/flow/tts-audio.wav และ tts-meta.json
+ * - หากเปิด autoMergeVideo ไว้และมีคลิปวิดีโออยู่แล้ว จะทำการรวมคลิปโดยอัตโนมัติ
+ */
+export async function generateVoiceover(
+  entryId: string,
+  customScript?: string
+): Promise<{ ok: boolean; message?: string; durationSec?: number }> {
+  try {
+    const entry = await prisma.promptEntry.findUnique({
+      where: { id: entryId },
+      select: { id: true, productName: true, chatgptOutput: true },
+    });
+    if (!entry) return { ok: false, message: "ไม่พบข้อมูลสินค้านี้" };
+
+    const script = (customScript && customScript.trim() !== "")
+      ? customScript.trim()
+      : extractVoiceoverScript(entry.chatgptOutput).trim() || entry.productName;
+
+    if (!script) {
+      return { ok: false, message: "ไม่มีบทพากย์สำหรับสร้างเสียง (กรุณาสร้าง 10-part prompt ก่อน หรือกรอกบทพากย์เอง)" };
+    }
+
+    const settings = await readSystemSettings();
+    const result = await synthesizeSpeech(script, {
+      voice: settings.defaultVoice || "Tavi",
+      style: settings.defaultStyle || "high energy , medium rapid fire, elongated vowels",
+      maxDurationSec: settings.targetDurationSec || 9.6,
+    });
+
+    const flowDir = joinPath(UPLOAD_ROOT, entryId, "flow");
+    await mkdir(flowDir, { recursive: true });
+
+    const audioPath = joinPath(flowDir, "tts-audio.wav");
+    const metaPath = joinPath(flowDir, "tts-meta.json");
+
+    await writeFile(audioPath, result.audioBuffer);
+    await writeFile(
+      metaPath,
+      JSON.stringify(
+        {
+          durationSec: result.finalDurationSec,
+          rawDurationSec: result.rawDurationSec,
+          trimmedDurationSec: result.trimmedDurationSec,
+          tempoApplied: result.tempoApplied,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    // ถ้าระบบเปิด autoMergeVideo ไว้และมีไฟล์คลิปวิดีโออยู่แล้ว ให้รวมคลิปทันที
+    if (settings.autoMergeVideo) {
+      const renderVideo = await getRenderVideoForEntry(entryId);
+      if (renderVideo) {
+        await mergeVideoAudio(entryId).catch((err) => {
+          console.error("[generateVoiceover autoMergeVideo error]", err);
+        });
+      }
+    }
+
+    revalidatePath(`/entry/${entryId}`);
+    revalidatePath("/flow");
+    return { ok: true, durationSec: result.finalDurationSec };
+  } catch (err) {
+    console.error("[generateVoiceover error]", err);
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * รวมไฟล์วิดีโอกับเสียงพากย์ TTS (ลบเสียงดั้งเดิมของ Flow ออกทั้งหมด และฝังเสียงพากย์เข้าไปแทน)
+ * บันทึกเป็น uploads/<entryId>/flow/r3-merged.mp4
+ */
+export async function mergeVideoAudio(
+  entryId: string
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const renderVideo = await getRenderVideoForEntry(entryId);
+    if (!renderVideo) {
+      return { ok: false, message: "ยังไม่มีไฟล์วิดีโอจากบอท Flow" };
+    }
+
+    const flowDir = joinPath(UPLOAD_ROOT, entryId, "flow");
+    const audioPath = joinPath(flowDir, "tts-audio.wav");
+    try {
+      const s = await stat(audioPath);
+      if (!s.isFile()) return { ok: false, message: "ยังไม่มีไฟล์เสียงพากย์ กรุณาสร้างเสียงพากย์ก่อน" };
+    } catch {
+      return { ok: false, message: "ยังไม่มีไฟล์เสียงพากย์ กรุณาสร้างเสียงพากย์ก่อน" };
+    }
+
+    const videoSrcPath = joinPath(UPLOAD_ROOT, renderVideo.originalPath ?? renderVideo.path);
+    const outputPath = joinPath(flowDir, "r3-merged.mp4");
+
+    await mergeVideoWithAudio(videoSrcPath, audioPath, outputPath);
+
+    revalidatePath(`/entry/${entryId}`);
+    revalidatePath("/flow");
+    return { ok: true };
+  } catch (err) {
+    console.error("[mergeVideoAudio error]", err);
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * ยกเลิกการรวมเสียง (ลบ r3-merged.mp4 ทิ้ง เพื่อกลับไปใช้คลิปต้นฉบับของบอท Flow)
+ */
+export async function unmergeVideoAudio(
+  entryId: string
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const outputPath = joinPath(UPLOAD_ROOT, entryId, "flow", "r3-merged.mp4");
+    await unlink(outputPath).catch(() => {});
+    revalidatePath(`/entry/${entryId}`);
+    revalidatePath("/flow");
+    return { ok: true };
+  } catch (err) {
+    console.error("[unmergeVideoAudio error]", err);
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * สังเคราะห์เสียงพากย์เดี่ยว (สำหรับหน้า /tts Studio)
+ * คืนค่า base64 WAV พร้อมข้อมูลความยาว เพื่อให้เบราว์เซอร์เล่นและดาวน์โหลดได้ทันที
+ */
+export async function generateStandaloneTts(
+  text: string,
+  voice: string = "Tavi",
+  style: string = "high energy , medium rapid fire, elongated vowels",
+  maxDurationSec: number = 10.0
+): Promise<{
+  ok: boolean;
+  audioBase64?: string;
+  durationSec?: number;
+  rawDurationSec?: number;
+  trimmedDurationSec?: number;
+  tempoApplied?: number;
+  message?: string;
+}> {
+  try {
+    const cleanText = text.trim();
+    if (!cleanText) return { ok: false, message: "กรุณาระบุข้อความบทพากย์" };
+
+    const result = await synthesizeSpeech(cleanText, {
+      voice,
+      style,
+      maxDurationSec,
+    });
+
+    return {
+      ok: true,
+      audioBase64: result.audioBuffer.toString("base64"),
+      durationSec: result.finalDurationSec,
+      rawDurationSec: result.rawDurationSec,
+      trimmedDurationSec: result.trimmedDurationSec,
+      tempoApplied: result.tempoApplied,
+    };
+  } catch (err) {
+    console.error("[generateStandaloneTts error]", err);
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * ดึงค่าการตั้งค่าระบบทั้งหมด
+ */
+export async function getSystemSettingsAction(): Promise<SystemSettings> {
+  return readSystemSettings();
+}
+
+/**
+ * บันทึกการตั้งค่าระบบ (postsPerDay, autoGenerateTts, autoMergeVideo, targetDurationSec, defaultVoice, defaultStyle)
+ */
+export async function saveSystemSettingsAction(
+  partial: Partial<SystemSettings>
+): Promise<{ ok: boolean; settings: SystemSettings; message?: string }> {
+  try {
+    const updated = await updateSystemSettings(partial);
+    revalidatePath("/");
+    revalidatePath("/flow");
+    revalidatePath("/tts");
+    return { ok: true, settings: updated };
+  } catch (err) {
+    return {
+      ok: false,
+      settings: await readSystemSettings(),
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }

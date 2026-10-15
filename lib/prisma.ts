@@ -1,12 +1,13 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@/lib/generated/prisma/client";
+import { getRuntimePaths } from "@/lib/runtime-paths";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
 const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL as string,
+  url: getRuntimePaths().databaseUrl,
 });
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });

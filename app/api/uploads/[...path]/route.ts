@@ -11,6 +11,9 @@ const MIME_BY_EXT: Record<string, string> = {
   ".heif": "image/heif",
   // คลิปที่บอท Flow ทำ (uploads/<entryId>/flow/r3-a<n>.mp4) — ต้องตอบ Range ด้วย ไม่งั้น <video> เลื่อนดูไม่ได้
   ".mp4": "video/mp4",
+  // เสียงพากย์ TTS (uploads/<entryId>/flow/tts-audio.wav)
+  ".wav": "audio/wav",
+  ".mp3": "audio/mpeg",
   // หลักฐานตอน Flow bot พัง (uploads/_flow-failures/) — เสิร์ฟเป็น text ล้วน ไม่ render HTML
   ".html": "text/plain; charset=utf-8",
   ".log": "text/plain; charset=utf-8",

@@ -16,7 +16,7 @@ import { playCompletionSound } from "@/lib/completion-sound";
 import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
 import { FlowEnqueuePanel, type FlowJobSummary } from "@/components/flow-enqueue-panel";
-import type { EntryRenderVideo } from "@/lib/flow-queries";
+import type { EntryRenderVideo, EntryTtsAudio } from "@/lib/flow-queries";
 import { EntryHeader } from "@/components/entry-header";
 import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
 import { ProductIdCopy } from "@/components/product-id-copy";
@@ -91,6 +91,7 @@ export function EntryWorkspace({
   usedAngles,
   flowJob,
   renderVideo = null,
+  ttsAudio = null,
   productId = null,
   requiredHashtags = [],
   photoLibrary = null,
@@ -101,6 +102,8 @@ export function EntryWorkspace({
   flowJob: FlowJobSummary | null;
   /** คลิปที่บอท Render ให้ entry นี้ (แท็บผลลัพธ์) · หน้า /entry/new ไม่มี */
   renderVideo?: EntryRenderVideo | null;
+  /** ไฟล์เสียงพากย์ TTS ของ entry นี้ */
+  ttsAudio?: EntryTtsAudio | null;
   /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = null ไม่แสดง) */
   productId?: string | null;
   /** แฮชแท็กที่ต้องลงของสินค้าจาก Showcase (ว่าง = ไม่แสดง) */
@@ -364,6 +367,7 @@ export function EntryWorkspace({
               key={entry.id}
               entry={entry}
               renderVideo={renderVideo}
+              ttsAudio={ttsAudio}
             />
           </div>
         )}

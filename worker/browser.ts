@@ -2,6 +2,7 @@ import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import type { WorkerConfig } from "./config";
 import { sleepMs } from "./humanize";
+import { assertLiveFlowAllowed } from "@/lib/runtime-paths";
 
 /**
  * เปิด Chrome จริง (channel "chrome") ด้วยโปรไฟล์ถาวรของบอท
@@ -14,6 +15,7 @@ import { sleepMs } from "./humanize";
 export async function launchFlowBrowser(
   cfg: WorkerConfig
 ): Promise<{ context: BrowserContext; page: Page }> {
+  assertLiveFlowAllowed();
   const profileDir = path.resolve(cfg.profileDir);
   const context = await chromium.launchPersistentContext(profileDir, {
     channel: "chrome",

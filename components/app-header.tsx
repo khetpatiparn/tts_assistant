@@ -2,16 +2,18 @@ import Link from "next/link";
 import { Compass } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-export type NavKey = "list" | "entry" | "core" | "dashboard" | "products" | "showcase" | "flow";
+export type NavKey = "list" | "entry" | "core" | "dashboard" | "products" | "showcase" | "flow" | "tts";
 
 const NAV: { key: NavKey; href: string; label: string }[] = [
   { key: "list", href: "/", label: "รายการสินค้า" },
-  // เรียงตามขั้นงาน: หาสินค้า (เลือกว่าจะเพิ่มอะไรเข้า Showcase) → Showcase (งานที่ต้องทำ) → คิว Flow
-  { key: "products", href: "/products", label: "หาสินค้า" },
+  // เรียงตามขั้นงานหลัก: Showcase (งานที่ต้องทำ) → คิว Flow → รายได้ → หาสินค้า (แคปหน้าจัดอันดับ)
   { key: "showcase", href: "/showcase", label: "Showcase" },
   { key: "flow", href: "/flow", label: "คิว Flow" },
+  { key: "tts", href: "/tts", label: "สร้างเสียง TTS" },
+  { key: "products", href: "/products", label: "หาสินค้า" },
   { key: "core", href: "/core-prompt", label: "Core Prompt" },
   { key: "dashboard", href: "/dashboard", label: "รายได้" },
 ];
@@ -46,6 +48,7 @@ export function AppHeader({
         </Link>
         <div className="flex items-center gap-2">
           {children}
+          <SettingsDialog />
           <ThemeToggle />
         </div>
       </div>

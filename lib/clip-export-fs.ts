@@ -6,7 +6,6 @@
  * ทดสอบกับโฟลเดอร์ชั่วคราวจริง: scripts/check-clip-export-fs.mjs
  */
 import { copyFile, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { extractVoiceoverScript } from "@/lib/claim-check";
 import {
@@ -16,10 +15,11 @@ import {
 } from "@/lib/clip-export";
 import { FINAL_VIDEO_FILENAME, currentSourceImage } from "@/lib/flow-jobs";
 import { joinPath } from "@/lib/upload-paths";
+import { getRuntimePaths } from "@/lib/runtime-paths";
 
 /** root ของโฟลเดอร์ TTS = CLIP_EXPORT_ROOT ถ้าตั้ง ไม่งั้น Desktop\TTS (โฟลเดอร์งานจริงของผู้ใช้ — ตอนทดสอบต้องตั้ง env นี้เสมอ) */
 export function clipExportRoot(): string {
-  return process.env.CLIP_EXPORT_ROOT ?? path.join(os.homedir(), "Desktop", "TTS");
+  return getRuntimePaths().exportRoot;
 }
 
 /** ข้อมูลของงานที่ต้องใช้ส่ง — images = แถว FlowJobImage ของงาน, flowDir = uploads/<entryId>/flow */
@@ -122,14 +122,24 @@ export async function exportClip(args: {
     if (video !== null) {
       const isFinal = video.filename === FINAL_VIDEO_FILENAME;
       const clipName = exportClipName(isFinal);
+      const mergedVideoPath = joinPath(job.flowDir, "r3-merged.mp4");
+      const videoSrc = (await isFile(mergedVideoPath)) ? mergedVideoPath : video.src;
       if (copyClip) {
-        await copyFile(video.src, path.join(dir, clipName));
+        await copyFile(videoSrc, joinPath(dir, clipName));
         // อัปเดต 720p → 1080p: ห้ามเหลือคลิปอีกขนาดค้างไว้ให้หยิบผิดตัวไปโพสต์
-        await rm(path.join(dir, otherExportClipName(isFinal)), { force: true });
+        await rm(joinPath(dir, otherExportClipName(isFinal)), { force: true });
         files.push(clipName);
-      } else if (await isFile(path.join(dir, clipName))) {
+      } else if (await isFile(joinPath(dir, clipName))) {
         files.push(clipName); // กดซ้ำคลิปเดิม: ไม่ก๊อปทับ แต่คลิปยังอยู่ในรายการไฟล์
       }
+    }
+
+    // ไฟล์เสียงพากย์ (TTS) — หากมีการสร้างเสียงพากย์ไว้ ก๊อปปี้ไปเป็น เสียงพากย์.wav
+    const ttsAudioPath = joinPath(job.flowDir, "tts-audio.wav");
+    if (await isFile(ttsAudioPath)) {
+      const audioName = "เสียงพากย์.wav";
+      await copyFile(ttsAudioPath, joinPath(dir, audioName));
+      files.push(audioName);
     }
 
     // รูปต้นทางอยู่ในทุกโฟลเดอร์ (งานบอทและทำต่อเอง) — ของที่ต้องลากเข้า Flow ถ้าจะเรนเดอร์ใหม่เอง · รูปปัจจุบัน (หลังเปลี่ยนรูปต้นทาง = แถวล่าสุด)
@@ -138,7 +148,7 @@ export async function exportClip(args: {
       const src = joinPath(job.flowDir, source.filename);
       if (await isFile(src)) {
         const name = sourcePhotoName(path.extname(source.filename));
-        await copyFile(src, path.join(dir, name));
+        await copyFile(src, joinPath(dir, name));
         files.push(name);
       }
     }
@@ -149,7 +159,7 @@ export async function exportClip(args: {
       const src = joinPath(job.flowDir, row.filename);
       if (!(await isFile(src))) continue;
       const name = `${label}${path.extname(row.filename)}`;
-      await copyFile(src, path.join(dir, name));
+      await copyFile(src, joinPath(dir, name));
       files.push(name);
     }
 
@@ -160,10 +170,10 @@ export async function exportClip(args: {
     ];
     for (const [name, text] of texts) {
       if (text === "") {
-        await rm(path.join(dir, name), { force: true });
+        await rm(joinPath(dir, name), { force: true });
         continue;
       }
-      await writeFile(path.join(dir, name), text + "\n", "utf8");
+      await writeFile(joinPath(dir, name), text + "\n", "utf8");
       files.push(name);
     }
     return files;
