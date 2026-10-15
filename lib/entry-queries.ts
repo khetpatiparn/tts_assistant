@@ -2,9 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { sortEntriesForRail } from "@/lib/entry-sort";
 import { entryStatus, type EntryRow } from "@/lib/entry-rows";
 import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+import { buildDashboardView } from "@/lib/dashboard-view";
 import { collectFamily, collectUsedAngles, summarizeEntryOutcome } from "@/lib/angle";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
-import { summarizeEntrySales, type EntrySalesSummary } from "@/lib/entry-sales";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -86,13 +86,29 @@ function daysSince(lastMs: number): number {
   return Math.floor((Date.now() - lastMs) / DAY_MS);
 }
 
-/** ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — ย้ายมาจาก app/page.tsx เดิมทั้งดุ้น */
-export async function getDashboardData() {
-  const [orders, clipMetrics, importLogs] = await Promise.all([
+/**
+ * ข้อมูลทั้งหมดที่หน้า /dashboard ใช้ — สรุปเสร็จฝั่ง server (`buildDashboardView`)
+ * ออเดอร์ดิบ/ClipMetric/entry ไม่ถูกส่งลง client (เดิมส่งทั้งตารางจน HTML ~3.7 MB)
+ */
+export async function getDashboardData(now: Date) {
+  const [orders, clipMetrics, importLogs, entryRows] = await Promise.all([
     prisma.affiliateOrder.findMany({ orderBy: { orderDate: "asc" } }),
     prisma.clipMetric.findMany({ orderBy: { capturedOn: "asc" } }),
     prisma.importLog.findMany({ orderBy: { uploadedAt: "asc" } }),
+    // ใช้แค่ฟิลด์ที่ recommender/repeatStatus อ่าน — เรียงแบบเดียวกับ getEntryRows
+    // เพราะ detectTasks เรียงแบบ stable ลำดับ entry จึงเป็นตัวตัดสินงานที่คะแนนเท่ากัน
+    prisma.promptEntry.findMany({
+      select: {
+        id: true,
+        productName: true,
+        duplicatedFromId: true,
+        videoUrl: true,
+        postedAt: true,
+        createdAt: true,
+      },
+    }),
   ]);
+  const entries = sortEntriesForRail(entryRows);
 
   let daysSinceOrdersImport: number | null = null;
   let lastOrdersImportedAt: Date | null = null;
@@ -126,9 +142,7 @@ export async function getDashboardData() {
     unmatchedSoldProducts > 0;
 
   return {
-    orders,
-    clipMetrics,
-    importLogs,
+    view: buildDashboardView({ orders, clipMetrics, importLogs, entries, now }),
     reminder,
     reminderActive,
     lastOrdersImportedAt,
@@ -192,21 +206,4 @@ export async function getUsedAngles(entryId: string): Promise<UsedAngleWithOutco
     ...u,
     outcome: summarizeEntryOutcome({ entryId: u.entryId, orders, metrics }),
   }));
-}
-
-/**
- * ยอดขาย/ยอดวิวต่อ entry ทั้งหมด — โหลด AffiliateOrder/ClipMetric แบบเบา (แค่ฟิลด์ที่
- * summarizeEntrySales ใช้จริง) ครั้งเดียวต่อ request ไม่ query ซ้ำต่อแถวที่แสดงใน
- * หน้ารายการ ตารางทั้งสองยังมีขนาดหลักร้อยแถว (เทียบเท่าที่ /dashboard โหลดอยู่แล้ว)
- */
-export async function getEntrySales(): Promise<Map<string, EntrySalesSummary>> {
-  const [orders, metrics] = await Promise.all([
-    prisma.affiliateOrder.findMany({
-      select: { matchedEntryId: true, gmv: true, finalRevenue: true },
-    }),
-    prisma.clipMetric.findMany({
-      select: { matchedEntryId: true, views: true, capturedOn: true },
-    }),
-  ]);
-  return summarizeEntrySales(orders, metrics);
 }

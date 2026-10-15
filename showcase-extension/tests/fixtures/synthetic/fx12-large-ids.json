@@ -1,0 +1,40 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "products": [
+      {
+        "product_id": "1736749159048840633",
+        "title": "ID เป็น string ยาว 19 หลัก",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": 1736749159048840633,
+        "title": "ID เป็นตัวเลขไม่ใส่ quotes เกิน Number.MAX_SAFE_INTEGER",
+        "format_available_price": "฿11.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": 9007199254740993,
+        "title": "ID เท่ากับ MAX_SAFE_INTEGER + 2 ปัดแล้วได้ค่าอื่น",
+        "format_available_price": "฿12.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": 4242,
+        "title": "ID เป็นตัวเลขเล็กที่ปลอดภัย แปลงเป็น string ได้ตรง",
+        "format_available_price": "฿13.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      }
+    ]
+  }
+}

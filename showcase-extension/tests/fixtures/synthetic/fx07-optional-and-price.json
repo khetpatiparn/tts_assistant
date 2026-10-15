@@ -1,0 +1,83 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "products": [
+      {
+        "product_id": "9100000000000000001",
+        "title": "ราคาแบบมีคอมมา",
+        "format_available_price": "฿1,299.00",
+        "stock_num": 3,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9100000000000000002",
+        "title": "ราคาเป็นช่วง",
+        "format_available_price": "฿99.00 - ฿249.00",
+        "stock_num": 3,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9100000000000000003",
+        "title": "ไม่มี cover, seller_info และ affiliate_info เลย",
+        "format_available_price": "฿55.00",
+        "stock_num": 3,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9100000000000000004",
+        "title": "cover เป็น null, shop_name และ commission_rate เป็น null",
+        "format_available_price": "฿55.00",
+        "stock_num": 3,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": null,
+        "seller_info": { "shop_name": null },
+        "affiliate_info": { "commission_rate": null }
+      },
+      {
+        "product_id": "9100000000000000005",
+        "title": "stock เป็นค่าติดลบซึ่งผิดกฎ",
+        "format_available_price": "฿55.00",
+        "stock_num": -4,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9100000000000000006",
+        "title": "stock เป็นข้อความ",
+        "format_available_price": "฿55.00",
+        "stock_num": "หลายชิ้น",
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "",
+        "title": "product_id ว่าง ต้องถูก quarantine",
+        "format_available_price": "฿55.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9100000000000000008",
+        "title": "   ",
+        "format_available_price": "฿55.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "91abc000000000000009",
+        "title": "product_id ไม่ใช่เลขฐานสิบ",
+        "format_available_price": "฿55.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      }
+    ]
+  }
+}

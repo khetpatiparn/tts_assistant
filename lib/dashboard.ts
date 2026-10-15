@@ -1,7 +1,9 @@
 import { PAID_STATUS } from "@/lib/affiliate";
 
-/** รอบนำเข้าไฟล์รายได้ — อิงรอบ settle ของ TikTok (~สัปดาห์) ใช้ทั้งแถบเตือนและบรรทัดสถานะ */
-export const IMPORT_STALE_DAYS = 7;
+// ค่าจริงย้ายไป lib/import-schedule.ts แล้ว (ไฟล์นั้นไม่ import อะไรเลยจึงทดสอบเดี่ยวได้)
+// re-export ไว้เพื่อให้ผู้เรียกเดิมไม่ต้องแก้ (lib/entry-queries.ts) — component ฝั่ง client ให้ import
+// จาก lib/import-schedule ตรง เพราะไฟล์นี้ลาก lib/affiliate.ts -> xlsx เข้า bundle ของเบราว์เซอร์
+export { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
 
 export type AffiliateOrderRecord = {
   orderId: string;
@@ -93,6 +95,26 @@ export function ordersByDay(orders: AffiliateOrderRecord[]) {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** ช่วงเวลาของกราฟรายวัน (ปุ่มเลือกช่วงใน components/revenue-charts.tsx) — days null = ทั้งหมด */
+export const REVENUE_RANGES = [
+  { key: "7d", label: "7 วัน", days: 7 },
+  { key: "30d", label: "30 วัน", days: 30 },
+  { key: "all", label: "ทั้งหมด", days: null },
+] as const;
+
+export type RevenueRangeKey = (typeof REVENUE_RANGES)[number]["key"];
+
+/**
+ * ช่วงเวลานับถอยหลังจากวันที่ล่าสุดที่มีข้อมูล (ไม่ใช่วันนี้) —
+ * ข้อมูลนำเข้ามือแล้วมักค้างหลายวัน ถ้านับจากวันนี้ ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล
+ */
+export function filterByRange(orders: AffiliateOrderRecord[], days: number | null) {
+  if (days === null || orders.length === 0) return orders;
+  const latest = Math.max(...orders.map((o) => o.orderDate.getTime()));
+  const cutoff = latest - (days - 1) * DAY_MS;
+  return orders.filter((o) => o.orderDate.getTime() >= cutoff);
+}
+
 /** ตัดเวลาออก เหลือแค่วันตามปฏิทินท้องถิ่น — ใช้ตัดขอบหน้าต่าง 7 วัน */
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -102,7 +124,7 @@ function startOfLocalDay(d: Date): Date {
  * แนวโน้มยอดขาย (GMV) rolling 7 วัน: เทียบ "7 วันล่าสุดที่มีข้อมูลจริง" กับ "7 วันก่อนหน้านั้น"
  *
  * จุดยึดคือวันที่ล่าสุดที่มีออเดอร์จริงในระบบ ไม่ใช่ new Date() วันนี้ตามนาฬิกา — เหตุผลเดียวกับ
- * filterByRange ใน components/revenue-charts.tsx: ข้อมูลนำเข้ามือมักค้างหลายวัน ถ้านับจากวันนี้จริง
+ * filterByRange ด้านบน: ข้อมูลนำเข้ามือมักค้างหลายวัน ถ้านับจากวันนี้จริง
  * ช่วง 7 วันอาจว่างเปล่าทั้งที่มีข้อมูล และผู้ใช้อัปข้อมูลไม่ตรงรอบตายตัว (5-7 วัน) จึงใช้ rolling
  * ไม่ใช่ปฏิทินจันทร์-อาทิตย์ — ปฏิทินจะทำให้สัปดาห์ปัจจุบัน "ยังไม่จบ" เกือบทุกครั้งที่อัปข้อมูล
  *
@@ -228,6 +250,18 @@ export function ordersByStatus(orders: AffiliateOrderRecord[]) {
     }
   }
   return [...map.values()].sort((a, b) => b.gmv - a.gmv);
+}
+
+/** สินค้าที่ขายได้แต่ยังไม่มี entry (ยังไม่ผูก matchedEntryId) — รวมตาม content id เรียงออเดอร์มาก→น้อย */
+export function unmatchedProducts(orders: AffiliateOrderRecord[]) {
+  const map = new Map<string, { contentId: string; productName: string; orders: number }>();
+  for (const o of orders) {
+    if (o.matchedEntryId !== null) continue;
+    const ex = map.get(o.contentId);
+    if (ex) ex.orders++;
+    else map.set(o.contentId, { contentId: o.contentId, productName: o.productName, orders: 1 });
+  }
+  return [...map.values()].sort((a, b) => b.orders - a.orders);
 }
 
 export type ReminderState = {

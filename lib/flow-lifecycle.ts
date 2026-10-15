@@ -1,0 +1,938 @@
+/**
+ * วงจรชีวิตของงานในคิว Flow (FlowJob) — ที่เดียวที่รู้ว่าแต่ละจังหวะเปลี่ยนงานเป็นอะไร: ผู้ใช้กดที่ Checkpoint
+ * (เลือกรูป / วาดใหม่ / ผ่าน / รันต่อ / ข้าม / ทำต่อเอง) · บอทหยิบงาน ทำรอบเสร็จ หรือพัง · เปิดบอทแล้วกวาดงานค้าง
+ * แต่ละจังหวะคืน "แผน" (Plan) = แพตช์ของ FlowJob + ผลข้างเคียงในตาราง Flow (ลบ/สร้างแถวคลิป, ปลดการหยุดของบอท)
+ * ซึ่ง lib/flow-lifecycle-db.ts เขียนลง DB ทีเดียว (ทรานแซกชันเดียวถ้ามีหลายขั้น) — app/actions.ts และ worker/index.ts
+ * ไม่เขียน FlowJob เอง จึงไม่มีจุดไหนลืมล้างช่อง error / ล้าง extraPrompt / ปลด pause / ลบแถวคลิปอีก
+ *
+ * pure ล้วน (ไม่มี Prisma ไม่มี node:*) เพราะ client component import gate (canApproveRender ฯลฯ) และ friendlyJobMessage
+ * ตรวจด้วย scripts/check-flow-lifecycle.mjs · ไฟล์บนดิสก์ / revalidatePath / FlowActivity / แจ้งเตือน ยังเป็นงานของผู้เรียก
+ */
+import {
+  ERROR_KIND_LABELS,
+  FINAL_VIDEO_FILENAME,
+  FLOW_STATUS,
+  candidateFilename,
+  imageExtFromMime,
+  isOpenStatus,
+  normalizeExtraPrompt,
+  queuedStatus,
+  reviewStatus,
+  runningStatus,
+  sourceFilename,
+  toJobRound,
+  videoFilename,
+  type FlowRound,
+  type FlowStatus,
+  type JobRound,
+} from "@/lib/flow-jobs";
+import { isNetworkRetryStep, isTransientNetworkMessage } from "@/lib/flow-network";
+
+/** ช่องของ FlowJob ที่วงจรชีวิตเปลี่ยนได้ (ไม่ระบุ = ไม่แตะ) */
+export type JobPatch = {
+  status?: FlowStatus;
+  round?: JobRound;
+  attempt?: number;
+  extraPrompt?: string;
+  flowProjectId?: string;
+  startedAt?: Date;
+  finishedAt?: Date | null;
+  failedStep?: string;
+  errorKind?: string;
+  errorMessage?: string;
+  failureDir?: string;
+};
+
+/** แถว FlowJobImage ใหม่ของงาน (jobId เติมตอนเขียน) */
+export type ImageRow = {
+  kind: "source" | "candidate" | "video";
+  round: number;
+  attempt: number;
+  index: number;
+  filename: string;
+  mimeType: string;
+  promptExtra?: string;
+  flowMediaId?: string;
+};
+
+/** แผนของงานเดียว — lib/flow-lifecycle-db.ts เขียนตามลำดับ: clearChosen → markChosen → deleteVideoRows → createImages → finalizeVideoRowId → job → unpauseWorker */
+export type Plan = {
+  job: JobPatch;
+  /** เปลี่ยนรูปต้นทาง: ปลด chosen ของรูป candidate ทุกรอบทุก attempt (แถวรูปยังอยู่) */
+  clearChosen?: boolean;
+  /** Checkpoint รูป: ปลด chosen ทุกรูป candidate ของรอบนี้ แล้วตั้งรูปที่เลือก */
+  markChosen?: { round: number; imageId: string };
+  /** ลบแถวคลิป (kind "video") ทั้งหมดของงาน — งานมีแถวคลิปได้แถวเดียว · ไฟล์บนดิสก์ผู้เรียกลบเอง */
+  deleteVideoRows?: boolean;
+  createImages?: ImageRow[];
+  /** แถวคลิปเดิม (Preview clip ที่ผ่าน) กลายเป็น Final clip */
+  finalizeVideoRowId?: string;
+  /** ปลดการหยุดของบอท (FlowWorkerState) พร้อมกัน */
+  unpauseWorker?: boolean;
+};
+
+/** แผนแบบมีเงื่อนไข (updateMany) — ใช้ตอนหยิบงาน กวาดงานค้าง และส่งต่อหลังพรอมต์พร้อม · ผู้เรียกเติมขอบเขต (id / entryId) */
+export type BulkPlan = {
+  where: { status: FlowStatus | FlowStatus[]; errorKind?: string; round?: number };
+  job: JobPatch;
+};
+
+/** ล้างร่องรอยการพังของรอบก่อน — ทุกครั้งที่งานกลับเข้าคิว/เริ่มรอบใหม่ */
+const CLEARED_FAILURE = { failedStep: "", errorKind: "", errorMessage: "", failureDir: "" } as const;
+
+/** errorMessage เก็บได้ไม่เกินนี้ (ข้อความดิบจาก Playwright ยาวได้หลายหมื่นตัว) */
+const MESSAGE_MAX = 2000;
+
+// ---------------------------------------------------------------------------
+// errorMessage ของงานที่จบด้วย Preview clip (720p) — โปรโตคอลในข้อความ (ไม่มีคอลัมน์แยก) ที่นี่ที่เดียวที่เขียนและอ่าน
+// ---------------------------------------------------------------------------
+
+const PREVIEW_ONLY_PREFIX = "ได้ 720p";
+
+/** เขียน: งาน done ที่ได้แค่ Preview clip เพราะโหลด Final clip ไม่ได้ — detail = เหตุผล */
+export function previewOnlyMessage(detail: string): string {
+  return `${PREVIEW_ONLY_PREFIX} (${detail})`.slice(0, MESSAGE_MAX);
+}
+
+/** อ่าน: errorMessage นี้คือ "จบด้วย 720p" (หน้า /flow สรุปเป็นบรรทัดเดียวแทนข้อความดิบ) */
+export function isPreviewOnlyMessage(errorMessage: string): boolean {
+  return errorMessage.trim().startsWith(PREVIEW_ONLY_PREFIX);
+}
+
+/** errorMessage ของงาน Render ที่บอทตายหลังกดสร้างคลิป (stale sweep ใน worker/index.ts) — หน้า /flow โชว์ลิงก์โปรเจกต์ + ปุ่มปิดงาน */
+export const STALE_RENDER_MESSAGE =
+  "บอทหยุดกลางทางหลังกดสร้างคลิป — คลิปน่าจะอยู่ในโปรเจกต์ Flow แล้ว: เปิดโปรเจกต์ดู/โหลดเอง แล้วปิดงาน หรือกด เรนเดอร์ใหม่ (เสีย 15 เครดิต)";
+
+/**
+ * ข้อความของงาน (errorMessage) แบบคนอ่านรู้เรื่อง — summary บรรทัดเดียวภาษาไทยธรรมดา + detail คือข้อความดิบเต็ม
+ * (ไว้พับใน <details>) · ว่าง = ไม่มีอะไรให้โชว์ · ข้อความสั้นที่เป็นภาษาไทยอยู่แล้วและไม่ใช่ error ดิบ แสดงตามเดิมไม่พับ
+ */
+export function friendlyJobMessage(status: string, errorMessage: string): { summary: string; detail: string | null } {
+  const raw = errorMessage.trim();
+  if (raw === "") return { summary: "", detail: null };
+  if (isPreviewOnlyMessage(raw)) return { summary: "ได้คลิป 720p — โหลด 1080p ไม่สำเร็จ", detail: raw };
+  const looksTechnical =
+    raw.length > 140 || /Timeout \d+ms|Call log|locator\.|page\.|net::|at \S+:\d+|\n/.test(raw);
+  if (!looksTechnical) return { summary: raw, detail: null };
+  const summary =
+    status === FLOW_STATUS.FAILED ? "บอทแจ้งข้อผิดพลาดทางเทคนิค — ดูรายละเอียดด้านล่าง" : "มีข้อความทางเทคนิคจากบอท — ดูรายละเอียดด้านล่าง";
+  return { summary, detail: raw };
+}
+
+// ---------------------------------------------------------------------------
+// gate ของปุ่มในหน้า /flow — server action ใช้ตัวเดียวกันตรวจซ้ำ (client อาจค้างหน้าเก่า)
+// ---------------------------------------------------------------------------
+
+/** review_r3 ที่ไม่มีไฟล์ (โหลดไม่ได้ทั้งสองทาง): กด "ผ่าน" ไม่ได้ (ไม่มีไฟล์ให้ผ่าน) แต่ "เรนเดอร์ใหม่" ได้ */
+export function canApproveRender(status: string, hasVideoFile: boolean): boolean {
+  return status === FLOW_STATUS.REVIEW_R3 && hasVideoFile;
+}
+
+/**
+ * งานที่จบด้วยตัวอย่าง 720p (โหลด 1080p ไม่ได้) → "ลองโหลด 1080p อีกครั้ง" ได้ ไม่เสียเครดิต ไม่เรนเดอร์ใหม่
+ * ต้องมีแถวคลิปที่ยังไม่ใช่ไฟล์ 1080p และรู้โปรเจกต์ที่คลิปอยู่
+ */
+export function canRetryUpscale(
+  status: string,
+  video: { filename: string; chosen: boolean } | null,
+  flowProjectId: string,
+): boolean {
+  return status === FLOW_STATUS.DONE && video !== null && !video.chosen && video.filename !== FINAL_VIDEO_FILENAME && flowProjectId !== "";
+}
+
+/** บอทกำลังทำงานนี้อยู่ (running_*) — หน้าจอใช้ตัวนี้แทนเช็ก prefix ของชื่อสถานะเอง */
+export function isBotWorking(status: string): boolean {
+  return ([1, 2, 3, 4] as const).some((round) => runningStatus(round) === status);
+}
+
+/** รอบอทหยิบงาน (queued_*) */
+export function isWaitingForBot(status: string): boolean {
+  return ([1, 2, 3, 4] as const).some((round) => queuedStatus(round) === status);
+}
+
+/**
+ * สถานะที่ผู้ใช้ "ทำต่อเอง" ได้ = ทุกสถานะเปิดยกเว้น running_* (บอทกำลังทำ) — รายการเดียว ใช้ร่วมทั้ง gate (canTakeOver/takeOver),
+ * adapter (lib/flow-lifecycle-db.ts applyTakeOver) และหน้าจอ · derive จากรายการสถานะ ไม่เขียนซ้ำ
+ */
+export const TAKEOVER_STATUSES: readonly FlowStatus[] = (Object.values(FLOW_STATUS) as FlowStatus[]).filter(
+  (s) => isOpenStatus(s) && !isBotWorking(s),
+);
+
+/** ปุ่ม "ทำต่อเอง": งานที่บอทไม่ได้กำลังทำอยู่ (และยังไม่จบ) */
+export function canTakeOver(status: string): boolean {
+  return (TAKEOVER_STATUSES as readonly string[]).includes(status);
+}
+
+/** ข้อความปฏิเสธเมื่อบอทหยิบงานไปก่อนผู้ใช้กด — ที่เดียว (takeOver, action ที่ได้ 0 แถว, หน้าจอ) */
+export const TAKEOVER_BOT_BUSY_MESSAGE = "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จแล้วค่อยกดทำต่อเอง";
+
+/** อยู่ขั้นทำคลิป (รอพรอมต์/รอคิว/รอดู/พังตอนทำคลิป) — หน้า /flow ใช้ตัดสินว่าจะโชว์แผงทำคลิปเองตอนปิด Render อัตโนมัติ */
+export function isInRenderStage(status: string, round: number): boolean {
+  return (
+    status === FLOW_STATUS.AWAITING_PROMPT ||
+    status === FLOW_STATUS.QUEUED_R3 ||
+    status === FLOW_STATUS.REVIEW_R3 ||
+    (status === FLOW_STATUS.FAILED && round >= 3)
+  );
+}
+
+// ---------------------------------------------------------------------------
+// แก้ 10-part prompt ที่หน้า /flow (PromptEntry.chatgptOutput — ช่องเดียวกับหน้า entry)
+// ---------------------------------------------------------------------------
+
+/**
+ * "ok" = แก้ได้ (queued_r3 / review_r3 / failed รอบ 3) · "bot_running" = บอทกำลังเรนเดอร์ (running_r3): หน้าจออ่านอย่างเดียว
+ * แต่ถ้ากดบันทึกทันเวลาที่บอทหยิบไป action ยังบันทึกให้ แล้วบอกว่ารอบนี้ใช้พรอมต์เดิม · "refused" = สถานะอื่น ไม่บันทึก
+ */
+export function promptSaveGate(status: string, round: number): "ok" | "bot_running" | "refused" {
+  if (status === FLOW_STATUS.QUEUED_R3 || status === FLOW_STATUS.REVIEW_R3) return "ok";
+  if (status === FLOW_STATUS.FAILED && round === 3) return "ok";
+  if (status === FLOW_STATUS.RUNNING_R3) return "bot_running";
+  return "refused";
+}
+
+/** "บันทึกแล้วเรนเดอร์ใหม่" ทำได้เฉพาะตอนรอดูคลิป (มีคลิปตัวอย่างให้ทิ้ง) */
+export function canRerenderWithPrompt(status: string): boolean {
+  return status === FLOW_STATUS.REVIEW_R3;
+}
+
+export const PROMPT_BOT_RUNNING_MESSAGE = "บันทึกพรอมต์แล้ว — แต่บอทเพิ่งเริ่มเรนเดอร์รอบนี้ รอบนี้ใช้พรอมต์เดิม พรอมต์ใหม่ใช้ตอนเรนเดอร์ครั้งถัดไป";
+export const PROMPT_REFUSED_MESSAGE = "งานนี้อยู่ขั้นที่แก้พรอมต์ไม่ได้แล้ว — ไม่ได้บันทึก";
+
+/** null = ใช้ได้ · ไม่ใช่ null = ข้อความไทยบอกเหตุ (พรอมต์ว่างจะทำให้บอทไม่ได้พิมพ์อะไรลง Flow) */
+export function checkPromptText(text: string): string | null {
+  return text.trim() === "" ? "พรอมต์ว่างเปล่า — ไม่ได้บันทึก" : null;
+}
+
+/** ตัดช่องว่างหัวท้าย เหมือนที่หน้า entry ทำกับ chatgptOutput */
+export function normalizePromptText(text: string): string {
+  return text.trim();
+}
+
+// ---------------------------------------------------------------------------
+// ผู้ใช้ (หน้า /flow, Showcase, หน้า entry)
+// ---------------------------------------------------------------------------
+
+/**
+ * attempt แรกของงานใหม่ = 1 + attempt สูงสุดของทุกแถวรูปใน entry (ทุกงาน) · entry ไม่เคยมีงาน = 1
+ * งานทุกตัวของ entry ใช้โฟลเดอร์ `uploads/<entryId>/flow/` เดียวกัน และชื่อไฟล์รูปที่วาดคือ r<round>-a<attempt>-<index> —
+ * งานใหม่ที่เริ่ม a1 ใหม่จะเขียนทับรูปของงานก่อน (รูปในคลังรูปหาย)
+ */
+export function newJobAttempt(entryImages: { attempt: number }[]): number {
+  return entryImages.reduce((m, i) => Math.max(m, i.attempt), 0) + 1;
+}
+
+/**
+ * เข้าคิว: งานใหม่เริ่มรอบ 1 + แถวรูปต้นทาง (ชื่อไฟล์ให้ผู้เรียกเขียนไฟล์ก่อนสร้างแถว)
+ * @param attempt จาก newJobAttempt (ผู้เรียกต้องรู้ก่อนตั้งชื่อไฟล์รูปต้นทาง) · ไม่ระบุ = 1
+ */
+export function enqueue(
+  extraPrompt: unknown,
+  sources: { filename: string; mimeType: string }[],
+  attempt = 1,
+): { job: { status: FlowStatus; round: JobRound; attempt: number; extraPrompt: string }; sourceRows: ImageRow[] } {
+  return {
+    job: { status: FLOW_STATUS.QUEUED_R1, round: 1, attempt, extraPrompt: normalizeExtraPrompt(extraPrompt) },
+    sourceRows: sources.map((s, index) => ({ kind: "source", round: 0, attempt, index, filename: s.filename, mimeType: s.mimeType })),
+  };
+}
+
+/**
+ * Checkpoint รูป: เลือก 1 ใน 4 — รอบ 1 → เข้าคิวรอบ 2 · รอบ 2 → รอ 10-part prompt ก่อน Render (awaiting_prompt, รอบ 3)
+ * หรือจบงานถ้าปิด Render อัตโนมัติ (renderEnabled ของ flow-worker.config.json) · รอบ 2 ผู้เรียกก๊อป 2 รูปที่เลือกเป็น
+ * ProductImage ในทรานแซกชันเดียวกัน (copyToProductImages)
+ * @param job.images แถวรูปของ**ทุกงานใน entry** (loadEntryFlowImages) — attempt ของรอบ 2 นับต่อจากชุดรอบ 2 ของทุกงาน
+ *   (โฟลเดอร์ flow/ ใช้ร่วมกัน) · ไม่ส่ง = งานใหม่ (attempt 1)
+ * @param renderEnabled อ่านหลังตรวจรูปเสมอ (ลำดับ error เดิม: รูปผิดรอบ → config → สถานะ)
+ */
+export function choose<I extends { id: string; kind: string; round: number; attempt: number }>(
+  job: { status: string; round: number; attempt: number; images?: { kind: string; round: number; attempt: number }[] },
+  image: I | undefined,
+  renderEnabled: () => boolean,
+  now: Date,
+): Plan & { next: FlowStatus; copyToProductImages: boolean; image: I } {
+  if (!image || image.kind !== "candidate" || image.round !== job.round || image.attempt !== job.attempt) {
+    throw new Error("รูปที่เลือกไม่ใช่ของรอบปัจจุบัน");
+  }
+  const render = renderEnabled();
+  const markChosen = { round: job.round, imageId: image.id };
+  if (job.status === FLOW_STATUS.REVIEW_R1) {
+    return {
+      next: FLOW_STATUS.QUEUED_R2,
+      image,
+      copyToProductImages: false,
+      markChosen,
+      // รอบ 2 เริ่มด้วยพรอมต์ตั้งต้นเสมอ — ข้อความเพิ่มเติมของรอบ 1 มักสั่งเฉพาะภาพพื้นหลังขาว พอติดไปรอบ 2
+      // ภาพ "ตอนใช้งาน" ออกมาเหมือนรอบ 1 (ผู้ใช้เจอจริง 2026-10-02) · อยากสั่งรอบ 2 ให้พิมพ์แล้วกด "วาดใหม่" ในรอบ 2
+      // attempt นับต่อจากชุดรอบ 2 เดิม (มีได้หลังเปลี่ยนรูปต้นทาง) — ไฟล์ r2-a<n>-* ของชุดเก่าไม่ถูกเขียนทับ · งานใหม่ = 1
+      job: { status: FLOW_STATUS.QUEUED_R2, round: 2, attempt: maxAttempt(job.images ?? [], 2) + 1, extraPrompt: "" },
+    };
+  }
+  if (job.status === FLOW_STATUS.REVIEW_R2) {
+    // ปิด Render อัตโนมัติ = งานจบที่รูป 2 รอบ ผู้ใช้ทำคลิปเองใน Flow บัญชีหลัก
+    if (!render) {
+      return { next: FLOW_STATUS.DONE, image, copyToProductImages: true, markChosen, job: { status: FLOW_STATUS.DONE, finishedAt: now } };
+    }
+    return {
+      next: FLOW_STATUS.AWAITING_PROMPT,
+      image,
+      copyToProductImages: true,
+      markChosen,
+      // ล้างข้อความเพิ่มเติม — ข้อความของรอบรูป (เช่น "เอาแค่แผ่นเดียว") พูดถึงรูปอ้างอิง ไม่ใช่คลิป
+      // ถ้าติดไปต่อท้าย 10-part prompt จะกลายเป็นคำสั่งแปลกๆ ท้ายพรอมต์วิดีโอ
+      job: { status: FLOW_STATUS.AWAITING_PROMPT, round: 3, attempt: 1, extraPrompt: "" },
+    };
+  }
+  throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอเลือกรูป");
+}
+
+/** generateWithAI บันทึก 10-part prompt สำเร็จ → งานที่รอพรอมต์ของ entry นั้นเข้าคิว Render (ผู้เรียกเติม entryId) */
+export function promptReady(): BulkPlan {
+  return { where: { status: FLOW_STATUS.AWAITING_PROMPT }, job: { status: FLOW_STATUS.QUEUED_R3 } };
+}
+
+/**
+ * "ไม่ผ่านสักรูป วาดใหม่" / "เรนเดอร์ใหม่" — attempt+1 · รูป candidate เก่าเก็บไว้ · Preview clip ที่ไม่ผ่านลบทั้งแถว
+ * (deleteVideoRows — ผู้เรียกลบไฟล์ก่อน) · extraPrompt: undefined = ใช้ค่าเดิม · "" = กลับเป็นพรอมต์ตั้งต้น
+ */
+export function redo(
+  job: { status: string; attempt: number; extraPrompt: string },
+  extraPrompt: string | undefined,
+): Plan & { isRender: boolean; extraPrompt: string } {
+  const isRender = job.status === FLOW_STATUS.REVIEW_R3;
+  const next =
+    job.status === FLOW_STATUS.REVIEW_R1
+      ? FLOW_STATUS.QUEUED_R1
+      : job.status === FLOW_STATUS.REVIEW_R2
+        ? FLOW_STATUS.QUEUED_R2
+        : isRender
+          ? FLOW_STATUS.QUEUED_R3
+          : null;
+  if (next === null) throw new Error("ทำใหม่ได้เฉพาะงานที่รอคุณเลือกรูป/ดูคลิป");
+  const extra = extraPrompt === undefined ? undefined : normalizeExtraPrompt(extraPrompt);
+  return {
+    isRender,
+    extraPrompt: extra ?? job.extraPrompt,
+    deleteVideoRows: isRender,
+    job: { status: next, attempt: job.attempt + 1, ...(extra === undefined ? {} : { extraPrompt: extra }) },
+  };
+}
+
+/** "ผ่าน" Preview clip → บอทโหลดคลิปเดิมแบบ 1080p (round 4) · งานจบเมื่อโหลดสำเร็จ */
+export function approveRender(job: { status: string }, hasVideoRow: boolean): Plan {
+  if (job.status !== FLOW_STATUS.REVIEW_R3) throw new Error("งานนี้ไม่ได้อยู่ในขั้นรอดูคลิป");
+  // กันกดผ่านทั้งที่ไม่มีไฟล์คลิป (ปุ่มถูก disable ในหน้าเว็บอยู่แล้ว แต่ action ต้องกันเองด้วย)
+  if (!hasVideoRow) throw new Error("ยังไม่มีไฟล์คลิป — กด เรนเดอร์ใหม่ หรือโหลดเองแล้วปิดงาน");
+  return { job: { status: FLOW_STATUS.QUEUED_UPSCALE, round: 4 } };
+}
+
+/** "ลองโหลด 1080p อีกครั้ง" — งานที่จบด้วย 720p กลับเข้าคิวรอบ 4 (ไม่เรนเดอร์ใหม่ ไม่เสียเครดิต) */
+export function retryUpscale(
+  job: { status: string; flowProjectId: string },
+  video: { filename: string; chosen: boolean } | null,
+): Plan {
+  if (!canRetryUpscale(job.status, video, job.flowProjectId)) {
+    throw new Error("งานนี้ลองโหลด 1080p ใหม่ไม่ได้ (ยังไม่จบ ได้ 1080p แล้ว หรือไม่มีคลิป)");
+  }
+  return { job: { status: FLOW_STATUS.QUEUED_UPSCALE, round: 4, finishedAt: null, ...CLEARED_FAILURE } };
+}
+
+/** "รันต่อ (หลังซ่อม)" — งานที่พังกลับเข้าคิวรอบเดิม (round 3 = คิว Render ไม่ใช่วาดรูปใหม่) และปลดการหยุดของบอท */
+export function resume(job: { status: string; round: number }): Plan {
+  if (job.status !== FLOW_STATUS.FAILED) throw new Error("รันต่อได้เฉพาะงานที่พัง");
+  return { job: { status: queuedStatus(toJobRound(job.round)), ...CLEARED_FAILURE }, unpauseWorker: true };
+}
+
+/** "ข้าม" — ทิ้งงาน ปลดการหยุดของบอทให้ทำงานอื่นต่อ · งานที่จบแล้ว = null (ไม่ทำอะไร) */
+export function skip(job: { status: string }, now: Date): Plan | null {
+  if (!isOpenStatus(job.status)) return null;
+  return { job: { status: FLOW_STATUS.SKIPPED, finishedAt: now }, unpauseWorker: true };
+}
+
+/**
+ * "ทำต่อเอง" (Manual takeover) — ผู้ใช้รับงานไปทำเองใน Flow บัญชีหลัก กดครั้งเดียว งานจบ (done) ทันที บอทไม่แตะอีก
+ * ทำได้ทุกขั้นที่บอทไม่ได้กำลังทำอยู่ (canTakeOver) · งานพังที่ทำต่อเอง = ปลดการหยุดของบอทเหมือน "ข้ามงานนี้"
+ * ไม่ล้างร่องรอยพัง/ไม่แตะ round — ป้าย "ทำเอง" มาจากแถว FlowActivity user_take_over ไม่ใช่จากงาน
+ * ผู้เรียกต้องเขียนด้วย applyTakeOver (where status กันแข่งกับบอท) ไม่ใช่ applyPlan
+ */
+export function takeOver(job: { status: string }, now: Date): Plan {
+  if (!canTakeOver(job.status)) {
+    throw new Error(
+      isOpenStatus(job.status) ? TAKEOVER_BOT_BUSY_MESSAGE : "งานนี้จบแล้ว — ทำต่อเองไม่ได้",
+    );
+  }
+  return { job: { status: FLOW_STATUS.DONE, finishedAt: now }, unpauseWorker: job.status === FLOW_STATUS.FAILED };
+}
+
+/**
+ * เหตุที่หยุดคิวแล้วผู้ใช้ "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)" ได้ = ปลดการหยุดอย่างเดียว งานที่พังยัง failed (รันต่อทีหลังได้)
+ * ตั้งใจแคบ: เฉพาะเหตุที่ไม่ใช่สัญญาณบอท/session — worker_crash (รวมเน็ตสะดุด) กับ generation_timeout
+ * ห้าม: captcha (กฎพัก 1 ชั่วโมงของ ADR 0002 — ปลดเองเท่ากับยิงซ้ำใส่หน้าที่เพิ่งโดน) · login_required (ไม่มี session ให้ทำต่อ)
+ * · host_unsupported / selector_drift / flow_error / download_failed (พังแบบเดิมจะวนซ้ำกับงานถัดไป ควรซ่อมก่อน)
+ */
+export const UNPAUSE_QUEUE_ONLY_REASONS: readonly string[] = ["worker_crash", "generation_timeout"];
+
+export function canUnpauseQueueOnly(pausedReason: string): boolean {
+  return UNPAUSE_QUEUE_ONLY_REASONS.includes(pausedReason);
+}
+
+export const UNPAUSE_QUEUE_ONLY_REFUSED_MESSAGE =
+  "เหตุที่บอทหยุดครั้งนี้ปล่อยงานพังไว้แล้วทำงานอื่นต่อไม่ได้ — รอให้พักครบ/ซ่อมแล้วกด รันต่อ ที่งานที่พัง";
+
+/**
+ * ข้อความเหตุที่บอทหยุด (แถบ /flow) และเหตุพังของการ์ดงาน — worker_crash ที่งานต้นเหตุพังที่ขั้น open-flow ด้วยข้อความเน็ตสะดุด
+ * บอกตรงๆ ว่า "เน็ตสะดุด" แทน "ไม่ทราบสาเหตุ" · cause = งานที่ทำให้หยุดจริง (แถบ: pauseCauseJob · การ์ด: งานนั้นเอง) · null = ไม่รู้
+ */
+export function pausedReasonLabel(pausedReason: string, cause: { failedStep: string; errorMessage: string } | null): string {
+  if (pausedReason === "worker_crash" && cause !== null && cause.failedStep === "open-flow" && isTransientNetworkMessage(cause.errorMessage)) {
+    return "เน็ตสะดุดตอนเปิด Flow";
+  }
+  return ERROR_KIND_LABELS[pausedReason] ?? pausedReason;
+}
+
+/** งานพังที่เขียนก่อน pausedAt ไม่เกินเท่านี้นับเป็นต้นเหตุของการหยุด — บอท applyPlan(failed) แล้ว pauseWorker ทันที (ห่างกันไม่กี่ ms) */
+export const PAUSE_CAUSE_WINDOW_MS = 60_000;
+
+/**
+ * งานที่ทำให้คิวหยุดครั้งนี้ — งาน failed ที่ errorKind ตรงเหตุหยุด และ updatedAt อยู่ในช่วง PAUSE_CAUSE_WINDOW_MS ก่อน pausedAt
+ * (เลือกตัวที่ใกล้ pausedAt ที่สุด) · ไม่ใช่ "งานพังล่าสุด": งานที่บอทข้ามไปเพราะเน็ตก่อนหน้า (failed แต่คิวไม่หยุด) หรือการหยุดที่ไม่มี
+ * งานพัง (บอทล้ม/login ตอนเปิด) ต้องไม่ถูกเอามาเป็นเหตุ · null = ไม่รู้ต้นเหตุ (ใช้ป้ายตามเหตุหยุดเฉยๆ)
+ */
+export function pauseCauseJob<T extends { status: string; errorKind: string; updatedAt: Date }>(
+  worker: { pausedReason: string; pausedAt: Date | null },
+  jobs: T[],
+): T | null {
+  const { pausedReason, pausedAt } = worker;
+  if (pausedReason === "" || pausedAt === null) return null;
+  let best: T | null = null;
+  for (const j of jobs) {
+    if (j.status !== FLOW_STATUS.FAILED || j.errorKind !== pausedReason) continue;
+    const before = pausedAt.getTime() - j.updatedAt.getTime();
+    if (before < 0 || before > PAUSE_CAUSE_WINDOW_MS) continue;
+    if (best === null || j.updatedAt.getTime() > best.updatedAt.getTime()) best = j;
+  }
+  return best;
+}
+
+/** เหตุหยุดที่บอทกู้เองตอนเปิดใหม่ได้ ถ้างานต้นเหตุพังเพราะเน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow (startupRecoverCause) */
+const STARTUP_RECOVER_REASONS: readonly string[] = ["selector_drift", "worker_crash"];
+
+/**
+ * เปิดบอทใหม่แล้วคิวหยุดค้างอยู่ — งานที่บอทคืนเข้าคิวเองได้ (แบบ "รันต่อ") · null = ปล่อยการหยุดไว้ตามเดิม
+ * กู้ได้เฉพาะ: เหตุหยุด selector_drift/worker_crash + งานต้นเหตุพังที่ open-flow รอบ 1–3 (isNetworkRetryStep) + ข้อความเป็นเน็ตสะดุด/
+ * page.goto timeout (isTransientNetworkMessage) — ยังไม่ได้ขออะไรจาก Google และไม่ใช่หลักฐานว่าหน้าเปลี่ยน · selector_drift รวมไว้
+ * เพราะแถวเก่า (ก่อน 2026-10-06 21:04) ตี goto timeout เป็น selector_drift — เคสจริงที่ค้าง "เปิดบอทใหม่แล้วยังไม่หาย"
+ * งานต้นเหตุ = pauseCauseJob · ไม่เจอ (แถวเก่าที่หยุดหลังงานพังเกิน PAUSE_CAUSE_WINDOW_MS) = งานล่าสุดที่บอทเริ่มก่อน pausedAt
+ * ถ้างานนั้นยัง failed ด้วยเหตุเดียวกันและไม่ใช่งานที่บอทข้ามไปแล้ว (parkedJobIds = jobId ของแถว network_skip/auto_continue)
+ * — งานพังเก่าที่ผู้ใช้ปล่อยไว้แล้วบอททำงานอื่นต่อจึงไม่ถูกเอามาอ้าง (กันบอทล้มทั้งโปรเซสถูกกู้ผิด)
+ * @param jobs งานพัง + งานที่บอทเริ่มล่าสุด (startedAt) — ส่งทุกงานได้
+ */
+export function startupRecoverCause<
+  T extends { id: string; status: string; round: number; errorKind: string; failedStep: string; errorMessage: string; updatedAt: Date; startedAt: Date | null },
+>(worker: { pausedReason: string; pausedAt: Date | null }, jobs: T[], parkedJobIds: ReadonlySet<string>): T | null {
+  const reason = worker.pausedReason;
+  if (!STARTUP_RECOVER_REASONS.includes(reason)) return null;
+  let cause = pauseCauseJob(worker, jobs);
+  if (cause === null) {
+    const limit = worker.pausedAt?.getTime() ?? Infinity;
+    let last: T | null = null;
+    for (const j of jobs) {
+      if (j.startedAt === null || j.startedAt.getTime() > limit) continue;
+      if (last === null || j.startedAt.getTime() > (last.startedAt as Date).getTime()) last = j;
+    }
+    if (last !== null && last.status === FLOW_STATUS.FAILED && last.errorKind === reason && !parkedJobIds.has(last.id)) cause = last;
+  }
+  if (cause === null) return null;
+  return isNetworkRetryStep(cause.failedStep, cause.round) && isTransientNetworkMessage(cause.errorMessage) ? cause : null;
+}
+
+/** แผนของ startupRecoverCause — ทางเดียวกับ "รันต่อ" (queued รอบเดิม ล้างร่องรอยพัง ปลดการหยุด) · เขียนด้วย applyIfStatus(…, "failed") */
+export function startupRecoverPlan(job: { status: string; round: number }): Plan {
+  return resume(job);
+}
+
+/**
+ * ข้อความปุ่ม "ปลดการหยุดอย่างเดียว" (unpauseQueueOnly — action เดียวกันทั้งสองข้อความ) · null = ไม่มีปุ่ม (เหตุที่ห้ามปลดเอง)
+ * มีงานพัง → บอกว่างานพังยังค้างอยู่ · ไม่มีงานพัง (หยุดโดยไม่มีงานพัง เช่น บอทล้มระหว่างพัก) → ปุ่มธรรมดา ไม่พูดถึงงานพังที่ไม่มี
+ */
+export const UNPAUSE_QUEUE_LEAVE_FAILED_LABEL = "ให้บอททำงานอื่นต่อ (ปล่อยงานพังไว้)";
+export const UNPAUSE_QUEUE_PLAIN_LABEL = "ให้บอททำงานต่อ";
+export function unpauseQueueButtonLabel(pausedReason: string, failedJobs: number): string | null {
+  if (!canUnpauseQueueOnly(pausedReason)) return null;
+  return failedJobs > 0 ? UNPAUSE_QUEUE_LEAVE_FAILED_LABEL : UNPAUSE_QUEUE_PLAIN_LABEL;
+}
+
+/** ประโยคบอกทางออกใต้แถบ "บอทหยุดแล้ว" · null = ไม่มีทางลัด (เหตุต้องรอ/ซ่อม หรือไม่มีงานพังให้เลือก) */
+export function pausedAdvice(pausedReason: string, failedJobs: number): string | null {
+  if (!canUnpauseQueueOnly(pausedReason) || failedJobs <= 0) return null;
+  return "กด ให้บอททำงานอื่นต่อ หรือไปแท็บ พัง แล้วกด รันต่อ";
+}
+
+/** attempt สูงสุดของแถว candidate รอบ round (0 = ยังไม่มี) */
+function maxAttempt(images: { kind: string; round: number; attempt: number }[], round: number): number {
+  return images.filter((i) => i.kind === "candidate" && i.round === round).reduce((m, i) => Math.max(m, i.attempt), 0);
+}
+
+/** สถานะที่เปลี่ยนรูปต้นทางได้ทุกรอบ — ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ (failed/skipped ดูรอบด้วย ใน canChangeSource) */
+const CHANGE_SOURCE_OPEN: readonly FlowStatus[] = [
+  FLOW_STATUS.QUEUED_R1, FLOW_STATUS.REVIEW_R1, FLOW_STATUS.QUEUED_R2, FLOW_STATUS.REVIEW_R2,
+  FLOW_STATUS.AWAITING_PROMPT, FLOW_STATUS.QUEUED_R3,
+];
+
+/**
+ * ปุ่ม "เปลี่ยนรูปต้นทาง" (หน้า /flow) และ "เลือกรูปใหม่" (Showcase) — ตั้งแต่รอเลือกรูปรอบ 1 จนก่อนเริ่มเรนเดอร์ ·
+ * งานพัง/ถูกข้ามได้เฉพาะรอบ 1–2 (รอบ 3+ = เริ่มเรนเดอร์แล้ว ใช้ ทำต่อเอง แทน) · ไม่ใช่ตอนบอททำอยู่ (running_*)
+ */
+export function canChangeSource(status: string, round: number): boolean {
+  if ((CHANGE_SOURCE_OPEN as readonly string[]).includes(status)) return true;
+  return (status === FLOW_STATUS.FAILED || status === FLOW_STATUS.SKIPPED) && round <= 2;
+}
+
+export const CHANGE_SOURCE_BOT_BUSY_MESSAGE = "บอทเพิ่งเริ่มทำงานนี้ — รอให้เสร็จรอบนี้แล้วค่อยเปลี่ยนรูปต้นทาง";
+export const CHANGE_SOURCE_REFUSED_MESSAGE = "งานนี้เริ่มทำคลิปแล้วหรือจบแล้ว — เปลี่ยนรูปต้นทางไม่ได้ (ใช้ ทำต่อเอง แทน)";
+/** applyChangeSource ได้ 0 แถว — สถานะเปลี่ยนระหว่างอ่านกับเขียน (บอทหยิบไป / อีกแท็บกดไปก่อน) */
+export const CHANGE_SOURCE_RACE_MESSAGE = "งานนี้เพิ่งเปลี่ยนสถานะ (บอทหยิบไปทำหรือกดจากอีกหน้า) — ยังไม่ได้เปลี่ยนรูป ดูสถานะล่าสุดแล้วลองใหม่";
+export const CHANGE_SOURCE_NEWER_JOB_MESSAGE = "สินค้านี้มีงาน Flow ที่ใหม่กว่าแล้ว — เปลี่ยนรูปต้นทางที่งานล่าสุด";
+
+/**
+ * "เปลี่ยนรูปต้นทาง" — งานเดิม (ไม่ใช่งานใหม่) กลับไปรอวาดรอบ 1 ด้วยรูปใหม่: attempt ใหม่เกินทุก attempt ที่เคยใช้
+ * (ไฟล์ r1-a<n>-* ชุดใหม่ไม่ทับชุดเก่า) · ปลด chosen ทุกรูป · ล้างร่องรอยพัง/finishedAt · extraPrompt จาก input (ว่าง = พรอมต์ตั้งต้น)
+ * · งานพัง = ปลดการหยุดของบอท · แถว/ไฟล์ source และ candidate เก่าเก็บไว้ (คลังรูป) — แถวรูปต้นทางใหม่ attempt ใหม่ ชื่อไม่ซ้ำ
+ * ผู้เรียกเขียนไฟล์ชื่อ createImages[0].filename ก่อน แล้วเขียนด้วย applyChangeSource (where status กันแข่งกับบอท) ไม่ใช่ applyPlan
+ * @param job.images แถวรูปของ**ทุกงานใน entry** (loadEntryFlowImages) — attempt ใหม่เกินของทุกงาน (โฟลเดอร์ flow/ ใช้ร่วมกัน)
+ * @param input.nonce สุ่มจากผู้เรียก — ชื่อไฟล์ไม่ซ้ำข้ามงานของ entry เดียวกัน (โฟลเดอร์ flow/ ใช้ร่วมกัน)
+ */
+export function changeSource(
+  job: { status: string; round: number; attempt: number; images: { attempt: number }[] },
+  input: { extraPrompt: unknown; mimeType: string; nonce: string },
+): Plan & { attempt: number; fromStatus: string; fromRound: number; fromAttempt: number } {
+  if (!canChangeSource(job.status, job.round)) {
+    throw new Error(isBotWorking(job.status) ? CHANGE_SOURCE_BOT_BUSY_MESSAGE : CHANGE_SOURCE_REFUSED_MESSAGE);
+  }
+  const attempt = job.images.reduce((m, i) => Math.max(m, i.attempt), job.attempt) + 1;
+  return {
+    attempt,
+    fromStatus: job.status,
+    fromRound: job.round,
+    fromAttempt: job.attempt,
+    clearChosen: true,
+    createImages: [{
+      kind: "source",
+      round: 0,
+      attempt,
+      index: 0,
+      filename: sourceFilename(attempt, 0, imageExtFromMime(input.mimeType), input.nonce),
+      mimeType: input.mimeType,
+    }],
+    job: {
+      status: FLOW_STATUS.QUEUED_R1,
+      round: 1,
+      attempt,
+      extraPrompt: normalizeExtraPrompt(input.extraPrompt),
+      finishedAt: null,
+      ...CLEARED_FAILURE,
+    },
+    unpauseWorker: job.status === FLOW_STATUS.FAILED,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// บอท (worker/index.ts)
+// ---------------------------------------------------------------------------
+
+/** หยิบงาน: queued → running ของรอบนั้น (where กันหยิบซ้ำ — ผู้เรียกเติม id) ล้างร่องรอยการพังของรอบก่อน */
+export function claim(round: JobRound, now: Date): BulkPlan {
+  return { where: { status: queuedStatus(round) }, job: { status: runningStatus(round), startedAt: now, ...CLEARED_FAILURE } };
+}
+
+/**
+ * ด่านสุดท้ายก่อน drawImages เจอชื่อเต็มของร้าน (ชื่อเปลี่ยนกลับระหว่างด่านชื่อสั้นกับการหยิบ — ticket 07) → คืนงานเข้าคิวรอบเดิม:
+ * ไม่ใช่งานพัง (ไม่ failed ไม่ pause ไม่นับเพดาน) · where = running ของรอบนั้น (กันแข่ง — ผู้เรียกเติม id) · ไม่แตะช่องอื่น
+ */
+export function releaseForShortName(round: FlowRound): BulkPlan {
+  return { where: { status: runningStatus(round) }, job: { status: queuedStatus(round) } };
+}
+
+/** claim สำเร็จแล้วแต่ดึงรายละเอียดงานกลับไม่ได้ — พังทันที ไม่ปล่อยค้าง running_* (main() หยุดคิวต่อเอง) */
+export function claimCrashed(message: string): Plan {
+  return { job: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: message.slice(0, MESSAGE_MAX) } };
+}
+
+/** รอบรูปเสร็จ → แถว candidate ใหม่ + รอผู้ใช้ที่ Checkpoint · exts = นามสกุลไฟล์ที่โหลดมา (jpg นอกนั้นถือเป็น png) */
+export function imagesReady(
+  round: FlowRound,
+  job: { attempt: number; extraPrompt: string },
+  exts: string[],
+  projectId: string,
+): Plan {
+  return {
+    createImages: exts.map((raw, index) => {
+      const ext = raw === "jpg" ? "jpg" : "png";
+      return {
+        kind: "candidate" as const,
+        round,
+        attempt: job.attempt,
+        index,
+        filename: candidateFilename(round, job.attempt, index, ext),
+        mimeType: ext === "jpg" ? "image/jpeg" : "image/png",
+        promptExtra: job.extraPrompt,
+      };
+    }),
+    job: { status: reviewStatus(round), flowProjectId: projectId },
+  };
+}
+
+/**
+ * Render เสร็จ (เสีย 15 เครดิตแล้ว) → review_r3 เสมอ ไม่มีทาง failed · ได้ไฟล์ = แถวคลิปใหม่ชื่อ videoFilename(attempt)
+ * ไม่ได้ไฟล์ = ไม่มีแถวคลิป + errorMessage บอกเหตุ (UI ปิดปุ่ม "ผ่าน" ผ่าน canApproveRender) · แถวคลิปเก่าที่ค้าง
+ * (รันต่อหลังพัง) ถูกแทนที่ — งานมีแถวคลิปได้แถวเดียว
+ */
+export function previewReady(input: {
+  gotFile: boolean;
+  downloadFailed: string | null;
+  job: { attempt: number; extraPrompt: string };
+  mediaId: string;
+  projectId: string;
+}): Plan {
+  const { gotFile, job } = input;
+  return {
+    deleteVideoRows: true,
+    createImages: gotFile
+      ? [{
+          kind: "video",
+          round: 3,
+          attempt: job.attempt,
+          index: 0,
+          filename: videoFilename(job.attempt),
+          mimeType: "video/mp4",
+          promptExtra: job.extraPrompt,
+          flowMediaId: input.mediaId,
+        }]
+      : [],
+    job: {
+      status: FLOW_STATUS.REVIEW_R3,
+      flowProjectId: input.projectId,
+      errorMessage: gotFile ? "" : `โหลดคลิปมาไม่ได้ (คลิปอยู่ในโปรเจกต์ Flow แล้ว): ${input.downloadFailed ?? ""}`.slice(0, MESSAGE_MAX),
+    },
+  };
+}
+
+/** ได้คลิปแล้วแต่บันทึกผล Render ลง DB ไม่ได้ (ลองครบแล้ว) — ย้ายไปสถานะที่ผู้ใช้กู้เองได้ */
+export function previewUnsaved(): Plan {
+  return {
+    job: {
+      status: FLOW_STATUS.REVIEW_R3,
+      errorMessage: "คลิปเสร็จแล้วแต่บันทึกลง DB ไม่ได้ — ดูไฟล์ในโฟลเดอร์ flow ของ entry หรือกดเรนเดอร์ใหม่",
+    },
+  };
+}
+
+/** ได้ Final clip — แถวคลิปเดิมกลายเป็นไฟล์ 1080p · ล้างหมายเหตุ "ได้ 720p" ของรอบก่อน (กรณี "ลองโหลด 1080p อีกครั้ง") */
+export function finalClipSaved(videoRowId: string, now: Date): Plan {
+  return { finalizeVideoRowId: videoRowId, job: { status: FLOW_STATUS.DONE, finishedAt: now, errorMessage: "" } };
+}
+
+/** ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ (ลองครบแล้ว) */
+export function finalClipUnsaved(now: Date): Plan {
+  return {
+    job: { status: FLOW_STATUS.DONE, finishedAt: now, errorMessage: "ได้ไฟล์ 1080p แต่บันทึกลง DB ไม่ได้ — ดู r3-final.mp4 ในโฟลเดอร์ flow ของ entry" },
+  };
+}
+
+/** รอบ 4 จบโดยไม่ได้ไฟล์ 1080p — งานจบด้วย Preview clip (ผู้ใช้มีคลิปอยู่แล้ว ไม่เสียเครดิต) */
+export function finalClipMissing(downloadFailed: string | null, now: Date): Plan {
+  return { job: { status: FLOW_STATUS.DONE, finishedAt: now, errorMessage: previewOnlyMessage(`โหลด 1080p ไม่ได้: ${downloadFailed ?? ""}`) } };
+}
+
+/** ขั้นรอผลหลังกดสร้าง — Flow รายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (flow_error) หรือรอนานเกิน (generation_timeout) เกิดที่นี่ */
+const WAIT_STEPS: ReadonlySet<string> = new Set(["wait-results", "wait-render"]);
+
+/** Flow เองรายงานว่าวาด/เรนเดอร์ไม่สำเร็จ (การ์ด "failed to generate" ไม่เสียเครดิต) ที่ wait-* นอกรอบ 4 */
+export function isAutoContinueFailure(kind: string, step: string, round: number): boolean {
+  return kind === "flow_error" && WAIT_STEPS.has(step) && round !== 4;
+}
+
+// ---------------------------------------------------------------------------
+// ด่านจำนวนรูปแนบ (attach-reference) — โปรโตคอลในข้อความ: worker/flow-session.ts เขียนด้วย attachCountMismatchMessage
+// นโยบายอ่านด้วย isAttachCountMismatch (แถวเก่าก่อน 2026-10-07 ใช้ข้อความเดียวกันทุกตัวอักษร จึงอ่านได้ด้วย)
+// ---------------------------------------------------------------------------
+
+const ATTACH_COUNT_PREFIX = "ช่องพรอมต์มีรูปแนบ ";
+
+/** เขียน: แนบรูปแล้วจำนวนชิปในช่องพรอมต์ไม่ตรง — บอทไม่กดสร้าง (ไม่เสียเครดิต) · kind ยังเป็น selector_drift ตามเดิม */
+export function attachCountMismatchMessage(chips: number, expected: number): string {
+  return `${ATTACH_COUNT_PREFIX}${String(chips)} รูป (ต้อง ${String(expected)}) — ไม่กดสร้างเพื่อไม่เสียเครดิตกับคลิปผิดรูป`;
+}
+
+/** อ่าน: ด่านจำนวนรูปแนบของงานนั้น (ไม่ใช่หาปุ่มไม่เจอ — selector_drift จาก locator/waitFor ยังหยุดคิว) */
+export function isAttachCountMismatch(kind: string, step: string, message: string): boolean {
+  return kind === "selector_drift" && step === "attach-reference" && message.startsWith(ATTACH_COUNT_PREFIX);
+}
+
+/** ข้ามเพราะเน็ตติดกันได้กี่ครั้ง — เท่ากับ PARK_MAX_CONSECUTIVE (คงชื่อเดิมไว้ให้ผู้อ่านเอกสารเก่า) */
+export const NETWORK_SKIP_MAX_CONSECUTIVE = 2;
+
+/**
+ * จอดงาน (งานเป็น failed ทิ้งไว้ บอททำงานถัดไป) ได้ติดกันกี่งานโดยไม่มี round_ok คั่น — นับรวมทุกชนิดที่จอดได้ (แถว FlowActivity
+ * auto_continue + network_skip) · งานที่พังถัดจากนี้ = "pause_streak" (สองงานติดกันพัง = น่าจะที่ระบบ ไม่ใช่ที่งาน)
+ */
+export const PARK_MAX_CONSECUTIVE = NETWORK_SKIP_MAX_CONSECUTIVE;
+
+/**
+ * เน็ตสะดุดตอนเปิด Flow จนลองซ้ำครบแล้ว (retryTransientNav) — step() ห่อเป็น worker_crash ที่ open-flow · ตัดสินจากข้อความ error
+ * (เก็บไว้ที่ errorMessage ของงาน หน้า /flow จึงตัดสินซ้ำได้) · ขั้น/รอบ = isNetworkRetryStep (open-flow รอบ 1–3 — ตัวเดียวกับที่
+ * บอทใช้ตัดสินว่าลองซ้ำไหม) · รอบ 4 ไม่รวม (มีทางจบด้วย 720p ของตัวเองใน roundFailed)
+ */
+export function isNetworkSkipFailure(kind: string, step: string, round: number, message: string): boolean {
+  return kind === "worker_crash" && isNetworkRetryStep(step, round) && isTransientNetworkMessage(message);
+}
+
+/**
+ * ประโยคสั้นบอกว่าพังแบบ "ปัญหาของงานนั้น" แบบไหน (ใช้ทั้งหมายเหตุใต้งานและ toast) · null = จอดไม่ได้ (ต้องหยุดคิว)
+ * จอดได้เฉพาะนอกรอบ 4 (รอบ 4 มีทางจบด้วย 720p ของตัวเองใน roundFailed):
+ * - เน็ตสะดุด/โหลดหน้าไม่ทันตอนเปิด Flow (isNetworkSkipFailure) — ยังไม่ได้ขออะไรจาก Google
+ * - flow_error ที่ wait-* — Flow บอกเองว่าวาดไม่สำเร็จ ไม่เสียเครดิต
+ * - generation_timeout ที่ wait-* — รอผลนานเกิน (เคยผ่านเมื่อกดรันต่อ 3/3 ครั้ง)
+ * - download_failed ที่ download-preview — โหลดคลิปตัวอย่าง (ปกติ capturePreview ไม่ throw — กันไว้)
+ * - จำนวนรูปแนบไม่ตรง (isAttachCountMismatch) — ด่านข้อมูลของงานนั้น ยังไม่ได้กดสร้าง
+ * ไม่มีทาง: captcha / login_required / host_unsupported / selector_drift จากหาปุ่มไม่เจอ / worker_crash อื่น / download-4
+ */
+function parkText(kind: string, step: string, round: number, message: string): string | null {
+  if (round === 4) return null;
+  if (isNetworkSkipFailure(kind, step, round, message)) return "เน็ตสะดุดตอนเปิด Flow";
+  if (isAutoContinueFailure(kind, step, round)) return "Flow วาดไม่สำเร็จ";
+  if (kind === "generation_timeout" && WAIT_STEPS.has(step)) return "Flow ใช้เวลานานเกินกำหนด";
+  if (kind === "download_failed" && step === "download-preview") return "โหลดคลิปตัวอย่างไม่ได้";
+  if (isAttachCountMismatch(kind, step, message)) return "แนบรูปอ้างอิงได้ไม่ตรงจำนวน (ยังไม่ได้กดสร้าง ไม่เสียเครดิต)";
+  return null;
+}
+
+/** พังแบบที่จอดงานแล้วไปงานถัดไปได้ (ก่อนดูเพดาน/ตัวนับติดกัน) */
+export function isParkableFailure(kind: string, step: string, round: number, message: string): boolean {
+  return parkText(kind, step, round, message) !== null;
+}
+
+/** toast ตอนบอทจอดงาน — "ข้าม <สินค้า> ไปก่อน — <ประโยคนี้>" */
+export function parkedFailureText(kind: string, step: string, round: number, message: string): string {
+  return parkText(kind, step, round, message) ?? (ERROR_KIND_LABELS[kind] ?? kind);
+}
+
+/**
+ * นโยบายตอนงานพัง:
+ * - "continue" = จอดงาน (failed หลักฐานครบ "รันต่อ" ได้) แล้วไปงานถัดไปหลังพักปกติ — ลงแถว auto_continue
+ * - "continue_network" = เหมือน continue แต่เป็นเน็ตสะดุดตอนเปิด Flow — ลงแถว network_skip ไม่นับเพดานรูป/คลิป
+ * - "pause_streak" = จอดได้ แต่จอดติดกันครบ PARK_MAX_CONSECUTIVE แล้วโดยไม่มี round_ok คั่น → หยุดคิว (บอทลองเองตามเวลาได้ — probeWakeAt)
+ * - "pause" = หยุดทั้งคิวรอคน (ชนิดที่จอดไม่ได้ หรือเพดาน cap ของวันเต็ม)
+ * ตัวนับเดียว: recentParksAt = เวลาของแถวจอด (auto_continue + network_skip) ล่าสุด ≥ 2 แถว นับเฉพาะที่ใหม่กว่า lastSuccessAt (round_ok ล่าสุด)
+ * cap = autoContinueDailyCap (ไฟล์ตั้ง 999) ใช้กับการจอดทุกชนิดยกเว้นเน็ต (นับแถว auto_continue ของวันนี้) · 0 = ปิดการจอด
+ */
+export function failurePolicy(input: {
+  kind: string;
+  step: string;
+  round: number;
+  message: string;
+  autoContinuesToday: number;
+  lastSuccessAt: Date | null;
+  cap: number;
+  recentParksAt: Date[];
+}): "continue" | "continue_network" | "pause_streak" | "pause" {
+  const { kind, step, round, message } = input;
+  if (!isParkableFailure(kind, step, round, message)) return "pause";
+  const network = isNetworkSkipFailure(kind, step, round, message);
+  if (!network && (input.cap <= 0 || input.autoContinuesToday >= input.cap)) return "pause";
+  const success = input.lastSuccessAt;
+  const sinceSuccess = input.recentParksAt.filter((at) => success === null || at.getTime() > success.getTime()).length;
+  if (sinceSuccess >= PARK_MAX_CONSECUTIVE) return "pause_streak";
+  return network ? "continue_network" : "continue";
+}
+
+// ---------------------------------------------------------------------------
+// ลองเองตามเวลา (circuit breaker half-open) — หลังจอดงานติดกันครบ (pause_streak) บอทหยุดคิวแล้วนัดเวลาลองงานถัดไป 1 งานเอง
+// สถานะเก็บโดยไม่เพิ่มคอลัมน์: เวลานัด = FlowWorkerState.nextWakeAt (ขณะ pausedReason ไม่ว่าง) · ครั้งที่ = แถว FlowActivity kind "probe"
+// ล่าสุด (detail.probe — เขียนตอนนัด อ่านตอนถึงเวลา จึงรอดการเปิดบอทใหม่) · "งานนี้คือการลองครั้งที่ n" อยู่ในหน่วยความจำของลูปหลัก
+// ---------------------------------------------------------------------------
+
+/** รอก่อนลองครั้งแรก */
+export const PROBE_BASE_MS = 15 * 60_000;
+/** เพดานเวลารอ (หลัง jitter) */
+export const PROBE_CAP_MS = 4 * 60 * 60_000;
+/** ลองเองไม่ผ่านครบเท่านี้ = หยุดรอคน (ไม่นัดอีก) */
+export const PROBE_MAX_FAILED = 3;
+/** jitter ±20% — กันลองตรงเวลาเป๊ะทุกครั้ง */
+const PROBE_JITTER = 0.2;
+
+/**
+ * เหตุหยุดที่บอทลองเองตามเวลาได้ — ไม่ใช่สัญญาณบอท/session/หน้าเปลี่ยน: worker_crash (เน็ตล่มงานที่ 3) · generation_timeout · flow_error ·
+ * download_failed · **ห้ามเด็ดขาด:** captcha (กฎพัก/ADR 0002), login_required, host_unsupported, selector_drift (รวมจำนวนรูปแนบไม่ตรง —
+ * ข้อมูลวันที่ 21 ก.ย. บอกว่ารอไปหน้าก็ไม่หาย)
+ */
+const PROBE_REASONS: readonly string[] = ["worker_crash", "generation_timeout", "flow_error", "download_failed"];
+
+export function canProbe(pausedReason: string): boolean {
+  return PROBE_REASONS.includes(pausedReason);
+}
+
+/** เวลารอก่อนลองครั้งถัดไป = min(เพดาน, 15 นาที × 2^failedProbes × (1 ± 20%)) · rand ∈ [0,1] (นอกช่วงถูกบีบ, NaN = กลาง) */
+export function probeDelayFor(failedProbes: number, rand: number): number {
+  const n = Number.isInteger(failedProbes) && failedProbes > 0 ? failedProbes : 0;
+  const r = Number.isNaN(rand) ? 0.5 : Math.min(1, Math.max(0, rand));
+  const base = Math.min(PROBE_CAP_MS, PROBE_BASE_MS * 2 ** n);
+  return Math.round(Math.min(PROBE_CAP_MS, base * (1 - PROBE_JITTER + 2 * PROBE_JITTER * r)));
+}
+
+/** เวลารอก่อนลองครั้งถัดไป (15 → 30 → 60 นาที ±20%) · null = ลองไม่ผ่านครบ PROBE_MAX_FAILED แล้ว หยุดรอคน */
+export function nextProbeDelay(failedProbes: number, rand: number): number | null {
+  const n = Number.isInteger(failedProbes) && failedProbes > 0 ? failedProbes : 0;
+  return n >= PROBE_MAX_FAILED ? null : probeDelayFor(n, rand);
+}
+
+/**
+ * ตอนหยุดคิว: นัดลองเองไหม · null = หยุดรอคน (เหตุอื่นที่ไม่ใช่ pause_streak, เหตุที่ลองเองไม่ได้, หรือลองครบแล้ว)
+ * @param probeOfJob งานที่เพิ่งพังคือการลองครั้งที่เท่าไร (null = งานปกติ → นัดครั้งที่ 1)
+ */
+export function probeSchedule(input: {
+  policy: string;
+  kind: string;
+  probeOfJob: number | null;
+  now: Date;
+  rand: number;
+}): { probe: number; waitMs: number; wakeAt: Date } | null {
+  if (input.policy !== "pause_streak" || !canProbe(input.kind)) return null;
+  const failed = input.probeOfJob ?? 0;
+  const waitMs = nextProbeDelay(failed, input.rand);
+  if (waitMs === null) return null;
+  return { probe: failed + 1, waitMs, wakeAt: new Date(input.now.getTime() + waitMs) };
+}
+
+/** ครั้งที่ของการลองจาก detail ของแถว FlowActivity "probe" ล่าสุด · อ่านไม่ได้ = 1 */
+export function probeNumberFromDetail(detail: string): number {
+  try {
+    const p = (JSON.parse(detail) as { probe?: unknown }).probe;
+    return typeof p === "number" && Number.isInteger(p) && p >= 1 ? p : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** ถึงเวลาลองเองแล้ว — หยุดอยู่ด้วยเหตุที่ลองได้ และมีเวลานัดที่ผ่านมาแล้ว (ผู้ใช้กดอะไรก็ตาม = ปลดการหยุด = ไม่ลอง) */
+export function probeDue(worker: { pausedReason: string; nextWakeAt: Date | null }, now: Date): boolean {
+  return canProbe(worker.pausedReason) && worker.nextWakeAt !== null && now.getTime() >= worker.nextWakeAt.getTime();
+}
+
+/** บรรทัดบนแถบ "บอทหยุดแล้ว" เมื่อมีนัดลองเอง (เวลาเครื่อง HH:mm) · null = ไม่มีนัด */
+export function probeNote(worker: { pausedReason: string; nextWakeAt: Date | null }): string | null {
+  if (!canProbe(worker.pausedReason) || worker.nextWakeAt === null) return null;
+  const d = worker.nextWakeAt;
+  return `บอทจะลองงานถัดไปเองอีกครั้งเวลา ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** ข้อความสั้นใต้งานที่พัง เมื่อบอทจอดงานไว้แล้วไปทำงานอื่น (คิวไม่หยุด) · null = ไม่ใช่กรณีนี้ */
+export function botMovedOnNote(
+  job: { status: string; round: number; errorKind: string; failedStep: string; errorMessage: string },
+  queuePaused: boolean,
+): string | null {
+  if (queuePaused || job.status !== FLOW_STATUS.FAILED) return null;
+  const text = parkText(job.errorKind, job.failedStep, job.round, job.errorMessage);
+  if (text === null) return null;
+  if (isNetworkSkipFailure(job.errorKind, job.failedStep, job.round, job.errorMessage)) {
+    return "เน็ตสะดุดตอนเปิด Flow — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองใหม่";
+  }
+  if (isAutoContinueFailure(job.errorKind, job.failedStep, job.round)) {
+    return "Flow วาดไม่สำเร็จ — บอทข้ามไปทำงานอื่นก่อนแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง";
+  }
+  return `${text} — บอทข้ามไปทำงานอื่นแล้ว กด รันต่อ เพื่อลองงานนี้อีกครั้ง`;
+}
+
+/**
+ * รอบพัง (บอทเก็บหลักฐานไว้ที่ failureDir แล้ว) — ปกติ = failed + หยุดทั้งคิว (pause = kind ให้บอทหยุดและแจ้งเตือนเอง)
+ * ยกเว้นรอบ 4 (โหลด 1080p) ที่มี Preview clip แล้ว: จบงานด้วย 720p ไม่หยุดคิว — เว้นแต่สัญญาณบอท/หลุด login ที่ต้องหยุด
+ * เพื่อป้องกันบัญชีเหมือนเดิม (เจอจริง 2026-10-01: find-video หยุดคิวทั้งที่มีคลิปแล้ว)
+ */
+export function roundFailed<K extends string>(input: {
+  round: JobRound;
+  hasVideoRow: boolean;
+  step: string;
+  kind: K;
+  message: string;
+  failureDir: string;
+  now: Date;
+  /** failurePolicy ตัดสินแล้วว่า "continue" — งานยัง failed เหมือนเดิมทุกอย่าง แต่ไม่หยุดคิว (pause = null) */
+  skipPause?: boolean;
+}): { plan: Plan; pause: K | null } {
+  const { round, kind, step, message, failureDir } = input;
+  if (round === 4 && kind !== "captcha" && kind !== "login_required" && input.hasVideoRow) {
+    return {
+      plan: {
+        job: {
+          status: FLOW_STATUS.DONE,
+          finishedAt: input.now,
+          failureDir,
+          errorMessage: previewOnlyMessage(`โหลด 1080p ไม่ได้ที่ขั้น ${step}: ${message}`),
+        },
+      },
+      pause: null,
+    };
+  }
+  return {
+    plan: { job: { status: FLOW_STATUS.FAILED, failedStep: step, errorKind: kind, errorMessage: message.slice(0, MESSAGE_MAX), failureDir } },
+    pause: input.skipPause === true ? null : kind,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// เปิดบอท: กวาดงานค้างจากบอทรอบก่อน (หลัง launchFlowBrowser เท่านั้น — ดู docs/agents/flow-bot.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * งานค้าง running_upscale: มี Preview clip แล้ว = คลิปเรนเดอร์เสร็จ (เครดิตจ่ายแล้ว) → จบด้วย 720p ไม่พัง ไม่หยุดคิว
+ * (เจอจริง 2026-10-01: Chrome crash ตอนโหลด 1080p) · ไม่มีคลิป = null (ปล่อยให้ staleRunning ตีเป็น failed)
+ */
+export function staleUpscale(hasVideoRow: boolean, now: Date): Plan | null {
+  if (!hasVideoRow) return null;
+  return {
+    job: {
+      status: FLOW_STATUS.DONE,
+      finishedAt: now,
+      errorMessage: previewOnlyMessage("บอทปิดกลางทางตอนโหลด 1080p — กด ลองโหลด 1080p อีกครั้ง ได้"),
+    },
+  };
+}
+
+/**
+ * งานค้าง running_r3: ถ้ามีแถว FlowActivity generate_video ของงานนี้ตั้งแต่ startedAt แปลว่ากดสร้างคลิปไปแล้ว (เสีย 15 เครดิต
+ * คลิปอยู่ในโปรเจกต์) → "review" = review_r3 ไม่มีแถว video ไม่หยุดคิว (failed + "รันต่อ" = เรนเดอร์ซ้ำเสียเครดิตอีกรอบ)
+ * · ไม่มี/ไม่รู้ startedAt → "failed" + หยุดคิวเหมือนงานค้างอื่น
+ */
+export function staleRenderRecovery(startedAt: Date | null, generateVideoAt: Date[]): "review" | "failed" {
+  if (startedAt === null) return "failed";
+  return generateVideoAt.some((at) => at.getTime() >= startedAt.getTime()) ? "review" : "failed";
+}
+
+/** แผนของ staleRenderRecovery = "review" · null = ปล่อยให้ staleRunning ตีเป็น failed */
+export function staleRender(startedAt: Date | null, generateVideoAt: Date[]): Plan | null {
+  if (staleRenderRecovery(startedAt, generateVideoAt) !== "review") return null;
+  // แถวคลิปที่ค้าง (ถ้ามี) เป็นของ attempt ก่อน — ห้ามให้ปุ่ม "ผ่าน" ไปอนุมัติคลิปผิดตัว
+  return { deleteVideoRows: true, job: { status: FLOW_STATUS.REVIEW_R3, errorMessage: STALE_RENDER_MESSAGE } };
+}
+
+/** งาน running_* ที่เหลือ = บอทรอบก่อนตายกลางคัน → failed ไม่ reset เป็น queued เอง (กัน loop) · มีสักงาน = หยุดคิว (pause) */
+export function staleRunning(): BulkPlan & { pause: "worker_crash" } {
+  return {
+    where: {
+      status: [FLOW_STATUS.RUNNING_R1, FLOW_STATUS.RUNNING_R2, FLOW_STATUS.RUNNING_R3, FLOW_STATUS.RUNNING_UPSCALE],
+    },
+    job: { status: FLOW_STATUS.FAILED, failedStep: "unknown", errorKind: "worker_crash", errorMessage: "worker ตายกลางคันในรอบก่อน" },
+    pause: "worker_crash",
+  };
+}
+
+/**
+ * เปิดบอทใหม่แล้ว session ใช้ได้ หลังรอบก่อนหยุดเพราะ login_required (การเปิดบอทใหม่คือการกระทำของคน ไม่ใช่บอท retry เอง)
+ * → คืนงานที่พังเพราะ login เข้าคิวรอบเดิมแบบเดียวกับ resume (ทีละรอบ) · ผู้เรียกปลดการหยุดของบอทต่อ
+ */
+export function loginRecovered(): BulkPlan[] {
+  return ([1, 2, 3, 4] as JobRound[]).map((round) => ({
+    where: { status: FLOW_STATUS.FAILED, errorKind: "login_required", round },
+    job: { status: queuedStatus(round), ...CLEARED_FAILURE },
+  }));
+}

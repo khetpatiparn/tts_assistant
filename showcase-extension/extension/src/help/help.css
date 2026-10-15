@@ -1,0 +1,82 @@
+/* หน้า "วิธีใช้" ใช้ token/ปุ่ม/ตัวอักษรจาก ../dashboard/dashboard.css ทั้งหมด ไฟล์นี้เพิ่มแค่ส่วนที่หน้าอื่นไม่มี */
+
+.lead {
+  font-size: 1rem;
+}
+
+.flow {
+  margin: 0 0 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+h3 {
+  margin: 20px 0 8px;
+  font-size: 1rem;
+}
+
+ol {
+  padding-left: 22px;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+table {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th,
+td {
+  padding: 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+code {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* ปุ่มหลักของหน้านี้ใช้สี accent แบบเดียวกับปุ่มหลักในหน้าจัดการ (#run-start/#run-export) */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+.row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ขั้นตอนคือเนื้อหาหลักของหน้านี้ — กำหนดขนาดชัดๆ ไม่ปล่อยตามค่าเริ่มต้นของเบราว์เซอร์ที่ออกมาเล็กกว่าย่อหน้านำ */
+ol,
+section > p:not(.hint) {
+  font-size: 1rem;
+}

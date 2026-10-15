@@ -28,6 +28,11 @@ export type EntryRow = {
   status: EntryStatus;
   /** ชื่อไฟล์รูปแรก — URL เต็มประกอบเป็น /api/uploads/<id>/<thumbnailFilename> */
   thumbnailFilename: string | null;
+  /**
+   * แฮชแท็กที่ต้องลง (CONTEXT.md) — ใส่เฉพาะแถวที่โชว์จริง (หน้ารายการ 30 / แถบข้าง 15) ด้วย getRequiredHashtagsForEntryIds
+   * ไม่ได้มาจาก getEntryRows (ทั้งตาราง) · ไม่มี/ว่าง = ไม่โชว์อะไร
+   */
+  requiredHashtags?: string[];
 };
 
 export const PER_PAGE = 30;

@@ -1,0 +1,27 @@
+{
+  "name": "showcase-scanner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Showcase Scanner — TikTok Showcase Importer (MV3 extension, mock-only prototype)",
+  "scripts": {
+    "build": "node scripts/build.mjs --mode=live --out=dist-release",
+    "build:mock": "node scripts/build.mjs --mode=mock --out=dist",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "npm run build:mock && playwright test",
+    "typecheck": "tsc --noEmit",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/chrome": "^0.3.0",
+    "@types/node": "^26.6.2",
+    "@vitest/coverage-v8": "^5.0.1",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^29.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}

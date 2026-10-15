@@ -1,0 +1,73 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "products": [
+      {
+        "product_id": "9200000000000000001",
+        "title": "<img src=x onerror=\"globalThis.__pwned=1\"> ครีมทดสอบ",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "seller_info": { "shop_name": "<script>alert(1)</script>" }
+      },
+      {
+        "product_id": "9200000000000000002",
+        "title": "'; DROP TABLE warehouse_products; --",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1
+      },
+      {
+        "product_id": "9200000000000000003",
+        "title": "image เป็น javascript scheme",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": { "url_list": ["javascript:globalThis.__pwned=1"] }
+      },
+      {
+        "product_id": "9200000000000000004",
+        "title": "image เป็น data URI",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": { "url_list": ["data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="] }
+      },
+      {
+        "product_id": "9200000000000000005",
+        "title": "image เป็น http ไม่ใช่ https",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": { "url_list": ["http://cdn.example.test/a.jpg"] }
+      },
+      {
+        "product_id": "9200000000000000006",
+        "title": "image มี token อยู่ใน query string",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "cover": { "url_list": ["https://cdn.example.test/a.jpg?x-tt-token=CANARY_TOKEN_2f8a1c&sig=CANARY_SIG_91bd"] }
+      },
+      {
+        "product_id": "9200000000000000007",
+        "title": "มี secret canary ซ่อนใน nested object",
+        "format_available_price": "฿10.00",
+        "stock_num": 1,
+        "stock_status": 1,
+        "review_status": 1,
+        "seller": {
+          "session": "CANARY_SESSION_7e44a0",
+          "auth": { "bearer": "CANARY_BEARER_be31f9" }
+        }
+      }
+    ]
+  }
+}

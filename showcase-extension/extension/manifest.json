@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Showcase Scanner",
+  "version": "0.2.0",
+  "description": "อ่านรายการสินค้าใน Showcase ของบัญชี TikTok ของคุณเอง แล้วส่งไปยังระบบของคุณผ่านลิงก์ปลายทาง หรือ export เป็น JSON",
+  "minimum_chrome_version": "124",
+  "permissions": ["storage"],
+  "host_permissions": ["https://shop.tiktok.com/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_title": "Showcase Scanner",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "dashboard/index.html",
+  "incognito": "not_allowed",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>วิธีใช้ Showcase Scanner</title>
+    <link rel="stylesheet" href="../dashboard/dashboard.css" />
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <main>
+      <h1>วิธีใช้ Showcase Scanner</h1>
+      <p class="lead">
+        extension นี้อ่านรายการสินค้าใน Showcase ของบัญชี TikTok ที่คุณล็อกอินอยู่ แล้วส่งไปที่
+        <strong>ลิงก์ปลายทาง</strong> — คือ "ที่อยู่" ของระบบที่จะรับสินค้า เช่น Google Sheets หรือเว็บของคุณเอง
+      </p>
+      <p class="flow">Showcase ใน TikTok → Showcase Scanner → ลิงก์ปลายทาง → ระบบของคุณ</p>
+
+      <section aria-labelledby="have-link">
+        <h2 id="have-link">มีลิงก์ปลายทางแล้ว</h2>
+        <ol>
+          <li>ล็อกอิน TikTok Shop ไว้ในเบราว์เซอร์นี้</li>
+          <li>กดปุ่มด้านล่าง → ส่วน <strong>ตั้งค่า</strong> → วางลิงก์ในช่อง <strong>ลิงก์ปลายทาง</strong> → กด <strong>บันทึกลิงก์</strong></li>
+          <li>กดไอคอน Showcase Scanner บนแถบเครื่องมือ ถ้าไฟเป็น<strong>สีเขียว</strong> (หรือสีเทาที่บอกว่าส่งได้) พร้อมใช้งาน</li>
+          <li>กด <strong>สแกนสินค้าใหม่ → ส่งไปปลายทาง</strong> ทุกครั้งที่เพิ่มสินค้าใน Showcase</li>
+        </ol>
+        <button id="open-dashboard" type="button">เปิดหน้าจัดการ</button>
+      </section>
+
+      <section aria-labelledby="no-link">
+        <h2 id="no-link">ยังไม่มีลิงก์ — อยากเชื่อมกับระบบของคุณเอง</h2>
+        <p>ระบบของคุณต้องมี "ลิงก์" หนึ่งอันที่รับสินค้าได้ เลือกทางที่ง่ายสำหรับคุณ</p>
+
+        <h3>ทางที่ 1 — ให้ AI สร้างให้ (ไม่ต้องเขียนโค้ดเอง)</h3>
+        <ol>
+          <li>กดปุ่ม <strong>คัดลอกคู่มือไปให้ AI</strong> ด้านล่าง</li>
+          <li>วางในแชทของ AI ผู้ช่วยเขียนโค้ด (เช่น Claude, ChatGPT, Cursor) แล้วแก้บรรทัดแรกให้บอกว่าระบบของคุณคืออะไร</li>
+          <li>AI จะสร้างส่วนรับสินค้าและบอกลิงก์ให้ → เอาลิงก์มาทำตามหัวข้อ "มีลิงก์ปลายทางแล้ว"</li>
+        </ol>
+        <button id="copy-ai" type="button" class="primary">คัดลอกคู่มือไปให้ AI</button>
+
+        <h3>ทางที่ 2 — เขียนโค้ดเอง (ลองได้ใน 5 นาที)</h3>
+        <p>ลิงก์ของคุณต้องรับคำขอ 2 แบบ:</p>
+        <table>
+          <thead>
+            <tr><th scope="col">คำขอ</th><th scope="col">extension ส่งมา</th><th scope="col">คุณตอบ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>POST</code> (บังคับ)</td>
+              <td>ข้อความ JSON <code>{"products":[{"productId":"…","title":"…",…}]}</code></td>
+              <td>เก็บสินค้าด้วย <code>productId</code> แล้วตอบ <code>200</code></td>
+            </tr>
+            <tr>
+              <td><code>GET</code> (แนะนำ)</td>
+              <td>—</td>
+              <td>รายการ <code>productId</code> ที่มีแล้ว (ทำให้หยุดสแกนเองได้ + ไฟเขียว)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="hint">ลิงก์มีรหัสลับ <code>?token=…</code> — token ไม่ตรงให้ตอบ <code>401</code> · ทุกคำตอบต้องมี header <code>Access-Control-Allow-Origin: *</code></p>
+        <ol>
+          <li>ดาวน์โหลดไฟล์ตัวอย่างด้านล่าง (ต้องมี Node 18 ขึ้นไป ไม่ต้องติดตั้งอะไรเพิ่ม)</li>
+          <li>รัน <code>node quickstart-node.mjs</code> — โปรแกรมจะพิมพ์ลิงก์ออกมา</li>
+          <li>เอาลิงก์ไปวางตามหัวข้อ "มีลิงก์ปลายทางแล้ว" → กดสแกน → สินค้าจะเข้ามาที่โปรแกรมของคุณ</li>
+          <li>เปลี่ยนสองจุดในโค้ดที่เขียนว่า "ฐานข้อมูลของคุณ" ให้เป็นที่เก็บจริง</li>
+        </ol>
+        <div class="row-buttons">
+          <button id="download-code" type="button">ดาวน์โหลด quickstart-node.mjs</button>
+          <button id="copy-code" type="button">คัดลอกโค้ด</button>
+        </div>
+        <pre id="quickstart-code" tabindex="0">กำลังโหลด…</pre>
+        <p class="hint">
+          รายละเอียดทั้งหมด (field ทุกตัว, error, CORS, ตัวอย่าง Express / Next.js / Google Sheets) อยู่ในคู่มือเดียวกับที่ปุ่ม
+          "คัดลอกคู่มือไปให้ AI" คัดลอกให้ และในโฟลเดอร์ <code>developer</code> ที่แตกจากไฟล์ zip
+        </p>
+      </section>
+
+      <p id="help-status" class="notice" role="status" aria-live="polite" hidden></p>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

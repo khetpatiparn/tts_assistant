@@ -3,7 +3,9 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { BellRing, X } from "lucide-react";
 
-import { IMPORT_STALE_DAYS, type ReminderState } from "@/lib/dashboard";
+// IMPORT_STALE_DAYS ดึงจาก lib/import-schedule ตรงๆ — lib/dashboard ลาก lib/affiliate (xlsx) เข้า bundle ของเบราว์เซอร์
+import { IMPORT_STALE_DAYS } from "@/lib/import-schedule";
+import type { ReminderState } from "@/lib/dashboard";
 import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "reminder-dismissed";
@@ -63,8 +65,8 @@ export function ReminderBanner({
   if (msgs.length === 0 || dismissed) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-teal/40 bg-teal/10 px-3 py-2 text-sm">
-      <BellRing className="size-4 shrink-0 text-teal" />
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm">
+      <BellRing className="size-4 shrink-0 text-primary" />
       <span className="text-foreground/90">{msgs.join(" · ")}</span>
       <div className="ml-auto flex items-center gap-1.5">
         {onGoImport && (

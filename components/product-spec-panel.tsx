@@ -6,6 +6,7 @@ import { PackageSearch } from "lucide-react";
 import { refreshProductSpec, saveProductSpec } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export function ProductSpecPanel({
   entryId,
@@ -46,22 +47,25 @@ export function ProductSpecPanel({
   function handleRefresh() {
     setError(null);
     startRefreshing(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         setDraft(await refreshProductSpec(entryId, model));
       } catch (e) {
+        outcome = "error";
         setError(e instanceof Error ? e.message : "สกัดสเปกไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+          className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80"
         >
           <PackageSearch className="size-3.5" />
           สเปกสินค้า (สกัดจากรูป)
@@ -73,7 +77,7 @@ export function ProductSpecPanel({
       </div>
 
       {synced.spec.trim() === "" && !isRefreshing && (
-        <p className="font-mono text-[0.7rem] text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           ยังไม่มีสเปก — จะถูกสกัดอัตโนมัติตอนกด &quot;สร้างด้วย AI&quot; ครั้งแรก
         </p>
       )}
@@ -88,13 +92,13 @@ export function ProductSpecPanel({
             placeholder="สเปกสินค้าที่ AI ถอดจากรูป — แก้ได้ถ้าอ่านผิด"
             className="font-sans text-sm leading-[1.6em]"
           />
-          <span className="font-mono text-[0.7rem] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {isSaving ? "กำลังบันทึก..." : "บันทึกเมื่อคลิกออกจากช่อง"}
           </span>
         </>
       )}
 
-      {error && <p className="font-mono text-[0.7rem] text-danger">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </section>
   );
 }

@@ -7,6 +7,7 @@ import { saveAngle, suggestAngles } from "@/app/actions";
 import type { AngleSuggestion, EntryOutcome, UsedAngle } from "@/lib/angle";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export type UsedAngleWithOutcome = UsedAngle & { outcome: EntryOutcome };
 
@@ -69,30 +70,33 @@ export function AnglePanel({
   function handleSuggest() {
     setError(null);
     startSuggesting(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         setSuggestions(await suggestAngles(entryId));
       } catch (e) {
+        outcome = "error";
         setError(e instanceof Error ? e.message : "คิด angle ไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 
   return (
     <div className="flex flex-col gap-3 border-t border-border pt-5">
-      <span className="flex items-center gap-1.5 font-mono text-xs tracking-widest text-teal uppercase">
+      <span className="flex items-center gap-1.5 text-xs text-primary">
         <Compass className="size-3.5" />
         Angle ของคลิปนี้
       </span>
 
       {used.length > 0 && (
         <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-3">
-          <span className="font-mono text-[0.65rem] tracking-widest text-muted-foreground uppercase">
+          <span className="text-xs text-muted-foreground">
             เคยใช้กับสินค้านี้แล้ว {used.length} angle
           </span>
           {used.map((item) => (
             <div key={item.entryId} className="flex flex-col gap-0.5">
               <span className="text-sm text-foreground/90">{item.text}</span>
-              <span className="font-mono text-[0.7rem] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {outcomeLine(item)}
               </span>
             </div>
@@ -114,11 +118,11 @@ export function AnglePanel({
                 setDraft(s.text);
                 commit(s.text);
               }}
-              className="flex flex-col gap-0.5 rounded-lg border border-border p-2.5 text-left hover:border-teal"
+              className="flex flex-col gap-0.5 rounded-lg border border-border p-2.5 text-left hover:border-primary"
             >
               <span className="text-sm text-foreground/90">{s.text}</span>
               {s.why !== "" && (
-                <span className="font-mono text-[0.7rem] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   เพราะ: {s.why}
                 </span>
               )}
@@ -134,11 +138,11 @@ export function AnglePanel({
         onBlur={() => commit(draft)}
         placeholder="มุมนำเสนอของคลิปนี้ — กดปุ่มด้านบนให้ AI เสนอ หรือพิมพ์เองก็ได้"
       />
-      <span className="font-mono text-[0.7rem] text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         {isSaving ? "กำลังบันทึก..." : "บันทึกเมื่อคลิกออกจากช่อง"}
       </span>
 
-      {error && <p className="font-mono text-[0.7rem] text-danger">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }

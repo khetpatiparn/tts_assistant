@@ -30,6 +30,10 @@ model PromptEntry {
   extraNotes  String
   angle       String   @default("")
   productSpec String   @default("")
+  /// โหมดปลอดภัย — สินค้านิ่ง กล้องเคลื่อน ไม่มีคนในเฟรม ใช้กู้คลิปที่เรนเดอร์เพี้ยนซ้ำๆ
+  /// จนใกล้จะต้องทิ้งสินค้า เก็บลง DB ไม่ใช่ state ชั่วคราวเพราะ (1) regenerate ต้องได้โหมดเดิม
+  /// (2) ต้องย้อนวัดได้ว่าคลิปโหมดนี้ขายต่างจากคลิปปกติไหม ซึ่งเป็นการทดลองฟอร์แมตที่ยังไม่เคยทำ
+  safeMode    Boolean  @default(false)
   images      String
   createdAt   DateTime @default(now())
   duplicatedFromId String?
@@ -44,6 +48,7 @@ model PromptEntry {
   hashtags       String      @default("")
   affiliateOrders AffiliateOrder[]
   clipMetrics     ClipMetric[]
+  flowJobs        FlowJob[]
 }
 
 model ProductImage {
@@ -122,4 +127,178 @@ model ImportLog {
 
   @@index([kind, uploadedAt])
   @@index([fileHash])
+}
+
+/// 1 ชุด = 1 ครั้งที่กด "อ่านข้อมูลจากรูป" — เป็นภาพนิ่งของลิสต์จัดอันดับ ณ เวลานั้น
+///
+/// ไม่เก็บ categoryLabel ที่ระดับชุด เพราะ 1 ชุดมีได้หลายหมวด (ผู้ใช้แปะแคปหลายหมวดพร้อมกันได้)
+/// หมวดอยู่ที่ระดับแถว การสรุปว่าชุดนี้มีหมวดอะไรบ้างจึงคำนวณจากแถวเอา
+model CandidateBatch {
+  id         String             @id @default(cuid())
+  /// เวลาที่กดอ่านข้อมูลจากรูป — ใช้ตัดสินว่าชุดไหนใหม่กว่าของหมวดเดียวกัน
+  capturedOn DateTime
+  createdAt  DateTime           @default(now())
+  rows       ProductCandidate[]
+
+  @@index([capturedOn])
+}
+
+/// สินค้าที่กำลังพิจารณาว่าจะทำคลิปไหม — มาจากแคปหน้าจัดอันดับ TikTok Shop
+///
+/// ไม่ผูก relation กับ PromptEntry โดยตั้งใจ (เก็บ linkedEntryId เป็น String เปล่า)
+/// เพราะงานที่ทำไปแล้วไม่ควรหายตามเมื่อลบชุด — ลบชุดแล้วเสียแค่ "ลิงก์" ไม่ใช่ตัว entry
+model ProductCandidate {
+  id            String         @id @default(cuid())
+  batchId       String
+  batch         CandidateBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// ชื่อเต็มตามภาพ ไม่ย่อ
+  name          String
+  /// normalizeName(name) — unique ต่อชุด ไม่ใช่ทั้งตาราง: สินค้าเดิมอยู่คนละชุดได้
+  /// แต่ในชุดเดียวกันยังกันซ้ำอยู่ เพราะแคปแบบเลื่อนจอมักมีสินค้าซ้ำตรงรอยต่อภาพ
+  nameKey       String
+  price         Float
+  commission    Float
+  /// null = แคปมาจากหน้าที่ไม่มีตัวเลขยอดขาย (แถบ "คะแนนสูงสุด")
+  weeklySales   Int?
+  /// ชื่อหมวดที่ AI อ่านจากหัวข้อบนสุดของภาพ
+  categoryLabel String
+  /// อัปโหลดใหม่เขียนค่านี้เท่ากับ capturedOn ของชุดเสมอ (เก็บซ้ำไว้เพื่อให้คิวรีรายแถวไม่ต้อง
+  /// join) แต่แถวที่ migrate มาจากข้อมูลเก่า (Task 1 ของฟีเจอร์ชุด) ยังเก็บ timestamp เดิมของ
+  /// แถวไว้ต่างหาก — ยืนยันแล้วว่า 83 จาก 162 แถว legacy ต่างจาก capturedOn ของชุดตัวเอง
+  /// โค้ดที่ตัดสินใจว่า "ชุดไหนใหม่กว่า" (เช่น latestBatchPerCategory) จึงควรอิง capturedOn
+  /// ของ CandidateBatch เป็นหลัก ไม่ใช่ของแถวนี้
+  capturedOn    DateTime
+  note          String         @default("")
+  /// เซ็ตโดยระบบตอนกด "สร้างงานเลย" ไม่ใช่ป้ายที่ผู้ใช้ติดเอง
+  linkedEntryId String?
+  /// Product ID จริงจาก Showcase — null สำหรับ candidate จากแคปหน้าจัดอันดับ (ไม่มี ID ที่เชื่อถือได้)
+  sourceProductId String?
+  /// ผู้ใช้กด "ไม่ทำแล้ว" ในหน้า Showcase — null = ยังอยู่ในรายการงาน · เซ็ตพร้อมกันทุกแถวที่มี
+  /// sourceProductId เดียวกัน (สินค้าตัวเดียวอยู่ได้หลายชุด) · ใช้กับแถวจาก Showcase เท่านั้น
+  dismissedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  images        CandidateImage[]
+
+  @@unique([batchId, nameKey])
+  @@unique([batchId, sourceProductId])
+  @@index([categoryLabel])
+  @@index([batchId])
+}
+
+/// รูปสินค้าจริงจากร้าน ที่มากับ candidate บางแหล่ง (เช่น Showcase import) — candidate ที่มาจาก
+/// แคปหน้าจัดอันดับแบบเดิมจะไม่มีแถวในตารางนี้เลย (ไม่ใช่ optional field ว่าง แต่ไม่มีแถวจริงๆ)
+model CandidateImage {
+  id          String           @id @default(cuid())
+  candidateId String
+  candidate   ProductCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  sortOrder   Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  @@index([candidateId])
+}
+
+/// งาน 1 แถว = สินค้า 1 ตัวที่รอ/กำลัง/เสร็จการวาดรูปอ้างอิงใน Google Flow (spec §5-6)
+/// status: queued_r1 → running_r1 → review_r1 → queued_r2 → running_r2 → review_r2
+///         → awaiting_prompt (round 3) → queued_r3 → running_r3 → review_r3 (Render คลิป ดูตัวอย่าง 720p)
+///         → (ผ่าน) queued_upscale (round 4) → running_upscale (โหลด 1080p) → done
+///         running_* → failed → (รันต่อ) queued_r<round> | (ข้าม) skipped
+model FlowJob {
+  id            String      @id @default(cuid())
+  entryId       String
+  entry         PromptEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  status        String
+  round         Int         @default(1)
+  attempt       Int         @default(1)
+  flowProjectId String      @default("")
+  failedStep    String      @default("")
+  errorKind     String      @default("")
+  errorMessage  String      @default("")
+  failureDir    String      @default("")
+  /// ข้อความที่ผู้ใช้พิมพ์ต่อท้ายพรอมต์ตายตัวของ Flow (เช่น "เอาแค่แผ่นเดียว") — ใช้กับรอบ/attempt ถัดไปที่บอทวาด
+  /// ติดจากรอบ 1 ไปรอบ 2 เอง แก้/ล้างได้ตอนกดวาดใหม่หรือตอนเลือกรูปรอบ 1 · ว่าง = พรอมต์ตั้งต้น
+  extraPrompt   String      @default("")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  images        FlowJobImage[]
+
+  @@index([status])
+  @@index([entryId])
+}
+
+/// รูปของงาน — kind "source" = แคปจากผู้ใช้ (round 0) · "candidate" = Flow วาด (round 1|2)
+/// · "video" = คลิปที่บอท Render (round 3, index 0, mimeType video/mp4) — มีได้แถวเดียวต่องาน: ตัวอย่าง 720p
+///   ของ attempt ปัจจุบัน (r3-a<n>.mp4, chosen=false) หรือไฟล์ 1080p ของคลิปที่ผ่าน (r3-final.mp4, chosen=true)
+/// ไฟล์อยู่ที่ uploads/<entryId>/flow/<filename>
+model FlowJobImage {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       FlowJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  kind      String
+  round     Int      @default(0)
+  attempt   Int      @default(1)
+  index     Int      @default(0)
+  filename  String
+  mimeType  String
+  chosen    Boolean  @default(false)
+  /// เฉพาะ kind "candidate": ข้อความเพิ่มเติมที่ใช้ตอนวาดชุดนี้ (สำเนาของ FlowJob.extraPrompt ณ ตอนนั้น) — โชว์ใต้รูป
+  promptExtra String @default("")
+  /// เฉพาะ kind "video": id ของคลิปใน Flow (จาก src ของ thumbnail ในช่องวิดีโอ) — บอทใช้หาช่องเดิมในโปรเจกต์
+  /// ตอนกลับมาโหลด 1080p หลังผู้ใช้กด "ผ่าน" · ว่าง = ไม่ใช่วิดีโอ
+  flowMediaId String @default("")
+  createdAt DateTime @default(now())
+
+  @@index([jobId])
+}
+
+/// แถวเดียว id = "singleton" — สถานะของ worker ที่ UI อ่าน (spec §5)
+model FlowWorkerState {
+  id            String    @id
+  lastSeenAt    DateTime?
+  currentJobId  String?
+  pausedReason  String    @default("")
+  pausedAt      DateTime?
+  todayDate     String    @default("")
+  todayBatches  Int       @default(0)
+  /// จำนวนคลิปที่ Render วันนี้ (เพดาน videoDailyCap ใน flow-worker.config.json) — รีเซ็ตพร้อม todayBatches
+  todayRenders  Int       @default(0)
+  sessionStreak Int       @default(0)
+  nextWakeAt    DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+/// token ของ "ลิงก์ปลายทาง" ที่ Showcase Scanner ใช้ส่งผลสแกนเข้า Angle (แถวเดียว id = "singleton")
+/// เก็บใน DB ไม่ใช่ .env เพื่อให้กด "สร้างลิงก์ใหม่" ในแอปได้ — ดู docs/adr/0001-destination-link-secret-in-url.md
+model ScannerLink {
+  id        String   @id @default("singleton")
+  token     String
+  createdAt DateTime @default(now())
+}
+
+/// แฮชแท็กที่ต้องลงตอนปักตะกร้า (CONTEXT.md: Required hashtag) — 1 แถวต่อสินค้า ผูกด้วย sourceProductId
+/// ไม่ผูกแถว ProductCandidate (ส่งซ้ำจาก extension = แถวใหม่ทุกครั้ง) · hashtags = รายการที่ normalize แล้ว
+/// คั่นด้วยช่องว่าง ("#a #b") ดู lib/required-hashtag.ts · ไม่มีแถว = ไม่ต้องลงอะไร · import ไม่แตะตารางนี้
+model ProductHashtag {
+  sourceProductId String   @id
+  hashtags        String
+  updatedAt       DateTime @updatedAt
+}
+
+/// สมุดบันทึกการกระทำของบอท Flow — 1 แถวต่อ 1 สิ่งที่ Google เห็น (กด Generate/อัปโหลด/สร้างโปรเจกต์/โหลด)
+/// + สัญญาณเตือน (HTTP ไม่ใช่ 2xx, captcha) + พักจริง · ไว้วิเคราะห์ว่าถ้าโดนแบน "ยิงถี่แค่ไหนก่อนโดน"
+/// (spec 2026-09-30-flow-bot-speed-and-resilience-design.md §3) · kind ดู lib/flow-activity.ts · เก็บตลอด (ไม่กี่ร้อยแถว/วัน)
+model FlowActivity {
+  id     String   @id @default(cuid())
+  at     DateTime @default(now())
+  kind   String
+  jobId  String   @default("")
+  round  Int      @default(0)
+  /// JSON สั้นๆ: { status } / { message } / { ms } / { config: {...} }
+  detail String   @default("")
+
+  @@index([at])
+  @@index([kind, at])
 }

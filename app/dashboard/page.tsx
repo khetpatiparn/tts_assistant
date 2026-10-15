@@ -1,32 +1,25 @@
-import { getDashboardData, getEntryRows } from "@/lib/entry-queries";
+import { getDashboardData } from "@/lib/entry-queries";
 import { AppHeader } from "@/components/app-header";
 import { DashboardRoute } from "@/components/dashboard-route";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [data, rows] = await Promise.all([getDashboardData(), getEntryRows()]);
+  const now = new Date();
+  const data = await getDashboardData(now);
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
       <AppHeader active="dashboard" />
       <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
+        {/* ส่งเฉพาะผลสรุป (data.view) ลง client — ห้ามส่งออเดอร์ดิบทั้งตารางกลับมาเป็น prop */}
         <DashboardRoute
-          orders={data.orders}
-          clipMetrics={data.clipMetrics}
-          importLogs={data.importLogs}
+          view={data.view}
           reminder={data.reminder}
           reminderActive={data.reminderActive}
           lastOrdersImportedAt={data.lastOrdersImportedAt}
           lastMetricsImportedAt={data.lastMetricsImportedAt}
-          entries={rows.map((r) => ({
-            id: r.id,
-            duplicatedFromId: r.duplicatedFromId,
-            postedAt: r.postedAt,
-            productName: r.productName,
-            videoUrl: r.videoUrl,
-          }))}
-          now={new Date()}
+          now={now}
         />
       </div>
     </div>

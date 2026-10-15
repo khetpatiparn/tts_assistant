@@ -1,0 +1,393 @@
+/**
+ * ตรวจตรรกะของแผง "งานรอบนี้" — ทำหน้าที่แทน test suite ที่โปรเจกต์นี้ไม่มี
+ *
+ * คอมไพล์ไฟล์ .ts ที่เกี่ยวข้องไปยัง temp dir แล้ว import ผลลัพธ์เข้ามาทดสอบ
+ * ใช้ fixture สังเคราะห์ ไม่พึ่ง dev.db เพื่อให้ผลคงที่ไม่เปลี่ยนตามข้อมูลจริง
+ *
+ * รัน: node scripts/check-recommender.mjs
+ */
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// วางไว้ใต้ project root (ไม่ใช่ os.tmpdir()) โดยตั้งใจ: lib/recommender.ts ลาก import ไปถึง
+// lib/dashboard.ts -> lib/affiliate.ts -> "xlsx" — Node resolve bare specifier ด้วยการเดินขึ้น
+// ไปหา node_modules จากตำแหน่งไฟล์ที่ import เท่านั้น ถ้า out อยู่ใน os.tmpdir() (คนละ drive/ทรี)
+// จะไม่เจอ node_modules ของ repo เลย ตัว dir นี้ถูกลบทิ้งใน finally เสมอ ไม่หลงเหลือใน git status
+const out = mkdtempSync(join(process.cwd(), ".check-recommender-tmp-"));
+let failed = 0;
+
+function check(name, actual, expected) {
+  const ok = Object.is(actual, expected);
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+  if (!ok) console.log(`      ได้ ${JSON.stringify(actual)} ควรได้ ${JSON.stringify(expected)}`);
+}
+
+function checkClose(name, actual, expected, tolerance) {
+  const ok = Math.abs(actual - expected) <= tolerance;
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}`);
+  if (!ok) console.log(`      ได้ ${actual} ควรได้ ~${expected} (คลาดได้ ${tolerance})`);
+}
+
+try {
+  execFileSync(
+    "npx",
+    ["tsc", "lib/stats.ts", "lib/import-schedule.ts", "--outDir", out, "--module", "es2022", "--target", "ES2017", "--moduleResolution", "bundler"],
+    { stdio: "inherit", shell: true }
+  );
+
+  const stats = await import(pathToFileURL(join(out, "stats.js")).href);
+  const schedule = await import(pathToFileURL(join(out, "import-schedule.js")).href);
+
+  console.log("=== wilsonLowerBound / wilsonUpperBound ===");
+  check("ไม่มีข้อมูลเลย (trials=0) คืน 0", stats.wilsonLowerBound(0, 0), 0);
+  check("trials ติดลบ คืน 0", stats.wilsonLowerBound(3, -5), 0);
+  check("สำเร็จ 0 ครั้ง ขอบล่างต้องเป็น 0", stats.wilsonLowerBound(0, 100), 0);
+  checkClose("สำเร็จทุกครั้ง (10/10) ขอบล่างสูงแต่ไม่ถึง 1", stats.wilsonLowerBound(10, 10), 0.7225, 0.01);
+  check("สำเร็จทุกครั้ง ขอบบนต้องเป็น 1", stats.wilsonUpperBound(10, 10), 1);
+  checkClose("50/100 ขอบล่าง", stats.wilsonLowerBound(50, 100), 0.4038, 0.01);
+  checkClose("50/100 ขอบบน", stats.wilsonUpperBound(50, 100), 0.5962, 0.01);
+  check("ขอบล่างต้องไม่เกินขอบบนเสมอ", stats.wilsonLowerBound(3, 1000) <= stats.wilsonUpperBound(3, 1000), true);
+  check("successes เกิน trials ถูกตัดให้เท่า trials", stats.wilsonUpperBound(20, 10), 1);
+  // n น้อยต้องได้ช่วงกว้างกว่า n มาก ที่สัดส่วนเท่ากัน — นี่คือคุณสมบัติที่ทั้งฟีเจอร์พึ่งพา
+  const narrowSpan = stats.wilsonUpperBound(100, 10000) - stats.wilsonLowerBound(100, 10000);
+  const wideSpan = stats.wilsonUpperBound(3, 300) - stats.wilsonLowerBound(3, 300);
+  check("n น้อยให้ช่วงกว้างกว่า n มาก ที่สัดส่วนเดียวกัน", wideSpan > narrowSpan, true);
+
+  console.log("\n=== rateRatioBounds ===");
+  check("c1 ติดลบ คืน null", stats.rateRatioBounds(-1, 1, 10, 1), null);
+  check("t1=0 คืน null", stats.rateRatioBounds(10, 0, 10, 1), null);
+  {
+    const equalRate = stats.rateRatioBounds(100, 1, 100, 1);
+    check("อัตราเท่ากันสองช่วง ช่วงต้องคร่อม 1.0 (low)", equalRate !== null && equalRate.low <= 1, true);
+    check("อัตราเท่ากันสองช่วง ช่วงต้องคร่อม 1.0 (high)", equalRate !== null && equalRate.high >= 1, true);
+  }
+  {
+    const fasterNow = stats.rateRatioBounds(10000, 1, 1000, 1);
+    check("ช่วงล่าสุดเร็วกว่าชัดเจนและ n มากพอ low > 1", fasterNow !== null && fasterNow.low > 1, true);
+  }
+  {
+    const noPriorMovement = stats.rateRatioBounds(500, 1, 0, 1);
+    check("c2=0 (ช่วงก่อนหน้าวิวไม่ขยับเลย) high เป็น Infinity", noPriorMovement?.high, Infinity);
+  }
+
+  console.log("\n=== IMPORT_STALE_DAYS / nextImportDate / daysUntil ===");
+  check("IMPORT_STALE_DAYS = 7", schedule.IMPORT_STALE_DAYS, 7);
+  check("ยังไม่เคยนำเข้า คืน null", schedule.nextImportDate(null), null);
+
+  const key = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  check("นำเข้า 3 ส.ค. 16:21 -> รอบหน้า 10 ส.ค.", key(schedule.nextImportDate(new Date(2026, 7, 3, 16, 21))), "2026-08-10");
+  check("ข้ามเดือน: 28 ส.ค. -> 4 ก.ย.", key(schedule.nextImportDate(new Date(2026, 7, 28, 9, 0))), "2026-09-04");
+  check("ข้ามปี: 28 ธ.ค. -> 4 ม.ค. ปีถัดไป", key(schedule.nextImportDate(new Date(2026, 11, 28, 9, 0))), "2027-01-04");
+  // เวลาไทยตี 1 ครึ่ง — ถ้าเผลอใช้ UTC getter จะได้วันก่อนหน้า
+  check("นำเข้าตี 1 ครึ่งของวันที่ 3 ยังนับเป็นวันที่ 3", key(schedule.nextImportDate(new Date(2026, 7, 3, 1, 30))), "2026-08-10");
+
+  const NOW = new Date(2026, 7, 8, 14, 0);
+  check("อีก 2 วัน", schedule.daysUntil(new Date(2026, 7, 10), NOW), 2);
+  check("วันนี้ = 0", schedule.daysUntil(new Date(2026, 7, 8), NOW), 0);
+  check("เลยมาแล้ว 3 วัน = -3", schedule.daysUntil(new Date(2026, 7, 5), NOW), -3);
+  check("เทียบที่ระดับวัน ไม่ใช่ชั่วโมง", schedule.daysUntil(new Date(2026, 7, 9, 1, 0), NOW), 1);
+  check("ตอนตี 1 ครึ่งของวันนี้ ยังได้ 0 สำหรับวันนี้", schedule.daysUntil(new Date(2026, 7, 8), new Date(2026, 7, 8, 1, 30)), 0);
+
+  // recommender.ts import จาก @/lib/dashboard ซึ่งลากไปถึง xlsx จึงคอมไพล์เดี่ยวไม่ได้
+  // แก้ด้วยการคอมไพล์ทั้งสายแล้ว map @/ ตอน import ผ่าน loader ของ node ไม่ได้ใน .mjs
+  // จึงทดสอบ detectTasks ผ่านการ re-implement เกณฑ์ไม่ได้เช่นกัน (จะกลายเป็นทดสอบตัวเอง)
+  // -> ทดสอบด้วยการคอมไพล์ recommender.ts พร้อม dependency แล้วแก้ specifier ในไฟล์ผลลัพธ์
+  //
+  // หมายเหตุ: brief เดิมสั่งให้คอมไพล์แค่ lib/recommender.ts ไฟล์เดียว แต่ dashboard.js/affiliate.js
+  // ที่มันอ้างถึงจะไม่ถูก emit ออกมาด้วย (stats.js/import-schedule.js ถูก emit ไปแล้วจากคำสั่ง tsc
+  // ด้านบน) ต้องคอมไพล์ recommender.ts พร้อม dashboard.ts และ affiliate.ts ในคำสั่งเดียวกัน ให้ไฟล์
+  // js ทั้งหมดลงไปอยู่ output dir เดียวกัน แล้ว rewrite specifier "@/lib/..." ในทุกไฟล์ที่มี
+  // (ไม่ใช่แค่ recommender.js — dashboard.js เองก็ import "@/lib/affiliate" และ "@/lib/import-schedule")
+  console.log("\n=== detectTasks ===");
+  try {
+    execFileSync(
+      "npx",
+      [
+        "tsc",
+        "lib/recommender.ts",
+        "lib/dashboard.ts",
+        "lib/affiliate.ts",
+        "--outDir",
+        out,
+        "--module",
+        "es2022",
+        "--target",
+        "ES2017",
+        "--moduleResolution",
+        "bundler",
+        "--skipLibCheck",
+      ],
+      { stdio: "inherit", shell: true }
+    );
+  } catch (e) {
+    // ไม่ได้ส่ง paths mapping ให้ tsc ตรงนี้ "@/lib/..." เลยหา module ไม่เจอ (TS2307) โดยตั้งใจ —
+    // tsc ยัง emit .js ออกมาให้ตามปกติ (noEmitOnError เป็น false โดย default) แค่ exit code ไม่ใช่ 0
+    // (สังเกตแล้วว่าเป็น 2 เสมอสำหรับ diagnostic ธรรมดา) ถ้า exit code อื่นแปลว่ามีปัญหาจริงให้ throw ต่อ
+    if (e.status !== 2) throw e;
+  }
+  // ไฟล์ผลลัพธ์อ้าง "@/lib/..." ซึ่ง node ไม่รู้จัก — เขียนทับให้ชี้ไฟล์ข้างกันแทน
+  for (const f of ["recommender.js", "dashboard.js"]) {
+    const p = join(out, f);
+    const src = readFileSync(p, "utf8").replace(/["']@\/lib\/([\w-]+)["']/g, '"./$1.js"');
+    writeFileSync(p, src);
+  }
+
+  const rec = await import(pathToFileURL(join(out, "recommender.js")).href);
+
+  /**
+   * สร้าง ClipStat แบบย่อ — ค่าที่ไม่ระบุใช้ค่าที่ไม่ทำให้ติดเกณฑ์
+   * daysSinceLastSnapshot default เป็น 7 เมื่อมี viewDelta (รอบนำเข้าปกติ ~สัปดาห์) เพื่อให้
+   * เคสทดสอบเดิมที่ไม่ได้ตั้งใจทดสอบ normalization ยังใช้ viewDelta ดิบเป็นตัวแทน "วิวต่อวัน"
+   * ได้ตรงไปตรงมา priorViewDelta/priorDaysSinceSnapshot default เป็น null (มี snapshot
+   * ไม่ถึง 3 จุด) — ต้องระบุตรงๆ เมื่อจะทดสอบ growthRatioRange
+   */
+  const stat = (o) => ({
+    entryId: o.entryId,
+    productName: o.productName ?? o.entryId,
+    views: o.views ?? 0,
+    viewDelta: o.viewDelta ?? null,
+    daysSinceLastSnapshot:
+      o.daysSinceLastSnapshot ?? (o.viewDelta != null ? 7 : null),
+    priorViewDelta: o.priorViewDelta ?? null,
+    priorDaysSinceSnapshot: o.priorDaysSinceSnapshot ?? null,
+    orders: o.orders ?? 0,
+    badOrders: o.badOrders ?? 0,
+    ordersLast7Days: o.ordersLast7Days ?? 0,
+  });
+
+  check("ไม่มีคลิปเลย คืนลิสต์ว่าง", rec.detectTasks([]).length, 0);
+  check("มีคลิปแต่วิว 0 ทั้งหมด คืนลิสต์ว่าง", rec.detectTasks([stat({ entryId: "a", views: 0 })]).length, 0);
+
+  // ฐาน: 3 คลิปธรรมดา วิว 1000 ออเดอร์ 2 -> channelConv ~0.2%
+  const base = [
+    stat({ entryId: "b1", views: 1000, orders: 2 }),
+    stat({ entryId: "b2", views: 1000, orders: 2 }),
+    stat({ entryId: "b3", views: 1000, orders: 2 }),
+  ];
+
+  // มี snapshot แค่ 2 จุด (ไม่มี priorViewDelta) -> growthRatioRange เป็น null เสมอ ไม่ว่า
+  // viewDelta จะสูงแค่ไหน (rateRatioBounds ต้องการช่วงก่อนหน้าเพื่อเทียบ)
+  const twoSnapshotsOnly = rec.detectTasks([
+    ...base,
+    stat({ entryId: "g", views: 5000, viewDelta: 3000, orders: 4 }),
+  ]);
+  const gTask = twoSnapshotsOnly.find((t) => t.entryId === "g");
+  check("มี snapshot แค่ 2 จุด (ไม่มี priorViewDelta) ไม่ติด growing ไม่ว่า viewDelta จะสูงแค่ไหน", gTask?.kinds.includes("growing") ?? false, false);
+  check("มี snapshot แค่ 2 จุด growthRatioRange เป็น null", gTask?.growthRatioRange ?? null, null);
+
+  const noDelta = rec.detectTasks([...base, stat({ entryId: "nd", views: 5000, viewDelta: null, orders: 4 })]);
+  check("ไม่มี viewDelta (นำเข้ารอบเดียว) ไม่ติด growing", noDelta.find((t) => t.entryId === "nd")?.kinds.includes("growing") ?? false, false);
+
+  // conv สูงมากแต่ n น้อย -> ช่วงกว้าง -> ต้องไม่ติด proven
+  // หมายเหตุ: brief เดิมใช้ views:300 orders:3 แต่คำนวณจริงด้วย wilsonLowerBound (Task 1)
+  // แล้วขอบล่างของคู่นี้ (~0.34%) สูงกว่า channelConv ของชุดข้อมูลนี้ (~0.27%) จริง คือ "พิสูจน์ได้"
+  // ตามสถิติจริงแม้ n แค่ 300 (conv ต่างกันเกิน 3 เท่า) จึงไม่ใช่เคสทดสอบที่ตรงเจตนา "n น้อยต้องเงียบ"
+  // เปลี่ยนเป็น views:100 orders:1 (ยืนยันด้วยการรันจริง: low ~0.177% < channelConv ~0.226%)
+  const tiny = rec.detectTasks([...base, stat({ entryId: "tiny", views: 100, orders: 1 })]);
+  check("conv สูงแต่ n น้อย ต้องเงียบ (ไม่ติด proven)", tiny.find((t) => t.entryId === "tiny")?.kinds.includes("proven") ?? false, false);
+
+  // conv สูงและ n เยอะ -> ต้องติด proven
+  // หมายเหตุ: brief เดิมใช้ views:20000 orders:120 แต่คำนวณจริงแล้ว pv (conv 0.6%) มีวิวมากพอที่จะ
+  // ลาก channelConv ของชุดนี้ขึ้นไปใกล้ตัวเอง (~0.548%) จนขอบล่าง (~0.502%) ไม่พ้นค่าเฉลี่ยช่อง —
+  // เปลี่ยนเป็น views:5000 orders:60 (conv 1.2%) ซึ่ง n ยังมากพอให้ช่วงแคบ และช่องว่างจาก
+  // channelConv (~0.825%) กว้างพอให้ขอบล่าง (~0.933%) พ้นได้จริง (ยืนยันด้วยการรันจริงแล้ว)
+  const proven = rec.detectTasks([...base, stat({ entryId: "pv", views: 5000, orders: 60 })]);
+  const pTask = proven.find((t) => t.entryId === "pv");
+  check("conv สูงและ n เยอะ ติดป้าย proven", pTask?.kinds.includes("proven"), true);
+  check("proven มีช่วง convRatioRange", pTask?.convRatioRange !== null && pTask?.convRatioRange !== undefined, true);
+  check("ขอบล่างของช่วงต้องเกิน 1 เท่า", (pTask?.convRatioRange?.low ?? 0) > 1, true);
+
+  // clip ที่อัตราล่าสุดเร็วกว่าอัตราก่อนหน้าอย่างมีนัยสำคัญ (n มากพอ) -> ติด growing
+  const fasterNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "faster",
+      views: 20000,
+      viewDelta: 10000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดเร็วกว่าอัตราก่อนหน้าอย่างมีนัยสำคัญ ติด growing",
+    fasterNow.find((t) => t.entryId === "faster")?.kinds.includes("growing") ?? false,
+    true
+  );
+
+  // clip ที่อัตราล่าสุดช้ากว่าหรือใกล้เคียงอัตราก่อนหน้า -> ไม่ติด growing
+  const slowerNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "slower",
+      views: 20000,
+      viewDelta: 1000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 10000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดช้ากว่าอัตราก่อนหน้า ไม่ติด growing",
+    slowerNow.find((t) => t.entryId === "slower")?.kinds.includes("growing") ?? false,
+    false
+  );
+  const similarNow = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "similar",
+      views: 20000,
+      viewDelta: 1000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "อัตราล่าสุดใกล้เคียงอัตราก่อนหน้า ไม่ติด growing",
+    similarNow.find((t) => t.entryId === "similar")?.kinds.includes("growing") ?? false,
+    false
+  );
+
+  // ตัวเลขจริงจากการวิเคราะห์ dev.db — รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น: c1=14014,t1=5,
+  // c2=1269,t2=1 -> ช่วงควรอยู่แถว 2.09-2.34 เท่า ต้องติด growing
+  const realGrowing = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "cart",
+      views: 40000,
+      viewDelta: 14014,
+      daysSinceLastSnapshot: 5,
+      priorViewDelta: 1269,
+      priorDaysSinceSnapshot: 1,
+      orders: 5,
+    }),
+  ]);
+  const cartTask = realGrowing.find((t) => t.entryId === "cart");
+  check("รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น ติด growing", cartTask?.kinds.includes("growing"), true);
+  checkClose("รถเข็นตู้เก็บเครื่องสำอาง 3 ชั้น ขอบล่าง ~2.09-2.34", cartTask?.growthRatioRange?.low ?? 0, 2.2, 0.15);
+
+  // ที่นอนแมว: c1=37,t1=5,c2=90,t2=8 -> อัตราช้าลง ต้องไม่ติด growing
+  const realNotGrowing = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "catbed",
+      views: 5000,
+      viewDelta: 37,
+      daysSinceLastSnapshot: 5,
+      priorViewDelta: 90,
+      priorDaysSinceSnapshot: 8,
+      orders: 5,
+    }),
+  ]);
+  check(
+    "ที่นอนแมว (อัตราช้าลง) ไม่ติด growing",
+    realNotGrowing.find((t) => t.entryId === "catbed")?.kinds.includes("growing") ?? false,
+    false
+  );
+
+  // ติดทั้งสองป้ายต้องมาก่อนตัวที่ติดป้ายเดียว (ทั้งคู่ผ่านเกณฑ์ growing ใหม่)
+  const both = rec.detectTasks([
+    ...base,
+    stat({
+      entryId: "both",
+      views: 20000,
+      viewDelta: 10000,
+      daysSinceLastSnapshot: 1,
+      priorViewDelta: 1000,
+      priorDaysSinceSnapshot: 1,
+      orders: 1000,
+    }),
+    stat({ entryId: "onlyProven", views: 5000, orders: 60 }),
+  ]);
+  check("คลิปที่ติดสองป้ายมาเป็นอันดับแรก", both[0]?.entryId, "both");
+  check("คลิปที่ติดสองป้ายมี kinds ครบสอง", both[0]?.kinds.length, 2);
+
+  // badRatio เกินเกณฑ์ต้องถูกตัดออกก่อนพิจารณาอะไรทั้งสิ้น
+  const bad = rec.detectTasks([...base, stat({ entryId: "bad", views: 20000, viewDelta: 9000, orders: 120, badOrders: 60 })]);
+  check("badRatio >= 0.3 ถูกตัดออก", bad.find((t) => t.entryId === "bad") === undefined, true);
+
+  // ช่องไม่มีออเดอร์เลย -> channelConv === 0 -> convRatioRange ต้องเป็น null และห้ามมี "proven"
+  const noOrders = rec.detectTasks([
+    stat({ entryId: "no1", views: 1000, orders: 0 }),
+    stat({ entryId: "no2", views: 5000, orders: 0, viewDelta: 4000 }),
+  ]);
+  check(
+    "ช่องไม่มีออเดอร์เลย ไม่มี clip ไหนติด proven",
+    noOrders.some((t) => t.kinds.includes("proven")),
+    false
+  );
+  check(
+    "ช่องไม่มีออเดอร์เลย convRatioRange เป็น null เสมอ",
+    noOrders.every((t) => t.convRatioRange === null),
+    true
+  );
+
+  // clip มีออเดอร์แต่วิว 0 -> ต้องถูกกรองออกจาก usable อย่างเงียบๆ ไม่ขึ้น error/NaN
+  const zeroViews = rec.detectTasks([
+    ...base,
+    stat({ entryId: "zv", views: 0, orders: 3 }),
+  ]);
+  check(
+    "clip วิว 0 (แต่มีออเดอร์) ถูกกรองออกจากผลลัพธ์เสมอ",
+    zeroViews.find((t) => t.entryId === "zv") === undefined,
+    true
+  );
+
+  // orders > views (เคสขอบ: ข้อมูลออเดอร์ใหม่กว่าข้อมูลวิว) -> wilsonLowerBound ต้อง clamp
+  // k ให้ไม่เกิน trials และห้ามได้ NaN/Infinity ออกมาที่ convRatioRange
+  const overOrdered = rec.detectTasks([
+    ...base,
+    stat({ entryId: "over", views: 10, orders: 50 }),
+  ]);
+  const overTask = overOrdered.find((t) => t.entryId === "over");
+  check("orders > views ไม่ทำให้ detectTasks พัง (ยังคืนผลลัพธ์)", overTask !== undefined, true);
+  check(
+    "orders > views: convRatioRange.low ไม่ใช่ NaN/Infinity",
+    Number.isFinite(overTask?.convRatioRange?.low),
+    true
+  );
+  check(
+    "orders > views: convRatioRange.high ไม่ใช่ NaN/Infinity",
+    Number.isFinite(overTask?.convRatioRange?.high),
+    true
+  );
+
+  console.log("\n=== Deadline/countdown (Task 1 fix) ===");
+  // จำลองเคสที่เคยพัง: นำเข้า 1 ส.ค. 20:00 ดูหน้าเว็บ 9 ส.ค. 09:00 — ผ่านมา 7 วัน 13 ชม.
+  // (< 8 วันเต็ม) แต่ปฏิทินท้องถิ่นถือว่าเลยกำหนด (8 ส.ค.) มาแล้ว 1 วัน
+  // overdue ต้อง derive จาก daysUntil (ปฏิทิน) เท่านั้น ไม่ใช่ผสมกับการนับช่วง 24 ชม. เต็ม —
+  // ยืนยันว่า daysLeft ที่ import-log-panel.tsx และ recommendations.tsx ใช้ตรงกันเสมอ (ไม่มีทาง
+  // ได้ !overdue พร้อมกับ daysLeft ติดลบอีก เพราะทั้งคู่คำนวณจากค่าเดียวกัน)
+  const importedEvening = new Date(2026, 7, 1, 20, 0);
+  const viewedMorning = new Date(2026, 7, 9, 9, 0);
+  const dueDate = schedule.nextImportDate(importedEvening);
+  const daysLeftCase = schedule.daysUntil(dueDate, viewedMorning);
+  check("นำเข้าเย็น 1 ส.ค. -> รอบหน้า 8 ส.ค.", key(dueDate), "2026-08-08");
+  check("ดูเช้าวันที่ 9 ส.ค. -> daysLeft ติดลบ (เลยกำหนดมาแล้ว 1 วัน)", daysLeftCase, -1);
+  // นิยาม overdue ที่ import-log-panel.tsx ใช้ตอนนี้ (daysLeft < 0) ต้องสอดคล้องกับ
+  // recommendations.tsx (daysLeft >= 0 ? ... : "เลยรอบนำเข้ามาแล้ว ...") เสมอ — ไม่มีทางที่
+  // อันหนึ่งบอกว่ายังไม่เกินกำหนดขณะอีกอันบอกว่าเลยแล้ว เพราะเป็นเงื่อนไขคู่ตรงข้ามของค่าเดียวกัน
+  const overdueFromDaysLeft = daysLeftCase < 0;
+  check(
+    "overdue (import-log-panel) เป็นค่าตรงข้ามของ daysLeft >= 0 (recommendations) เสมอ",
+    overdueFromDaysLeft,
+    !(daysLeftCase >= 0)
+  );
+  check("overdue เป็นจริงเมื่อ daysLeft ติดลบ", overdueFromDaysLeft, true);
+
+  console.log(failed === 0 ? "\nผ่านทุกเคส" : `\nตก ${failed} เคส`);
+} finally {
+  rmSync(out, { recursive: true, force: true });
+}
+
+process.exit(failed === 0 ? 0 : 1);

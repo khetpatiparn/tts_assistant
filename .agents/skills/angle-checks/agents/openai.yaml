@@ -1,0 +1,6 @@
+interface:
+  display_name: "Angle Checks"
+  short_description: "Choose safe verification scripts for the Angle app"
+  default_prompt: "Use $angle-checks to select and run the relevant offline checks for my Angle changes."
+policy:
+  allow_implicit_invocation: true

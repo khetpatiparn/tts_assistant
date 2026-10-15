@@ -1,4 +1,4 @@
-import { getEntryRows, getEntrySales, getSearchText } from "@/lib/entry-queries";
+import { getEntryRows, getSearchText } from "@/lib/entry-queries";
 import {
   paginate,
   parsePageParam,
@@ -11,6 +11,7 @@ import {
   parseDateParam,
   parseDateBasisParam,
 } from "@/lib/entry-date-filter";
+import { getRequiredHashtagsForEntryIds } from "@/lib/flow-queries";
 import { AppHeader } from "@/components/app-header";
 import { EntryList } from "@/components/entry-list";
 
@@ -27,7 +28,7 @@ export default async function EntryListPage({
   const to = parseDateParam(sp.to);
   const by = parseDateBasisParam(sp.by);
 
-  const [rows, salesByEntry] = await Promise.all([getEntryRows(), getEntrySales()]);
+  const rows = await getEntryRows();
   const dateFiltered =
     by === "created"
       ? filterByCreatedDateRange(rows, from, to)
@@ -44,9 +45,10 @@ export default async function EntryListPage({
 
   const filtered = searchAndFilter(searchable, { query, status });
   const { items, totalPages, page: safePage } = paginate(filtered, page);
+  const requiredHashtags = await getRequiredHashtagsForEntryIds(items.map((r) => r.id));
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
       <AppHeader active="list" />
       <div className="flex flex-1 flex-col p-4 sm:p-6 lg:overflow-y-auto">
         <EntryList
@@ -60,7 +62,7 @@ export default async function EntryListPage({
             duplicatedFromId: r.duplicatedFromId,
             status: r.status,
             thumbnailFilename: r.thumbnailFilename,
-            sales: salesByEntry.get(r.id) ?? null,
+            requiredHashtags: requiredHashtags.get(r.id) ?? [],
           }))}
           query={query}
           status={status}

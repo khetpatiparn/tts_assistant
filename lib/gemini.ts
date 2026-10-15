@@ -185,6 +185,7 @@ const ANGLE_INSTRUCTION = `คุณคือผู้ช่วยคิดม�
 export async function suggestAngleOptions(args: {
   productName: string;
   productInfo: string;
+  productSpec: string;
   usedAngles: string[];
 }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -199,6 +200,13 @@ export async function suggestAngleOptions(args: {
       ? "ยังไม่เคยทำคลิปสินค้านี้มาก่อน"
       : args.usedAngles.map((a, i) => `${i + 1}. ${a}`).join("\n");
 
+  // productSpec ว่างได้ (entry เก่าที่ยังไม่เคยสกัดสเปกจากรูป) — ไม่ใส่หัวข้อนี้เลยถ้าว่าง
+  // แทนที่จะส่งหัวข้อเปล่าไปสร้างความสับสนให้โมเดล
+  const specBlock =
+    args.productSpec.trim() === ""
+      ? ""
+      : `\n\n### สเปกสินค้าที่สกัดจากรูปจริง\n${args.productSpec}`;
+
   const response = await client.interactions.create({
     model: ANGLE_MODEL,
     // snake_case — camelCase จะถูก API เมินแบบเงียบๆ (ดูคอมเมนต์ใน generateTenPartPrompt)
@@ -210,7 +218,7 @@ export async function suggestAngleOptions(args: {
         type: "text",
         text:
           `### ชื่อสินค้า\n${args.productName}\n\n` +
-          `### ข้อมูลสินค้า\n${args.productInfo}\n\n` +
+          `### ข้อมูลสินค้า\n${args.productInfo}${specBlock}\n\n` +
           `### angle ที่เคยใช้ไปแล้ว (ห้ามซ้ำแนวนี้)\n${usedBlock}`,
       },
     ],
@@ -297,4 +305,91 @@ export async function extractProductSpec(args: {
     throw new Error("AI ไม่ได้ตอบกลับตอนสกัดสเปกสินค้า ลองใหม่อีกครั้ง");
   }
   return text;
+}
+
+const CANDIDATE_INSTRUCTION = `คุณคือผู้ช่วยอ่านตารางจัดอันดับสินค้าจากภาพแคปหน้าจอ TikTok Shop
+อ่านทุกภาพที่แนบมา แล้วตอบกลับตามรูปแบบนี้เท่านั้น:
+
+หมวด: <ชื่อหมวดจากหัวข้อบนสุดของภาพ>
+<ชื่อสินค้าเต็ม> | <ราคาขาย> | <ค่าคอม> | <ยอดขายต่อสัปดาห์>
+<ชื่อสินค้าเต็ม> | <ราคาขาย> | <ค่าคอม> | <ยอดขายต่อสัปดาห์>
+
+กติกา:
+- ชื่อสินค้าให้เอาเต็มตามที่เห็นในภาพ ห้ามย่อ ห้ามสรุป
+- ทุกช่องตัวเลข (ราคาขาย/ค่าคอม/ยอดขาย) ใส่ "แค่ตัวเลข" เท่านั้น ห้ามใส่คำ/ป้ายกำกับที่อยู่ข้างๆ ตัวเลขบนหน้าจอติดมาด้วยเด็ดขาด
+- ราคาขายคือตัวเลขราคาสินค้า
+- ค่าคอมคือตัวเลขที่อยู่ถัดจากคำว่า "รับ" บนหน้าจอ แต่ **ห้ามใส่คำว่า "รับ" ลงในคำตอบ** เช่นเห็น "รับ ฿2.95" ให้ตอบแค่ 2.95
+- ยอดขายคือตัวเลขในข้อความ "ขายได้ X ชิ้นในสัปดาห์ที่ผ่านมา" แต่ **ห้ามใส่คำว่า "ขายได้"/"ชิ้นในสัปดาห์ที่ผ่านมา" ลงในคำตอบ** เช่นเห็น "ขายได้ 3.3K ชิ้นในสัปดาห์ที่ผ่านมา" ให้ตอบแค่ 3.3K
+- ตัวเลขให้คัดลอกตามที่เห็น รวมสัญลักษณ์ K เช่น 13.9K (ห้ามแปลงเป็น 13900 เอง)
+- ถ้าราคาสินค้าแสดงเป็น 2 ราคาคู่กัน (ราคาเดิมที่มีเส้นขีดฆ่า + ราคาที่ลดแล้ว/ราคาโปรโมชั่น เช่นแฟลชเซล) ให้ใช้ **ราคาเดิมที่ขีดฆ่า** เป็นราคาขาย ห้ามใช้ราคาที่ลดแล้ว เพราะราคาโปรโมชั่นชั่วคราวไม่ใช่ราคาที่ใช้คำนวณค่าคอมเทียบได้จริง (สัญญาณที่เจอบ่อย: ราคาลดเหลือน้อยผิดปกติ เช่น ฿0.01 มักเป็นราคาแฟลชเซลชั่วคราว ไม่ใช่ราคาสินค้าจริง)
+- ข้อนี้คนละกรณีกับสินค้าที่มีหลายตัวเลือก (ไซซ์/สี) แล้วโชว์เป็นช่วงราคาแบบไม่มีขีดฆ่า เช่น "฿17.52 – 21.90" — กรณีนั้นให้คัดลอกทั้งช่วงตามที่เห็นตามปกติ ไม่ต้องเลือกตัวใดตัวหนึ่ง
+- ถ้าช่องใดไม่มีในภาพ ให้ใส่ขีด - แทน (เช่นหน้าที่โชว์ "รีวิวเชิงบวก 100.0%" แทนยอดขาย)
+- ถ้ามีหลายหมวดในภาพเดียว ให้ขึ้นบรรทัด "หมวด:" ใหม่ก่อนกลุ่มสินค้าของหมวดนั้น
+- ห้ามใส่หัวข้ออื่น ห้ามอธิบาย ห้ามสรุปท้าย
+
+ตัวอย่างบรรทัดที่ถูกต้อง (ห้ามมีคำว่า "รับ"/"ขายได้"/"ชิ้นในสัปดาห์ที่ผ่านมา" ปนอยู่):
+yoyopet : ที่ลับเล็บแมว+แคทนิป | 44.25 | 2.95 | 3.3K`;
+
+/**
+ * อ่านตารางจัดอันดับสินค้าจากภาพ คืนข้อความดิบให้ parseCandidateRows แยกต่อ
+ *
+ * ล็อกที่ EXTRACT_MODEL เหมือน extractProductFields — เป็นงานอ่านข้อความจากภาพ
+ * ไม่ใช่งานตีความภาพเชิงลึกแบบ extractProductSpec ที่ให้ผู้ใช้เลือกโมเดลเอง
+ */
+export async function extractCandidateRows(args: {
+  images: GeminiImage[];
+}): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  }
+
+  const client = new GoogleGenAI({ apiKey });
+  const input: object[] = [];
+  for (const image of args.images) {
+    input.push({ type: "image", data: image.base64, mime_type: image.mimeType });
+  }
+
+  const response = await client.interactions.create({
+    model: EXTRACT_MODEL,
+    // snake_case — camelCase จะถูก API เมินแบบเงียบๆ
+    system_instruction: CANDIDATE_INSTRUCTION,
+    // temperature 0 — งานคัดลอกตัวเลข ไม่ใช่งานสร้างสรรค์
+    generation_config: { temperature: 0 },
+    input,
+  });
+
+  const text = response.output_text;
+  if (!text || text.trim() === "") {
+    throw new Error("AI ไม่ได้ตอบกลับตอนอ่านข้อมูลจากรูป ลองใหม่อีกครั้ง");
+  }
+  return text;
+}
+
+const SHORT_NAME_INSTRUCTION = `ย่อชื่อสินค้า TikTok Shop ให้เหลือชื่อเรียกสั้น 2–5 คำ ที่บอกแค่ว่าสินค้าคืออะไร เช่น "ผ้าเช็ดตัวสัตว์เลี้ยง" "ตะขอแขวนหลังประตู" "กล่องพลาสติกใสมีฝา"
+ตัดทิ้งทั้งหมด: ชื่อแบรนด์ คุณสมบัติ/สรรพคุณ (หนานุ่ม ซึมซับดี แห้งไว เกรดอาหาร) คำโฆษณา (ดีที่สุด ขายดี) กลุ่มลูกค้า/สถานที่ (สำหรับสุนัขและแมว เหมาะหอพัก) วงเล็บ ตัวเลขรุ่น ราคา
+ตอบเป็น JSON ตาม schema เท่านั้น`;
+
+/**
+ * ย่อชื่อ SEO ยาวของร้านเป็นชื่อเรียกสั้น (ผู้เรียกต้องผ่าน acceptShortName และ catch error เอง — ล้มเหลวให้ใช้ชื่อเต็ม)
+ * ล็อกที่ EXTRACT_MODEL เหตุผลเดียวกับ extractProductFields (งานข้อความล้วน)
+ */
+export async function shortenProductName(fullTitle: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("ยังไม่ได้ตั้งค่า GEMINI_API_KEY ในไฟล์ .env");
+  const client = new GoogleGenAI({ apiKey });
+  const response = await client.interactions.create({
+    model: EXTRACT_MODEL,
+    // snake_case ทั้งหมด — camelCase ถูกเมินเงียบๆ (ดู generateTenPartPrompt)
+    system_instruction: SHORT_NAME_INSTRUCTION,
+    generation_config: { temperature: 0 },
+    response_format: {
+      type: "text",
+      mime_type: "application/json",
+      schema: { type: "object", properties: { shortName: { type: "string" } }, required: ["shortName"] },
+    },
+    input: [{ type: "text", text: fullTitle }],
+  });
+  const parsed = JSON.parse(response.output_text ?? "{}") as { shortName?: unknown };
+  return typeof parsed.shortName === "string" ? parsed.shortName : "";
 }

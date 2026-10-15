@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ClipboardPaste, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
+import Image from "next/image";
+import { Download, ImagePlus, NotebookPen, ScanText, TriangleAlert, X } from "lucide-react";
 
 import { deleteProductImage, extractProductInfo } from "@/app/actions";
 import { AnglePanel, type UsedAngleWithOutcome } from "@/components/angle-panel";
@@ -9,6 +10,7 @@ import type { ProductImageRecord } from "@/components/entry-workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { playCompletionSound } from "@/lib/completion-sound";
 
 export type FormState = {
   productName: string;
@@ -17,13 +19,13 @@ export type FormState = {
   extraNotes: string;
 };
 
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Same rules the Server Action enforces — checked here only to fail fast. */
 function rejectionReason(files: File[]): string | null {
   if (files.some((file) => !ALLOWED_IMAGE_TYPES.includes(file.type))) {
-    return "รองรับเฉพาะไฟล์ JPEG, PNG, WebP";
+    return "รองรับเฉพาะไฟล์ JPEG, PNG, WebP, HEIC";
   }
   if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
     return "ไฟล์ใหญ่เกิน 10MB";
@@ -34,6 +36,19 @@ function rejectionReason(files: File[]): string | null {
 function imageFilesFrom(list: FileList | null | undefined): File[] {
   if (!list) return [];
   return Array.from(list).filter((file) => file.type.startsWith("image/"));
+}
+
+/**
+ * ชื่อไฟล์ที่เสนอตอนกดโหลดรูปสินค้าออกไปใช้ที่อื่น (เคสจริง: เครดิตวิดีโอของบัญชี Flow
+ * ที่ใช้อยู่หมด ต้องเอารูปอ้างอิง 2 ใบนี้ไปเจนวิดีโอในบัญชีอื่น) — ไฟล์จริงบนดิสก์ตั้งชื่อ
+ * เป็น UUID โหลดออกไปแล้วแยกไม่ออกว่าใบไหนของสินค้าไหน จึงตั้งชื่อให้อ่านรู้เรื่องตรงนี้
+ * ตัดอักขระที่ Windows ห้ามใช้ในชื่อไฟล์ออก และกันเคสยังไม่ได้ตั้งชื่อสินค้า
+ */
+function downloadName(productName: string, filename: string, index: number): string {
+  const dot = filename.lastIndexOf(".");
+  const ext = dot > 0 ? filename.slice(dot + 1) : "png";
+  const safe = productName.trim().replace(/[\\/:*?"<>|]/g, "-");
+  return `${safe === "" ? "รูปสินค้า" : safe}-${index + 1}.${ext}`;
 }
 
 function Field({
@@ -171,6 +186,7 @@ export function BriefForm({
     if (extractImages.length === 0) return;
     setExtractError(null);
     startExtracting(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         const formData = new FormData();
         for (const file of extractImages) formData.append("files", file);
@@ -179,8 +195,10 @@ export function BriefForm({
         setExtractImages([]);
         setExtractOpen(false);
       } catch (e) {
+        outcome = "error";
         setExtractError(e instanceof Error ? e.message : "สกัดข้อมูลไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 
@@ -190,6 +208,10 @@ export function BriefForm({
   // to the focused input untouched.
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
+      // แผงอื่นบนแท็บเดียวกันที่รับ paste เองได้ (FlowEnqueuePanel ตอนถูกคลิกให้ focus อยู่)
+      // จะ preventDefault ไว้ก่อนแล้ว — listener ตัวนี้อยู่ระดับ window จึงทำงานทีหลัง
+      // React handler เสมอและเห็น flag นี้แน่นอน ถ้าไม่เช็ก รูปที่วางจะเข้าทั้งสองที่พร้อมกัน
+      if (event.defaultPrevented) return;
       const files = imageFilesFrom(event.clipboardData?.files);
       if (files.length === 0) return;
       event.preventDefault();
@@ -210,10 +232,10 @@ export function BriefForm({
   const shownError = localError ?? imageError;
 
   return (
-    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-card p-5 sm:p-6">
+    <section className="flex flex-1 flex-col gap-5 rounded-xl border border-border bg-surface p-5 sm:p-6">
       <div className="flex items-center gap-2 border-b border-border pb-3">
-        <span className="h-4 w-1 rounded-full bg-amber" />
-        <h2 className="font-mono text-xs tracking-widest text-secondary-foreground uppercase">
+        <span className="h-4 w-1 rounded-full bg-status-warning" />
+        <h2 className="text-xs text-secondary-foreground">
           Brief · ข้อมูลสินค้า
         </h2>
       </div>
@@ -227,14 +249,14 @@ export function BriefForm({
           type="button"
           onClick={() => setExtractOpen((open) => !open)}
           aria-expanded={extractOpen}
-          className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+          className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
         >
           <ScanText className="size-3.5" />
           สกัดจากแคปหน้าสินค้า
         </button>
 
         {extractOpen && (
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-teal/40 p-3">
+          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-primary/40 p-3">
             <div
               role="button"
               tabIndex={0}
@@ -253,7 +275,7 @@ export function BriefForm({
                       <img
                         src={extractPreviews[index]}
                         alt="แคปหน้าสินค้า (ใช้สกัดแล้วทิ้ง)"
-                        className="size-24 rounded-md border border-dashed border-teal object-cover"
+                        className="size-24 rounded-md border border-dashed border-primary object-cover"
                       />
                       <Button
                         type="button"
@@ -273,10 +295,27 @@ export function BriefForm({
                 </div>
               )}
 
-              <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
-                <ClipboardPaste className="size-3.5 shrink-0" />
-                กด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด) — รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    extractInputRef.current?.click();
+                  }}
+                >
+                  <ImagePlus className="size-4" />
+                  เลือกรูปจากเครื่อง
+                </Button>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  รูปชุดนี้ใช้สกัดแล้วทิ้ง ไม่ถูกเก็บ
+                  <span className="hidden sm:inline">
+                    {" "}
+                    · หรือกด Ctrl+V เพื่อวางแคปหน้าสินค้า (ชื่อ/รายละเอียด)
+                  </span>
+                </p>
+              </div>
 
               <input
                 ref={extractInputRef}
@@ -302,7 +341,7 @@ export function BriefForm({
             </Button>
 
             {extractError && (
-              <p className="font-mono text-[0.7rem] text-danger">{extractError}</p>
+              <p className="text-xs text-destructive">{extractError}</p>
             )}
           </div>
         )}
@@ -338,7 +377,7 @@ export function BriefForm({
             type="button"
             onClick={() => setRiskOpen((open) => !open)}
             aria-expanded={riskOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+            className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
           >
             <TriangleAlert className="size-3.5" />
             Product Risk Module (ถ้ามี)
@@ -364,7 +403,7 @@ export function BriefForm({
             type="button"
             onClick={() => setNotesOpen((open) => !open)}
             aria-expanded={notesOpen}
-            className="flex items-center gap-1.5 self-start font-mono text-xs tracking-widest text-teal uppercase hover:text-teal/80"
+            className="flex items-center gap-1.5 self-start text-xs text-primary hover:text-primary/80"
           >
             <NotebookPen className="size-3.5" />
             ข้อมูลเพิ่มเติมจากฉัน (ถ้ามี)
@@ -393,7 +432,7 @@ export function BriefForm({
           {/* ปุ่มนี้เรียก createPrompt ซึ่งสร้าง entry ใหม่ที่ duplicatedFromId = null เสมอ
               กดพลาดหลังกดทำซ้ำ = สายเลือดขาด ระบบตามรอย angle ไม่ได้ */}
           {hasSelectedEntry && (
-            <span className="font-mono text-[0.7rem] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               จะได้รายการใหม่ที่ไม่ผูกกับสินค้าเดิม — ถ้าจะแก้รายการนี้ ใช้ปุ่ม &quot;สร้างด้วย AI&quot; ทางขวา
             </span>
           )}
@@ -427,20 +466,43 @@ export function BriefForm({
             acceptFiles(imageFilesFrom(e.dataTransfer.files));
           }}
           className={`flex cursor-pointer flex-col gap-3 rounded-lg border border-dashed p-3 transition-colors ${
-            isDraggingOver ? "border-teal bg-teal/5" : "border-border"
+            isDraggingOver ? "border-primary bg-primary/5" : "border-border"
           }`}
         >
           {(pendingImages.length > 0 || productImages.length > 0) && (
             <div className="flex flex-wrap gap-2">
-              {productImages.map((image) => (
+              {productImages.map((image, index) => (
                 <div key={image.id} className="flex w-24 flex-col gap-1">
                   <div className="relative">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    {/* 400 ไม่ใช่ 192 (96×2) เพราะผู้ใช้ต้องอ่านรายละเอียดสินค้าจากรูปนี้
+                        เพื่อเขียน caption ย่อมากจะเห็นกลไก/ตัวหนังสือบนสินค้าไม่ชัด */}
+                    <Image
                       src={`/api/uploads/${image.entryId}/${image.filename}`}
                       alt="รูปสินค้า"
+                      width={400}
+                      height={400}
                       className="size-24 rounded-md border border-border object-cover"
                     />
+                    {/* โหลดรูปเก็บไว้ใช้ที่อื่น — เป็น <a download> จริงไม่ใช่ปุ่ม (route
+                        /api/uploads เป็น same-origin จึงไม่ต้องมี Content-Disposition)
+                        stopPropagation เพราะกล่องที่ครอบอยู่เป็น dropzone ที่คลิกแล้ว
+                        เปิด file picker เหมือนที่ปุ่มลบด้านล่างต้องกันเช่นกัน */}
+                    <Button
+                      render={
+                        <a
+                          href={`/api/uploads/${image.entryId}/${image.filename}`}
+                          download={downloadName(form.productName, image.filename, index)}
+                        />
+                      }
+                      nativeButton={false}
+                      variant="secondary"
+                      size="icon-xs"
+                      aria-label="โหลดรูปนี้เก็บไว้"
+                      onClick={(e) => e.stopPropagation()}
+                      className="absolute -top-1.5 -left-1.5 rounded-full"
+                    >
+                      <Download className="size-3" />
+                    </Button>
                     <Button
                       type="button"
                       variant="destructive"
@@ -460,7 +522,7 @@ export function BriefForm({
                     placeholder="อธิบายรูปนี้ เช่น ด้านหน้า มี logo"
                     onClick={(e) => e.stopPropagation()}
                     onBlur={(e) => onSaveCaption(image.id, e.target.value)}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   />
                 </div>
               ))}
@@ -472,7 +534,7 @@ export function BriefForm({
                     <img
                       src={pendingPreviews[index]}
                       alt="รูปสินค้า (ยังไม่บันทึก)"
-                      className="size-24 rounded-md border border-dashed border-teal object-cover"
+                      className="size-24 rounded-md border border-dashed border-primary object-cover"
                     />
                     <Button
                       type="button"
@@ -493,19 +555,36 @@ export function BriefForm({
                     placeholder="อธิบายรูปนี้ เช่น ด้านหลัง ไม่มี logo"
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => onUpdatePendingCaption(index, e.target.value)}
-                    className="h-7 text-xs"
+                    className="text-xs"
                   />
                 </div>
               ))}
             </div>
           )}
 
-          <p className="flex items-center gap-1.5 font-mono text-[0.7rem] text-muted-foreground">
-            <ClipboardPaste className="size-3.5 shrink-0" />
-            {isUploading
-              ? "กำลังอัปโหลด..."
-              : "กด Ctrl+V เพื่อวางรูปที่แคปไว้ · หรือลากไฟล์มาวาง"}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+            >
+              <ImagePlus className="size-4" />
+              เลือกรูปจากเครื่อง
+            </Button>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {isUploading
+                ? "กำลังอัปโหลด..."
+                : /* Ctrl+V กับการลากไฟล์ไม่มีอยู่บนมือถือ — เอ่ยถึงเฉพาะบนจอที่ทำได้จริง */
+                  ""}
+              <span className="hidden sm:inline">
+                {isUploading ? "" : "หรือกด Ctrl+V เพื่อวางรูปที่แคปไว้ · หรือลากไฟล์มาวาง"}
+              </span>
+            </p>
+          </div>
 
           <input
             ref={fileInputRef}
@@ -521,7 +600,7 @@ export function BriefForm({
         </div>
 
         {shownError && (
-          <p className="font-mono text-[0.7rem] text-danger">{shownError}</p>
+          <p className="text-xs text-destructive">{shownError}</p>
         )}
       </div>
 

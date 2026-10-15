@@ -12,15 +12,23 @@ import {
   uploadProductImages,
 } from "@/app/actions";
 import { GEMINI_MODELS } from "@/lib/gemini";
+import { playCompletionSound } from "@/lib/completion-sound";
+import { copyInBrowser } from "@/lib/clipboard";
 import type { UsedAngleWithOutcome } from "@/components/angle-panel";
+import { FlowEnqueuePanel, type FlowJobSummary } from "@/components/flow-enqueue-panel";
+import type { EntryRenderVideo, EntryTtsAudio } from "@/lib/flow-queries";
 import { EntryHeader } from "@/components/entry-header";
-import { HistoryRail } from "@/components/history-rail";
+import { HistoryRail, HistoryRailDrawer } from "@/components/history-rail";
+import { ProductIdCopy } from "@/components/product-id-copy";
+import { RequiredHashtagCopy } from "@/components/required-hashtag-copy";
 import { BriefForm, type FormState } from "@/components/brief-form";
 import { ScriptOutput } from "@/components/script-output";
 import { ProductSpecPanel } from "@/components/product-spec-panel";
 import { ProductionPanel } from "@/components/production-panel";
 import { buildPromptText } from "@/lib/prompt-template";
 import { WorkspaceTabs, type WorkspaceTab } from "@/components/workspace-tabs";
+import { PhotoLibraryPanel } from "@/components/photo-library";
+import type { PhotoLibrary } from "@/lib/photo-library";
 import type { EntryRow } from "@/lib/entry-rows";
 
 export type CorePromptRecord = {
@@ -48,6 +56,7 @@ export type PromptEntry = {
   extraNotes: string;
   angle: string;
   productSpec: string;
+  safeMode: boolean;
   duplicatedFromId: string | null;
   images: string;
   corePromptId: string | null;
@@ -80,15 +89,33 @@ export function EntryWorkspace({
   entry,
   rows,
   usedAngles,
+  flowJob,
+  renderVideo = null,
+  ttsAudio = null,
+  productId = null,
+  requiredHashtags = [],
+  photoLibrary = null,
 }: {
   entry: PromptEntry | null;
   rows: EntryRow[];
   usedAngles: UsedAngleWithOutcome[];
+  flowJob: FlowJobSummary | null;
+  /** คลิปที่บอท Render ให้ entry นี้ (แท็บผลลัพธ์) · หน้า /entry/new ไม่มี */
+  renderVideo?: EntryRenderVideo | null;
+  /** ไฟล์เสียงพากย์ TTS ของ entry นี้ */
+  ttsAudio?: EntryTtsAudio | null;
+  /** Product ID จาก Showcase (สินค้าที่ไม่ได้มาจาก Showcase = null ไม่แสดง) */
+  productId?: string | null;
+  /** แฮชแท็กที่ต้องลงของสินค้าจาก Showcase (ว่าง = ไม่แสดง) */
+  requiredHashtags?: string[];
+  /** คลังรูป (รูปจากร้าน + รูปที่ Flow วาด) · หน้า /entry/new ไม่มี */
+  photoLibrary?: PhotoLibrary | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<WorkspaceTab>("brief");
   const [form, setForm] = useState<FormState>(entry ? entryToForm(entry) : emptyForm);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const [, startDeleteTransition] = useTransition();
   const [, startDuplicateTransition] = useTransition();
   const [isGenerating, startGenerating] = useTransition();
@@ -196,11 +223,18 @@ export function EntryWorkspace({
       imageCaptions,
       angle: entry?.angle ?? "",
       productSpec: entry?.productSpec ?? "",
+      safeMode: entry?.safeMode ?? false,
     });
   }, [form, entry, pendingImages]);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(output);
+    const outcome = await copyInBrowser(output);
+    if (outcome === "manual") {
+      // คัดลอกให้ไม่ได้จริง ๆ — ต้องบอก ไม่ใช่แกล้งว่าสำเร็จเหมือนเดิม
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 6000);
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
@@ -209,6 +243,7 @@ export function EntryWorkspace({
     if (!entry) return;
     setGenError(null);
     startGenerating(async () => {
+      let outcome: "success" | "error" = "success";
       try {
         const result = await generateWithAI(entry.id, model);
         // 10-part prompt บันทึกแล้วแน่นอน แม้ caption จะพัง — ไปแท็บผลลัพธ์เสมอ
@@ -217,24 +252,48 @@ export function EntryWorkspace({
           setGenError(`สร้าง 10-part prompt สำเร็จ แต่ Caption ไม่สำเร็จ: ${result.captionError}`);
         }
       } catch (e) {
+        outcome = "error";
         setGenError(e instanceof Error ? e.message : "สร้างด้วย AI ไม่สำเร็จ");
       }
+      playCompletionSound(outcome);
     });
   }
 
   return (
-    <div className="flex min-h-screen flex-1 flex-col lg:h-screen lg:overflow-hidden">
+    <div className="flex min-h-dvh flex-1 flex-col lg:h-dvh lg:overflow-hidden">
       <EntryHeader productName={form.productName}>
-        <WorkspaceTabs
-          active={tab}
-          onChange={setTab}
-          productionDisabled={entry === null}
-        />
+        <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 sm:mx-6">
+          <HistoryRailDrawer
+            rows={rows}
+            selectedId={entry?.id ?? null}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+          />
+          <WorkspaceTabs
+            active={tab}
+            onChange={setTab}
+            productionDisabled={entry === null}
+          />
+        </div>
       </EntryHeader>
 
+      {(productId !== null || requiredHashtags.length > 0) && (
+        <div className="mx-4 mt-3 flex flex-col gap-1.5 sm:mx-6">
+          {productId !== null && <ProductIdCopy productId={productId} />}
+          {requiredHashtags.length > 0 && <RequiredHashtagCopy hashtags={requiredHashtags} />}
+        </div>
+      )}
+
       {genError && (
-        <p className="mx-4 mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger sm:mx-6">
+        <p className="mx-4 mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6">
           {genError}
+        </p>
+      )}
+
+      {copyFailed && (
+        <p className="mx-4 mt-3 rounded-md border border-border bg-muted px-3 py-2 text-sm leading-relaxed text-foreground sm:mx-6">
+          เบราว์เซอร์นี้คัดลอกให้อัตโนมัติไม่ได้ (เปิดผ่าน HTTP) — กดค้างที่กล่องข้อความแล้วเลือก
+          &quot;เลือกทั้งหมด&quot; เพื่อคัดลอกเอง
         </p>
       )}
 
@@ -273,6 +332,12 @@ export function EntryWorkspace({
               />
               <div className="flex flex-1 flex-col gap-5">
                 {entry !== null && (
+                  <FlowEnqueuePanel entryId={entry.id} productName={form.productName} job={flowJob} />
+                )}
+                {entry !== null && photoLibrary !== null && (
+                  <PhotoLibraryPanel entryId={entry.id} productName={form.productName} library={photoLibrary} />
+                )}
+                {entry !== null && (
                   <ProductSpecPanel
                     entryId={entry.id}
                     spec={entry.productSpec ?? ""}
@@ -288,6 +353,8 @@ export function EntryWorkspace({
                   canGenerate={(entry?.productImages.length ?? 0) > 0}
                   model={model}
                   onModelChange={setModel}
+                  safeModeEntryId={entry?.id ?? null}
+                  safeMode={entry?.safeMode ?? false}
                 />
               </div>
             </div>
@@ -299,6 +366,8 @@ export function EntryWorkspace({
             <ProductionPanel
               key={entry.id}
               entry={entry}
+              renderVideo={renderVideo}
+              ttsAudio={ttsAudio}
             />
           </div>
         )}

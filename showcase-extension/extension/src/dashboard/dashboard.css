@@ -1,0 +1,447 @@
+/**
+ * ธีมยืมจาก token OKLCH ของแอปหลัก (pooling_prompt: app/globals.css, ชุด navy/brass — เลือกค่า
+ * โหมดสว่างเป็นค่าเดียวที่ใช้ ไม่ทำ dark-mode toggle เพราะเป็นหน้าเครื่องมือเปิดใช้สั้นๆ ไม่คุ้ม
+ * ความซับซ้อนของกลไกสลับธีมแบบแอปหลัก) — คัดลอกค่าตัวเลขมาโดยตรง ไม่ import ไฟล์แอปหลักเพราะ
+ * extension นี้ build แยกเป็นเอกเทศ (esbuild ของตัวเอง ไม่มี Next.js/Tailwind)
+ *
+ * ฟอนต์: ไม่ดึงจาก Google Fonts CDN (ต่างจากแอปหลักที่ใช้ next/font ซึ่ง self-host ตอน build) —
+ * extension นี้ตั้งใจไม่มีการเรียก network ใดๆ นอกเหนือจาก endpoint ที่ได้รับอนุญาตแล้วเพียงจุดเดียว
+ * (ดู README "ขอบเขตสิทธิ์") จึงใช้ font stack ที่พึ่งฟอนต์ไทยที่มักติดตั้งอยู่แล้วในเครื่องแทน
+ */
+:root {
+  color-scheme: light;
+
+  /* primitive OKLCH — คัดลอกจาก app/globals.css (โหมดสว่าง) */
+  --navy-950: oklch(0.16 0.02 250);
+  --navy-900: oklch(0.19 0.018 250);
+  --navy-850: oklch(0.25 0.02 250);
+  --navy-700: oklch(0.34 0.018 250);
+  --navy-600: oklch(0.52 0.018 250);
+  --navy-500: oklch(0.62 0.012 250);
+  --navy-300: oklch(0.87 0.01 250);
+  --navy-100: oklch(0.945 0.006 250);
+  --navy-50: oklch(0.965 0.006 250);
+  --navy-25: oklch(0.99 0.003 250);
+  --navy-accent: oklch(0.38 0.07 250);
+  --brass-500: oklch(0.72 0.12 85);
+  --brass-600: oklch(0.55 0.12 85);
+  --red-600: oklch(0.5 0.17 25);
+  --red-50: oklch(0.97 0.02 25);
+
+  /* semantic — ตั้งชื่อตามหน้าที่ ไม่ใช่ตามสี (กฎเดียวกับแอปหลัก) */
+  --background: var(--navy-50);
+  --foreground: var(--navy-850);
+  --surface: var(--navy-25);
+  --muted-foreground: var(--navy-600);
+  --primary: var(--navy-accent);
+  --primary-foreground: var(--navy-25);
+  --accent: var(--brass-500);
+  --accent-foreground: var(--navy-950);
+  /* --border = เส้นคั่นตกแต่ง · --border-interactive = ขอบของสิ่งที่กดได้ (แยกหน้าที่ชัดเจน
+     เหมือนแอปหลัก ห้ามใช้ปนกัน) */
+  --border: var(--navy-300);
+  --border-interactive: var(--navy-500);
+  --destructive: var(--red-600);
+  --destructive-bg: var(--red-50);
+
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  font-family: "Noto Sans Thai", "Leelawadee UI", "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 32px 16px;
+  background: var(--background);
+  color: var(--foreground);
+  line-height: 1.6; /* ข้อความไทยขั้นต่ำ 1.6 เหมือนกฎของแอปหลัก */
+}
+
+/* จอแคบ: คอลัมน์เดียวเรียงลงมา · จอกว้าง (≥1024px): ซ้ายปุ่มควบคุม ค้างอยู่กับที่ / ขวารายการสินค้า
+   ผู้ใช้จริงไม่อยากเลื่อนไปมาระหว่างปุ่มสแกน รายการ ปุ่มส่ง และตั้งค่า (2026-09-29) */
+.layout {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+@media (min-width: 1024px) {
+  .layout {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+
+  /* เลื่อนรายการยาวแล้วฝั่งซ้ายยังอยู่ · ตั้งค่าที่กางออกยาวเกินจอ เลื่อนในคอลัมน์ตัวเอง */
+  .side {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+  }
+}
+
+.empty {
+  color: var(--muted-foreground);
+  text-align: center;
+  padding: 48px 24px;
+}
+
+.push-area {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-group {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+h3 {
+  font-size: 0.95rem;
+  margin: 0 0 6px;
+  color: var(--navy-900);
+  font-weight: 600;
+}
+
+input[type="text"],
+input[type="number"] {
+  font: inherit;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border: 1px solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ช่องกรอก + ปุ่มในบรรทัดเดียว ช่องกรอกยืดเต็มที่เหลือ */
+.input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.input-row button {
+  flex: 0 0 auto;
+  padding-inline: 14px;
+}
+
+.field-label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 0.9rem;
+}
+
+.check input {
+  margin-top: 5px;
+}
+
+/* แต่ละส่วนเป็นการ์ดพื้น surface บนพื้นหลัง navy-50 แบบเดียวกับการ์ดในแอปหลัก */
+.card {
+  margin: 0 0 20px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+/* ค่าดิบของ runner — มีไว้หาสาเหตุตอนสแกนพังเท่านั้น จึงปิดไว้ตั้งแต่แรกและตัวอักษรเล็กกว่าเนื้อหาหลัก */
+.dev-details {
+  margin: 4px 0 8px;
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.dev-details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.banner {
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+/* สถานะของโหมดสแกนอัตโนมัติ (ปุ่มใน popup) — หน้าตาแบบ banner แต่คนละ class โดยตั้งใจ ให้
+   selector .banner ยังหมายถึงป้ายช่องทาง build ตัวเดียว (E2E ใช้ตรวจ MOCK-ONLY) */
+.notice {
+  margin: 0 0 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.notice-warning {
+  border-color: var(--destructive);
+  background: var(--destructive-bg);
+  color: var(--destructive);
+}
+
+h1 {
+  font-size: 1.375rem;
+  margin: 0 0 24px;
+  color: var(--navy-900);
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+  color: var(--navy-900);
+  font-weight: 600;
+}
+
+section {
+  margin-bottom: 28px;
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.rows {
+  font-size: 0.9rem;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.row-label {
+  flex: 0 0 180px;
+  color: var(--muted-foreground);
+}
+
+.row-value {
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+button {
+  font: inherit;
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 1px solid var(--border-interactive);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover {
+  border-color: var(--primary);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ปุ่มหลักของแต่ละหัวข้อ (เริ่มสแกน / ส่งไปปลายทาง) — ใช้สี accent (brass) ให้เด่นแยกจากปุ่มรอง
+   (เดิมชี้ไป #run-start/#run-export ที่ไม่มีอยู่จริง ปุ่มหลักจึงไม่เคยเด่นเลย) */
+#start-button,
+#push-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+
+#start-button:hover,
+#push-button:hover {
+  filter: brightness(1.05);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tab-button[aria-selected="true"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+.selection-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.product-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.product-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.product-title {
+  overflow-wrap: anywhere;
+}
+
+.product-price,
+.product-shop,
+.product-image {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+/* กดขยายดูรูปทั้งหมดของสินค้าชิ้นนั้น — ปุ่มพื้นฐาน แค่ให้ดูรู้ว่ากดได้ ไม่เน้นสวยงาม */
+.product-image-toggle {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+  min-height: 0;
+}
+
+.product-image-toggle img {
+  max-height: 40px;
+  display: block;
+  border-radius: 4px;
+}
+
+.product-image-count {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  font-size: 0.65rem;
+  background: var(--navy-900);
+  color: var(--navy-25);
+  border-radius: 8px;
+  padding: 1px 4px;
+  white-space: nowrap;
+  /* ปุ่มแม่ตั้ง line-height: 0 (ให้รูปไม่มีช่องว่างใต้) — ถ้าไม่คืนค่า ตัวเลข "+9" จะถูกบีบเป็นแถบดำอ่านไม่ออก */
+  line-height: 1.4;
+}
+
+/*
+ * ขยายเต็มความกว้างของแถว (span ทุกคอลัมน์ของ .product-row grid) แทนที่จะบีบอยู่ในคอลัมน์รูปแคบ ๆ
+ * ต้องใช้ :not([hidden]) เพราะ `display: flex` ทั่วไปมี specificity เท่ากับกฎ `[hidden] { display: none }`
+ * ของ user-agent stylesheet — ถ้าไม่กันไว้ กฎของเราจะชนะแล้วทำให้ element ที่ตั้ง hidden=true ยังโชว์อยู่
+ */
+.product-image-gallery:not([hidden]) {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.product-image-gallery img {
+  max-height: 80px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+/* จอแคบ: grid 4 คอลัมน์บีบชื่อสินค้า (1fr) จนเหลือตัวอักษรเดียวต่อบรรทัด — ให้ชื่อขึ้นบรรทัดของตัวเอง
+   แล้วราคา/ร้าน/รูปต่อท้ายบรรทัดถัดไป */
+@media (max-width: 640px) {
+  .product-row {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 12px;
+    row-gap: 4px;
+  }
+
+  .product-row label,
+  .product-image-gallery:not([hidden]) {
+    flex: 1 1 100%;
+  }
+}
+
+.pagination {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.quarantine-row {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+/* class ที่ตั้ง display เอง (เช่น .status-card = flex) ชนะ attribute hidden ของเบราว์เซอร์ — บังคับให้ hidden ซ่อนจริงเสมอ */
+[hidden] {
+  display: none !important;
+}
+
+#settings {
+  padding: 12px 24px;
+}
+
+/* คอลัมน์ซ้ายแคบ (380px) — ป้ายของตารางค่าดิบ 180px เดิมกินที่เกินครึ่ง */
+.side .row-label {
+  flex-basis: 120px;
+}
+
+#settings > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
